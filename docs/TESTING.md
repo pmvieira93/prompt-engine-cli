@@ -26,14 +26,29 @@ go build -o bin/prompt-engine ./cmd/prompt-engine
 
 **Expected:** `ok` for `config`, `input` and `pty`, and a binary at `bin/prompt-engine`.
 
-### 1.3 Two terminals
+### 1.3 Two terminals side by side
 
-- **Terminal A** runs the wrapper.
-- **Terminal B** watches the log:
+You need two terminal windows (or split panes) open at the same time. `claude` takes over the whole of the window it runs in, so the log has to be shown somewhere else. With both visible, you type in one and see the log update in the other.
 
-  ```sh
-  touch /tmp/pe.log && tail -f /tmp/pe.log
-  ```
+**Easiest setup:** split one window with `claude` on the left and the log on the right.
+- **iTerm2 / Ghostty:** Cmd+D splits the window side by side.
+- **Terminal.app:** has no split view; open a second window with Cmd+N and put the two next to each other.
+
+**Terminal A (left): where you type.** It runs `prompt-engine` ("the wrapper"), which starts `claude` inside it. From the repository root:
+
+```sh
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+`claude` fills this window. All test input in Parts B and C is typed here.
+
+**Terminal B (right): watch only.** It shows each line as it's added to the debug log. Any folder works:
+
+```sh
+touch /tmp/pe.log && tail -f /tmp/pe.log
+```
+
+Don't type anything here; just watch it. Press Ctrl+C to stop it when you're done.
 
 To clear the log between tests, run `: > /tmp/pe.log` in a third tab, or just watch the newest lines.
 
