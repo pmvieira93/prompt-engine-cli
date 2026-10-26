@@ -1,6 +1,10 @@
 package input
 
-import "unicode"
+import (
+	"unicode"
+
+	"github.com/rivo/uniseg"
+)
 
 // Buffer mirrors the text in the wrapped CLI's prompt box by replaying the
 // keys the user sends it. It cannot see the child's screen, so any key whose
@@ -43,13 +47,13 @@ func (b *Buffer) Apply(k Key) (submitted string, ok bool) {
 		b.reset()
 		return submitted, true
 	case KeyBackspace:
-		b.deleteRange(b.cursor-1, b.cursor)
+		b.deleteRange(b.prevGrapheme(), b.cursor)
 	case KeyDelete:
-		b.deleteRange(b.cursor, b.cursor+1)
+		b.deleteRange(b.cursor, b.nextGrapheme())
 	case KeyLeft:
-		b.moveTo(b.cursor - 1)
+		b.moveTo(b.prevGrapheme())
 	case KeyRight:
-		b.moveTo(b.cursor + 1)
+		b.moveTo(b.nextGrapheme())
 	case KeyHome:
 		b.moveTo(b.lineStart())
 	case KeyEnd:
@@ -75,13 +79,13 @@ func (b *Buffer) applyCtrl(c byte) {
 	case 'e':
 		b.moveTo(b.lineEnd())
 	case 'b':
-		b.moveTo(b.cursor - 1)
+		b.moveTo(b.prevGrapheme())
 	case 'f':
-		b.moveTo(b.cursor + 1)
+		b.moveTo(b.nextGrapheme())
 	case 'd':
-		b.deleteRange(b.cursor, b.cursor+1)
+		b.deleteRange(b.cursor, b.nextGrapheme())
 	case 'h':
-		b.deleteRange(b.cursor-1, b.cursor)
+		b.deleteRange(b.prevGrapheme(), b.cursor)
 	case 'k':
 		b.deleteRange(b.cursor, b.lineEnd())
 	case 'u':
@@ -151,6 +155,42 @@ func (b *Buffer) lineEnd() int {
 		i++
 	}
 	return i
+}
+
+// prevGrapheme returns the start of the user-perceived character before the
+// cursor, so one Backspace removes a whole emoji like 👍🏽 or 🇵🇹 as the
+// child's editor does.
+func (b *Buffer) prevGrapheme() int {
+	prev := 0
+	for _, end := range b.graphemeEnds() {
+		if end >= b.cursor {
+			break
+		}
+		prev = end
+	}
+	return prev
+}
+
+// nextGrapheme returns the end of the user-perceived character after the cursor.
+func (b *Buffer) nextGrapheme() int {
+	for _, end := range b.graphemeEnds() {
+		if end > b.cursor {
+			return end
+		}
+	}
+	return len(b.runes)
+}
+
+// graphemeEnds returns the rune offset at the end of each grapheme cluster.
+func (b *Buffer) graphemeEnds() []int {
+	var ends []int
+	n := 0
+	g := uniseg.NewGraphemes(string(b.runes))
+	for g.Next() {
+		n += len(g.Runes())
+		ends = append(ends, n)
+	}
+	return ends
 }
 
 // wordStart finds the Ctrl+W boundary: skip spaces, then non-spaces.

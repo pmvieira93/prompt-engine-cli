@@ -33,6 +33,12 @@ func TestBufferEditing(t *testing.T) {
 		{"multi-line home/end", "one\ntwo\x01X\x05Y", "one\nXtwoY", 9},
 		{"paste normalizes CRLF", "\x1b[200~a\r\nb\rc\x1b[201~", "a\nb\nc", 5},
 		{"unicode", "naïve 👍\x7f", "naïve ", 6},
+		{"skin-tone emoji", "ok 👍🏽\x7f", "ok ", 3},
+		{"variation selector", "love ❤️\x7f", "love ", 5},
+		{"flag", "pt 🇵🇹\x7f", "pt ", 3},
+		{"family ZWJ", "hi 👨‍👩‍👧\x7f", "hi ", 3},
+		{"combining accent", "cafe\u0301\x7f", "caf", 3},
+		{"move over emoji", "a👍🏽b\x1b[D\x1b[D\x1b[3~", "ab", 1},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

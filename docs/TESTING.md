@@ -60,7 +60,7 @@ To clear the log between tests, run `: > /tmp/pe.log` in a third tab, or just wa
 ```
 
 - `input` lines show the exact bytes your terminal sent and the key(s) they were decoded as. Use these to report bugs. Mouse movement, focus changes and terminal replies are not logged.
-- `synced` lines show the buffer state after a change. `cursor` counts characters, not bytes. Several fast changes can show up as a single line.
+- `synced` lines show the buffer state after a change. `cursor` counts Unicode code points, not bytes or visible characters: a multi-part emoji like 👍🏽 counts as 2. Several fast changes can show up as a single line.
 
 Claude Code switches the terminal into an enhanced keyboard mode, so many keys arrive as sequences like `\x1b[97;5u` (Ctrl+A) rather than single bytes. That's expected.
 
@@ -137,7 +137,7 @@ Start it as in Part B and keep Terminal B visible. **Don't press Enter** unless 
 | C5 | Ctrl+A, then Ctrl+E | `cursor=0` → then `cursor=17` |
 | C6 | Ctrl+W | `cursor=14 "fix the nasty "` |
 | C7 | Ctrl+U | `cursor=0 ""` |
-| C8 | Type `café 👍`, then Backspace | `"café "` with `cursor=5` (emoji counted as one character) |
+| C8 | Type `café 👍`, then Backspace. Repeat with a multi-part emoji such as 👍🏽, ❤️ or 🇵🇹 | `"café "` with `cursor=5`. One Backspace removes the whole emoji, matching `claude`. |
 | C9 | Paste two lines of text from somewhere | The pasted text appears in the log with `\n` between the lines, inserted at the cursor. (`claude` may show a long paste as `[Pasted text #1]`, but the log has the real text; that's expected.) |
 | C10 | Press Enter to send | `synced=true cursor=0 ""` |
 | C11 | Type `abc`, then Up arrow | `synced=false …` (history changed the box in a way we can't predict) |
