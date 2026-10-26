@@ -22,15 +22,32 @@ type Controller struct {
 	Logf          func(format string, a ...any)
 	OnChange      func()
 	OnTogglePanel func()
+	// Gate, if set, must approve every suggestion before it is shown, e.g.
+	// by checking that the child's cursor is in its prompt, not a dialog.
+	Gate func() bool
 
-	mu  sync.Mutex
-	dec input.Decoder
-	sug string
+	mu       sync.Mutex
+	dec      input.Decoder
+	sug      string
+	disabled bool
+}
+
+// Disable hides any suggestion and turns interception off for good, e.g.
+// when nothing can render suggestions any more. Input then only feeds the
+// tracker.
+func (c *Controller) Disable() {
+	c.mu.Lock()
+	c.disabled, c.sug = true, ""
+	c.mu.Unlock()
 }
 
 // Filter implements pty.Filter.
 func (c *Controller) Filter(p []byte) []byte {
 	c.mu.Lock()
+	if c.disabled {
+		defer c.mu.Unlock()
+		return c.Tracker.Filter(p)
+	}
 	before := c.sug
 	toggles := 0
 	out := make([]byte, 0, len(p))
@@ -72,7 +89,7 @@ func (c *Controller) Filter(p []byte) []byte {
 // rev. It reports whether the suggestion was shown.
 func (c *Controller) Show(s string, rev uint64) bool {
 	c.mu.Lock()
-	ok := s != "" && c.Tracker.Snapshot().Rev == rev
+	ok := s != "" && !c.disabled && c.Tracker.Snapshot().Rev == rev && (c.Gate == nil || c.Gate())
 	if ok {
 		c.sug = s
 	}

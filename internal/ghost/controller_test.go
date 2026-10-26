@@ -93,6 +93,21 @@ func TestStaleSuggestionRejected(t *testing.T) {
 	}
 }
 
+func TestDisablePassesEverything(t *testing.T) {
+	c := withSuggestion(t, "impl", "ement")
+	c.OnTogglePanel = func() { t.Error("panel toggled while disabled") }
+	c.Disable()
+	if c.Visible() != "" {
+		t.Error("suggestion still visible after Disable")
+	}
+	if out := string(c.Filter([]byte("\t\x10"))); out != "\t\x10" {
+		t.Fatalf("child got %q, want keys untouched", out)
+	}
+	if c.Show("x", c.Tracker.Snapshot().Rev) {
+		t.Error("Show succeeded while disabled")
+	}
+}
+
 func TestCtrlPTogglesPanel(t *testing.T) {
 	toggles := 0
 	c := &Controller{Tracker: input.NewTracker(), OnTogglePanel: func() { toggles++ }}

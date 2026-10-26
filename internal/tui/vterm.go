@@ -20,8 +20,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -43,6 +47,11 @@ type Options struct {
 	Tracker       *input.Tracker
 	PanelPercent  int // side panel width as a percentage of the terminal
 	OnFilterError func(error)
+	Logf          func(format string, a ...any) // optional
+
+	// PanicOnGhost makes the renderer panic when it first draws ghost text,
+	// to exercise the pass-through fallback. Spike testing only.
+	PanicOnGhost bool
 }
 
 // Run executes cmd inside the emulator-backed UI and returns its exit code.
@@ -51,11 +60,18 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	if err != nil {
 		cols, rows = 80, 24
 	}
+	// Each frame allocates ~1 MB of cells and strings; without a limit the GC
+	// lets the heap double between cycles and RSS drifts past the PRD's
+	// 30 MB budget during heavy output. A soft limit trades a little CPU.
+	debug.SetMemoryLimit(memoryLimit)
 	a := newApp(cols, rows, opt)
-	a.prog = tea.NewProgram(&model{app: a}, tea.WithInput(nil), tea.WithoutSignalHandler())
+	// 120 FPS (Bubble Tea's cap) halves the frame-tick share of echo latency;
+	// idle cost is unaffected since frames are only produced on change.
+	a.prog = tea.NewProgram(&model{app: a}, tea.WithInput(nil), tea.WithoutSignalHandler(), tea.WithFPS(120))
 
 	opt.Ctrl.OnChange = a.Wake
 	opt.Ctrl.OnTogglePanel = a.TogglePanel
+	opt.Ctrl.Gate = a.cursorInPrompt
 	go a.wakeLoop()
 	go func() {
 		for range opt.Tracker.Subscribe() {
@@ -63,9 +79,16 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 		}
 	}()
 
+	var sessionDone atomic.Bool
 	teaDone := make(chan error, 1)
 	go func() {
 		_, err := a.prog.Run()
+		if !sessionDone.Load() {
+			// The renderer died under a live session (e.g. a panic in View,
+			// which Bubble Tea recovers and restores the terminal from).
+			// Fall back to pass-through rather than freeze the screen (FR-1.3).
+			a.enterFallback(err)
+		}
 		teaDone <- err
 	}()
 
@@ -75,14 +98,22 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 		OnFilterError: opt.OnFilterError,
 		ManualSize:    true,
 		OnStart:       a.attach,
+		// Bubble Tea assumes LF→CRLF mapping when it has no input tty.
+		KeepOutputProcessing: true,
 	}
 	code, err := session.Run(cmd)
+	sessionDone.Store(true)
 
 	a.prog.Quit()
 	<-teaDone
 	a.restore(os.Stdout)
 	return code, err
 }
+
+const (
+	scrollbackLines = 500
+	memoryLimit     = 28 << 20 // below this the GC thrashes (live heap ~17 MB)
+)
 
 type app struct {
 	emu  *vt.SafeEmulator
@@ -99,6 +130,7 @@ type app struct {
 
 	panel         atomic.Bool
 	resizePending atomic.Bool
+	fallback      atomic.Bool
 	wake          chan struct{}
 }
 
@@ -109,6 +141,10 @@ func newApp(cols, rows int, opt Options) *app {
 		modes: map[ansi.DECMode]bool{},
 		wake:  make(chan struct{}, 1),
 	}
+	// Scrollback cells are full structs (style colors are interfaces), so the
+	// default 10k lines costs tens of MB. Claude's fullscreen renderer keeps
+	// its own history; a small cap is enough for the classic renderer.
+	a.emu.SetScrollbackSize(scrollbackLines)
 	a.emu.SetCallbacks(vt.Callbacks{
 		EnableMode:  func(m ansi.Mode) { a.setMode(m, true) },
 		DisableMode: func(m ansi.Mode) { a.setMode(m, false) },
@@ -121,6 +157,9 @@ func newApp(cols, rows int, opt Options) *app {
 
 // Write receives child output.
 func (a *app) Write(p []byte) (int, error) {
+	if a.fallback.Load() {
+		return os.Stdout.Write(p)
+	}
 	n, err := a.emu.Write(p)
 	a.Wake()
 	return n, err
@@ -132,6 +171,72 @@ func (a *app) attach(ptmx *os.File) {
 	// Emulator replies are written synchronously from inside emu.Write, so
 	// this reader must always be running or output would deadlock.
 	go func() { _, _ = io.Copy(ptmx, a.emu) }()
+}
+
+// enterFallback switches to plain pass-through: child output goes straight
+// to the terminal, the child's input modes are re-applied (Bubble Tea reset
+// them on exit), and a resize makes the child redraw its whole screen.
+func (a *app) enterFallback(cause error) {
+	if a.opt.Logf != nil {
+		a.opt.Logf("renderer stopped (%v); falling back to pass-through", cause)
+	}
+	a.panel.Store(false)
+	a.opt.Ctrl.Disable() // suggestions can't be seen, so keys must not accept them
+	a.fallback.Store(true)
+
+	// Bubble Tea left the alternate screen on exit; the child may live there.
+	if a.emu.IsAltScreen() {
+		_, _ = io.WriteString(os.Stdout, ansi.SetMode(ansi.ModeAltScreenSaveCursor))
+	}
+	_, _ = io.WriteString(os.Stdout, ansi.EraseEntireScreen+ansi.CursorHomePosition)
+	a.mu.Lock()
+	for m, on := range a.modes {
+		if on {
+			_, _ = io.WriteString(os.Stdout, ansi.SetMode(m))
+		}
+	}
+	a.mu.Unlock()
+
+	setSize := func(dw int) {
+		w, h, err := term.GetSize(int(os.Stdout.Fd()))
+		if p := a.ptmx.Load(); err == nil && p != nil {
+			_ = cpty.Setsize(p, &cpty.Winsize{Cols: uint16(w + dw), Rows: uint16(h)})
+		}
+	}
+	// Shrink then restore, so the child repaints even if the size is unchanged.
+	// The pause lets it observe the intermediate size; resize handlers are
+	// usually debounced.
+	setSize(-1)
+	time.Sleep(200 * time.Millisecond)
+	setSize(0)
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGWINCH)
+	go func() {
+		for range ch {
+			setSize(0)
+		}
+	}()
+}
+
+// promptMarker starts Claude Code's input line. Dialogs (trust, permission,
+// menus) don't put the cursor on a line that starts with it.
+const promptMarker = "❯"
+
+// cursorInPrompt reports whether the child's visible cursor is on its prompt
+// line, using the emulator screen: something a pass-through wrapper can't see.
+func (a *app) cursorInPrompt() bool {
+	if a.emu.CursorHidden() {
+		return false
+	}
+	pos := a.emu.CursorPosition()
+	for x := 0; x < pos.X; x++ {
+		c := a.emu.CellAt(x, pos.Y)
+		if c == nil || c.Content == "" || c.Content == " " {
+			continue
+		}
+		return c.Content == promptMarker
+	}
+	return false
 }
 
 // Wake schedules a redraw. It never blocks.
@@ -312,6 +417,9 @@ func (m *model) View() tea.View {
 	emu.Draw(m.canvas, uv.Rect(0, 0, ew, eh))
 	pos := emu.CursorPosition()
 	if sug := m.app.opt.Ctrl.Visible(); sug != "" {
+		if m.app.opt.PanicOnGhost {
+			panic("PanicOnGhost: simulated renderer failure")
+		}
 		drawGhost(m.canvas, pos.X, pos.Y, ew, sug)
 	}
 	if m.app.panel.Load() && ew < m.w {

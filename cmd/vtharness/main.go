@@ -15,6 +15,9 @@
 //	rss                           resident memory of the program (not its children)
 //	cpu 5s                        CPU used by the program over the interval
 //	reply on|off                  answer DA1 / kitty / XTVERSION queries like a real terminal
+//	resize 80 24                  resize the terminal (sends SIGWINCH)
+//	seen "\x1b[>5u"               count occurrences of bytes in raw output so far
+//	exit                          wait for the program to exit and print its code
 package main
 
 import (
@@ -197,6 +200,27 @@ func (h *harness) run(line string) error {
 		time.Sleep(d)
 		used := h.cpuTime() - before
 		fmt.Printf("CPU %s over %s (%.1f%% of one core)\n", used, d, 100*used.Seconds()/d.Seconds())
+	case "resize":
+		c, _ := strconv.Atoi(args[0])
+		r, _ := strconv.Atoi(args[1])
+		h.emu.Resize(c, r)
+		return cpty.Setsize(h.ptmx, &cpty.Winsize{Cols: uint16(c), Rows: uint16(r)})
+	case "seen":
+		s, _ := strconv.Unquote(args[0])
+		h.mu.Lock()
+		n := bytes.Count(h.out, []byte(s))
+		h.mu.Unlock()
+		fmt.Printf("SEEN %q x%d\n", s, n)
+	case "exit":
+		done := make(chan error, 1)
+		go func() { done <- h.cmd.Wait() }()
+		select {
+		case err := <-done:
+			fmt.Printf("EXIT %v (code %d)\n", err, h.cmd.ProcessState.ExitCode())
+			time.Sleep(100 * time.Millisecond) // let the reader drain final output
+		case <-time.After(10 * time.Second):
+			return fmt.Errorf("program did not exit")
+		}
 	default:
 		return fmt.Errorf("unknown command")
 	}

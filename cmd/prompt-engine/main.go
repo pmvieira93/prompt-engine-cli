@@ -127,6 +127,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 		Tracker:       tracker,
 		PanelPercent:  cfg.Panel.Width,
 		OnFilterError: onFilterError,
+		Logf:          logf,
+		PanicOnGhost:  os.Getenv("PROMPT_ENGINE_SPIKE_RENDER_PANIC") != "",
 	})
 }
 

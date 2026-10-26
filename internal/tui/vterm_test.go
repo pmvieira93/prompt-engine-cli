@@ -43,6 +43,28 @@ func TestViewPanelLayout(t *testing.T) {
 	}
 }
 
+func TestCursorInPrompt(t *testing.T) {
+	cases := map[string]bool{
+		"❯ refa":           true,
+		"  ❯ refa":         true,  // indented prompt
+		"   ❯ No, exit":    true,  // menu items use the marker too; cursor would be hidden
+		"> refa":           false, // not claude's prompt
+		"Trust this? refa": false,
+	}
+	for screen, want := range cases {
+		m := newTestModel(40, 3)
+		m.app.emu.Write([]byte(screen))
+		if got := m.app.cursorInPrompt(); got != want {
+			t.Errorf("%q: cursorInPrompt = %v, want %v", screen, got, want)
+		}
+	}
+	m := newTestModel(40, 3)
+	m.app.emu.Write([]byte("❯ refa\x1b[?25l"))
+	if m.app.cursorInPrompt() {
+		t.Error("hidden cursor counted as in prompt")
+	}
+}
+
 func TestViewGhostAtCursor(t *testing.T) {
 	m := newTestModel(40, 3)
 	m.app.emu.Write([]byte("> impl"))

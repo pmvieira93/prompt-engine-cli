@@ -66,7 +66,7 @@ func (w *Worker) request(ctx context.Context, s input.State) {
 	case w.Ctrl.Show(sug, s.Rev):
 		w.logf("suggestion shown rev=%d %q (%s)", s.Rev, sug, time.Since(start).Round(time.Microsecond))
 	default:
-		w.logf("suggestion discarded rev=%d %q (prompt changed)", s.Rev, sug)
+		w.logf("suggestion discarded rev=%d %q (prompt changed or cursor not in prompt)", s.Rev, sug)
 	}
 }
 

@@ -57,6 +57,10 @@ type Session struct {
 	// ManualSize stops Run from mirroring the terminal size to the PTY on
 	// SIGWINCH; the caller resizes the PTY itself (see OnStart).
 	ManualSize bool
+	// KeepOutputProcessing leaves OPOST|ONLCR on in raw mode, for callers
+	// that render to the terminal themselves and write bare LFs (Bubble Tea
+	// does when it doesn't own the input tty).
+	KeepOutputProcessing bool
 
 	filterOff atomic.Bool
 }
@@ -99,6 +103,9 @@ func (s *Session) Run(cmd *exec.Cmd) (int, error) {
 			return 0, fmt.Errorf("set raw mode: %w", err)
 		}
 		defer term.Restore(int(tty.Fd()), state)
+		if s.KeepOutputProcessing {
+			_ = enableOutputProcessing(int(tty.Fd()))
+		}
 		if !s.ManualSize {
 			defer mirrorSize(tty, ptmx)()
 		}
