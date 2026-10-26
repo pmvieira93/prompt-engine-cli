@@ -48,6 +48,46 @@ func TestBufferEditing(t *testing.T) {
 	}
 }
 
+func TestBufferIgnoresTerminalReplies(t *testing.T) {
+	b := NewBuffer()
+	var d Decoder
+	// Reply split across reads, interleaved with typing and focus events.
+	for _, chunk := range []string{"\x1bP>|iTerm2 3.", "7.1\x1b\\\x1b_Gi=31;OK\x1b\\fix", "\x1b[O\x1b[I teh"} {
+		for _, k := range d.Decode([]byte(chunk)) {
+			b.Apply(k)
+		}
+	}
+	if b.Text() != "fix teh" || !b.Synced() {
+		t.Fatalf("got (%q, synced=%v), want (\"fix teh\", true)", b.Text(), b.Synced())
+	}
+}
+
+// TestBufferKittyEditing replays test-guide steps C1-C7 as iTerm2 sends them
+// once claude enables the kitty keyboard protocol.
+func TestBufferKittyEditing(t *testing.T) {
+	b := NewBuffer()
+	steps := []struct {
+		in, text string
+		cursor   int
+	}{
+		{"fix teh", "fix teh", 7},
+		{"\x7f\x7fhe bug", "fix the bug", 11},
+		{"\x1b[D\x1b[D\x1b[D", "fix the bug", 8},
+		{"nasty ", "fix the nasty bug", 14},
+		{"\x1b[97;5u", "fix the nasty bug", 0},
+		{"\x1b[101;5u", "fix the nasty bug", 17},
+		{"\x1b[D\x1b[D\x1b[D\x1b[119;5u", "fix the bug", 8},
+		{"\x1b[117;5u", "bug", 0},
+	}
+	for _, s := range steps {
+		feed(b, s.in)
+		if b.Text() != s.text || b.Cursor() != s.cursor || !b.Synced() {
+			t.Fatalf("after %q: got (%q, %d, synced=%v), want (%q, %d)",
+				s.in, b.Text(), b.Cursor(), b.Synced(), s.text, s.cursor)
+		}
+	}
+}
+
 func TestBufferSubmitResets(t *testing.T) {
 	b := NewBuffer()
 	if got := feed(b, "line one\x1b\rline two\r"); got != "line one\nline two" {

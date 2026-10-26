@@ -27,6 +27,18 @@ func TestDecodeSingleChunk(t *testing.T) {
 		{"\x1b\x1b[A", []KeyType{KeyEscape, KeyUp}},
 		{"\x1b\r\x1b[13;2u\n", []KeyType{KeyNewline, KeyNewline, KeyNewline}},
 		{"\x1bb\x1b[1;5C", []KeyType{KeyUnknown, KeyUnknown}},
+		// Terminal replies seen from iTerm2 at claude startup.
+		{"\x1bP>|iTerm2 3.7.1\x1b\\\x1b_Gi=31;OK\x1b\\", []KeyType{KeyReport, KeyReport}},
+		{"\x1b]11;rgb:0000/0000/0000\x07", []KeyType{KeyReport}},
+		{"\x1b[?62;4c\x1b[?2026;2$y\x1b[12;40R", []KeyType{KeyReport, KeyReport, KeyReport}},
+		{"\x1b[I\x1b[O", []KeyType{KeyReport, KeyReport}},
+		{"\x1bP", []KeyType{KeyUnknown}}, // Alt+Shift+P typed alone
+		// Kitty keyboard protocol and modifyOtherKeys (enabled by claude).
+		{"\x1b[97;5u\x1b[27;5;101~", []KeyType{KeyCtrl, KeyCtrl}},
+		{"\x1b[27u\x1b[13u\x1b[13;2u\x1b[9u\x1b[127u", []KeyType{KeyEscape, KeyEnter, KeyNewline, KeyTab, KeyBackspace}},
+		{"\x1b[97;69u", []KeyType{KeyCtrl}},                          // Ctrl+A with Caps Lock on
+		{"\x1b[97;5:3u", []KeyType{KeyReport}},                       // key release event
+		{"\x1b[97;7u\x1b[57399u", []KeyType{KeyUnknown, KeyUnknown}}, // Ctrl+Alt+A, keypad 0
 	}
 	for _, c := range cases {
 		var d Decoder
@@ -36,8 +48,22 @@ func TestDecodeSingleChunk(t *testing.T) {
 	}
 }
 
+func TestDecodeModifiedKeys(t *testing.T) {
+	var d Decoder
+	keys := d.Decode([]byte("\x1b[119;5u\x1b[97:65;2u\x1b[233u"))
+	if len(keys) != 3 {
+		t.Fatalf("got %d keys", len(keys))
+	}
+	if keys[0].Ctrl != 'w' {
+		t.Errorf("ctrl = %q, want 'w'", keys[0].Ctrl)
+	}
+	if string(keys[1].Runes) != "A" || string(keys[2].Runes) != "é" {
+		t.Errorf("runes = %q, %q", string(keys[1].Runes), string(keys[2].Runes))
+	}
+}
+
 func TestDecodeRawRoundTrips(t *testing.T) {
-	in := "ab\x1b[A\x1b[200~x\ry\x1b[201~\x1bOH\r"
+	in := "ab\x1b[A\x1b[200~x\ry\x1b[201~\x1bOH\x1bP>|t\x1b\\\x1b[I\r"
 	var d Decoder
 	var raw []byte
 	for _, k := range d.Decode([]byte(in)) {

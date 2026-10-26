@@ -13,6 +13,10 @@ type State struct {
 // user's input. It is safe to read from other goroutines while the PTY input
 // goroutine feeds it.
 type Tracker struct {
+	// OnKeys, if set before use, sees each input chunk and the keys decoded
+	// from it. It runs on the input goroutine and must not block.
+	OnKeys func(raw []byte, keys []Key)
+
 	mu      sync.Mutex
 	dec     Decoder
 	buf     *Buffer
@@ -28,7 +32,11 @@ func NewTracker() *Tracker {
 func (t *Tracker) Filter(p []byte) []byte {
 	t.mu.Lock()
 	rev := t.buf.Rev()
-	for _, k := range t.dec.Decode(p) {
+	keys := t.dec.Decode(p)
+	if t.OnKeys != nil {
+		t.OnKeys(p, keys)
+	}
+	for _, k := range keys {
 		t.buf.Apply(k)
 	}
 	dirty := t.buf.Rev() != rev

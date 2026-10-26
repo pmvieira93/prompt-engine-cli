@@ -56,6 +56,8 @@ func (b *Buffer) Apply(k Key) (submitted string, ok bool) {
 		b.moveTo(b.lineEnd())
 	case KeyEscape:
 		// Interrupts the agent in Claude Code; the prompt text is kept.
+	case KeyReport:
+		// Terminal replies reach the child but never touch the prompt.
 	case KeyCtrl:
 		b.applyCtrl(k.Ctrl)
 	default:

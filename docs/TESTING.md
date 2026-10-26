@@ -52,13 +52,17 @@ Don't type anything here; just watch it. Press Ctrl+C to stop it when you're don
 
 To clear the log between tests, run `: > /tmp/pe.log` in a third tab, or just watch the newest lines.
 
-**Log line format:**
+**Log line format:** two kinds of lines.
 
 ```
+15:26:30.701 input  "\x1b[97;5u" -> Ctrl+a
 15:26:30.734 synced=true  cursor=11  "fix the bug"
 ```
 
-`cursor` counts characters, not bytes. Each line is written only when something changes, and several fast changes can show up as a single line.
+- `input` lines show the exact bytes your terminal sent and the key(s) they were decoded as. Use these to report bugs. Mouse movement, focus changes and terminal replies are not logged.
+- `synced` lines show the buffer state after a change. `cursor` counts characters, not bytes. Several fast changes can show up as a single line.
+
+Claude Code switches the terminal into an enhanced keyboard mode, so many keys arrive as sequences like `\x1b[97;5u` (Ctrl+A) rather than single bytes. That's expected.
 
 ### 1.4 Optional config file
 

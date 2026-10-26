@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,7 +26,8 @@ import (
 // invocation (e.g. via a shell alias) does not wrap twice.
 const envActive = "PROMPT_ENGINE_ACTIVE"
 
-// envDebugLog names a file that receives every input-buffer state change.
+// envDebugLog names a file that receives decoded input and every
+// input-buffer state change.
 const envDebugLog = "PROMPT_ENGINE_DEBUG_LOG"
 
 func main() {
@@ -86,17 +89,36 @@ func run() int {
 	return code
 }
 
-// logStates appends each tracker state change to path until the process exits.
+// logStates appends decoded input and each tracker state change to path
+// until the process exits. Chunks made only of terminal reports (mouse
+// motion, focus, query replies) are skipped to keep the log readable.
 func logStates(path string, t *input.Tracker) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
+	var mu sync.Mutex
+	logf := func(format string, a ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(f, time.Now().Format("15:04:05.000")+" "+format+"\n", a...)
+	}
+
+	t.OnKeys = func(raw []byte, keys []input.Key) {
+		var names []string
+		for _, k := range keys {
+			if k.Type != input.KeyReport {
+				names = append(names, k.String())
+			}
+		}
+		if len(names) > 0 {
+			logf("input  %q -> %s", raw, strings.Join(names, " "))
+		}
+	}
 	go func() {
 		for range t.Changed() {
 			s := t.Snapshot()
-			fmt.Fprintf(f, "%s synced=%-5v cursor=%-3d %q\n",
-				time.Now().Format("15:04:05.000"), s.Synced, s.Cursor, s.Text)
+			logf("synced=%-5v cursor=%-3d %q", s.Synced, s.Cursor, s.Text)
 		}
 	}()
 	return nil
