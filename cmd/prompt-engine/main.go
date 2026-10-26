@@ -11,16 +11,21 @@ import (
 	"os/exec"
 	"slices"
 	"syscall"
+	"time"
 
 	"golang.org/x/term"
 
 	"github.com/pmvieira93/prompt-engine-cli/internal/config"
+	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
 )
 
 // envActive marks a child already running under prompt-engine, so a nested
 // invocation (e.g. via a shell alias) does not wrap twice.
 const envActive = "PROMPT_ENGINE_ACTIVE"
+
+// envDebugLog names a file that receives every input-buffer state change.
+const envDebugLog = "PROMPT_ENGINE_DEBUG_LOG"
 
 func main() {
 	os.Exit(run())
@@ -56,8 +61,16 @@ func run() int {
 	cmd := exec.Command(bin, args...)
 	cmd.Env = append(env, envActive+"=1")
 
+	tracker := input.NewTracker()
+	if path := os.Getenv(envDebugLog); path != "" {
+		if err := logStates(path, tracker); err != nil {
+			warn("debug log: %v", err)
+		}
+	}
+
 	filterErr := make(chan error, 1)
 	session := &pty.Session{
+		Filter:        tracker,
 		OnFilterError: func(err error) { filterErr <- err },
 	}
 	code, err := session.Run(cmd)
@@ -71,6 +84,22 @@ func run() int {
 	default:
 	}
 	return code
+}
+
+// logStates appends each tracker state change to path until the process exits.
+func logStates(path string, t *input.Tracker) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	go func() {
+		for range t.Changed() {
+			s := t.Snapshot()
+			fmt.Fprintf(f, "%s synced=%-5v cursor=%-3d %q\n",
+				time.Now().Format("15:04:05.000"), s.Synced, s.Cursor, s.Text)
+		}
+	}()
+	return nil
 }
 
 func warn(format string, a ...any) {
