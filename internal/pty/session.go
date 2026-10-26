@@ -51,6 +51,13 @@ type Session struct {
 	// DrainTimeout overrides DefaultDrainTimeout.
 	DrainTimeout time.Duration
 
+	// OnStart, if set, receives the PTY master once the child is running and
+	// before I/O starts, e.g. to answer terminal queries or resize the PTY.
+	OnStart func(ptmx *os.File)
+	// ManualSize stops Run from mirroring the terminal size to the PTY on
+	// SIGWINCH; the caller resizes the PTY itself (see OnStart).
+	ManualSize bool
+
 	filterOff atomic.Bool
 }
 
@@ -80,6 +87,9 @@ func (s *Session) Run(cmd *exec.Cmd) (int, error) {
 		return 0, fmt.Errorf("start %s: %w", cmd.Path, err)
 	}
 	defer ptmx.Close()
+	if s.OnStart != nil {
+		s.OnStart(ptmx)
+	}
 
 	if tty != nil {
 		state, err := term.MakeRaw(int(tty.Fd()))
@@ -89,7 +99,9 @@ func (s *Session) Run(cmd *exec.Cmd) (int, error) {
 			return 0, fmt.Errorf("set raw mode: %w", err)
 		}
 		defer term.Restore(int(tty.Fd()), state)
-		defer mirrorSize(tty, ptmx)()
+		if !s.ManualSize {
+			defer mirrorSize(tty, ptmx)()
+		}
 	}
 	defer forwardSignals(cmd.Process)()
 

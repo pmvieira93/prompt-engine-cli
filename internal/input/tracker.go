@@ -7,6 +7,10 @@ type State struct {
 	Text   string
 	Cursor int // in runes
 	Synced bool
+	// Rev identifies this state: it changes whenever text, cursor, or sync
+	// state does, so a result computed for one State can be checked for
+	// staleness later.
+	Rev uint64
 }
 
 // Tracker is a pass-through pty.Filter that keeps a Buffer in step with the
@@ -17,15 +21,15 @@ type Tracker struct {
 	// from it. It runs on the input goroutine and must not block.
 	OnKeys func(raw []byte, keys []Key)
 
-	mu      sync.Mutex
-	dec     Decoder
-	buf     *Buffer
-	changed chan struct{}
+	mu   sync.Mutex
+	dec  Decoder
+	buf  *Buffer
+	subs []chan struct{}
 }
 
 // NewTracker returns a Tracker with an empty buffer.
 func NewTracker() *Tracker {
-	return &Tracker{buf: NewBuffer(), changed: make(chan struct{}, 1)}
+	return &Tracker{buf: NewBuffer(), subs: []chan struct{}{make(chan struct{}, 1)}}
 }
 
 // Filter decodes p into the buffer and returns p unchanged.
@@ -40,12 +44,15 @@ func (t *Tracker) Filter(p []byte) []byte {
 		t.buf.Apply(k)
 	}
 	dirty := t.buf.Rev() != rev
+	subs := t.subs
 	t.mu.Unlock()
 
 	if dirty {
-		select {
-		case t.changed <- struct{}{}:
-		default: // a notification is already pending
+		for _, ch := range subs {
+			select {
+			case ch <- struct{}{}:
+			default: // a notification is already pending
+			}
 		}
 	}
 	return p
@@ -55,9 +62,19 @@ func (t *Tracker) Filter(p []byte) []byte {
 func (t *Tracker) Snapshot() State {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return State{Text: t.buf.Text(), Cursor: t.buf.Cursor(), Synced: t.buf.Synced()}
+	return State{Text: t.buf.Text(), Cursor: t.buf.Cursor(), Synced: t.buf.Synced(), Rev: t.buf.Rev()}
 }
 
 // Changed receives after the state changes. Notifications coalesce: a slow
 // reader sees one signal for many changes and should call Snapshot.
-func (t *Tracker) Changed() <-chan struct{} { return t.changed }
+func (t *Tracker) Changed() <-chan struct{} { return t.subs[0] }
+
+// Subscribe returns a new channel with the same semantics as Changed, for an
+// additional independent reader.
+func (t *Tracker) Subscribe() <-chan struct{} {
+	ch := make(chan struct{}, 1)
+	t.mu.Lock()
+	t.subs = append(t.subs[:len(t.subs):len(t.subs)], ch)
+	t.mu.Unlock()
+	return ch
+}
