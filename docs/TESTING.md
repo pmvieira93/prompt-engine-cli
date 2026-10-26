@@ -66,9 +66,11 @@ To clear the log between tests, run `: > /tmp/pe.log` in a third tab, or just wa
 
 Claude Code switches the terminal into an enhanced keyboard mode, so many keys arrive as sequences like `\x1b[97;5u` (Ctrl+A) rather than single bytes. That's expected.
 
-### 1.4 Optional config file
+### 1.4 Config file (optional)
 
-None is needed; without a file, the built-in defaults are used. To try the config tests in Part D, create `~/.config/prompt-engine/config.yaml`:
+None is needed for testing; without a file, the built-in defaults are used. Part D creates its own throwaway config files.
+
+For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`, or wherever `PROMPT_ENGINE_CONFIG` points). These are all its settings, with their defaults:
 
 ```yaml
 command: claude
@@ -157,18 +159,111 @@ Start it as in Part B and keep Terminal B visible. **Don't press Enter** unless 
 
 ## 5. Part D: Config
 
-Quit `claude` between each test.
+Checks how `prompt-engine` reads its config file. Each test creates a small config file, runs one command, and compares the output.
 
-| # | Setup | Run | Expected |
-|---|---|---|---|
-| D1 | No config file (or rename it) | `bin/prompt-engine` | Starts normally, no warnings |
-| D2 | Config with `env: {PE_TEST: hello}` | In `claude`: `! echo $PE_TEST` | `hello` |
-| D3 | Config with a typo: `comand: claude` | `bin/prompt-engine --version` | Warning `field comand not found … using defaults`, then the version still prints |
-| D4 | Config with `panel: {side: top}` | `bin/prompt-engine --version` | Warning `panel.side must be "left" or "right"…`, then still runs |
-| D5 | Config with `command: does-not-exist` | `bin/prompt-engine; echo $?` | `executable file not found in $PATH`, exit `127` |
-| D6 | Put a config at `/tmp/alt.yaml` with `env: {PE_TEST: alt}` | `PROMPT_ENGINE_CONFIG=/tmp/alt.yaml bin/prompt-engine`, then `! echo $PE_TEST` | `alt` |
+- Run everything in Terminal A, from the repository root. No `claude` session or debug log is needed.
+- D1–D5 use throwaway files in `/tmp`. `PROMPT_ENGINE_CONFIG` tells `prompt-engine` which file to read, so your real config is never touched.
+- The version number shown below (`2.1.308`) will match whatever `claude --version` prints for you.
 
-Afterwards, restore or delete the test config.
+### D1: No config file → runs on defaults
+
+```sh
+PROMPT_ENGINE_CONFIG=/tmp/pe-none.yaml bin/prompt-engine --version
+```
+
+**Expected:** just the version, no warning:
+
+```
+2.1.308 (Claude Code)
+```
+
+### D2: The config is actually used
+
+This config tells `prompt-engine` to run `printenv PE_TEST` instead of `claude`, and sets `PE_TEST=hello`. If the config is read, `hello` is printed. That checks `command`, `args` and `env` in one go.
+
+```sh
+printf 'command: printenv\nargs: [PE_TEST]\nenv:\n  PE_TEST: hello\n' > /tmp/pe-env.yaml
+PROMPT_ENGINE_CONFIG=/tmp/pe-env.yaml bin/prompt-engine
+```
+
+**Expected:**
+
+```
+hello
+```
+
+### D3: A typo in the config → warning, but still runs
+
+```sh
+printf 'comand: claude\n' > /tmp/pe-typo.yaml
+PROMPT_ENGINE_CONFIG=/tmp/pe-typo.yaml bin/prompt-engine --version
+```
+
+**Expected:** a warning naming the bad key, then the version anyway:
+
+```
+prompt-engine: parse /tmp/pe-typo.yaml: yaml: unmarshal errors:
+  line 1: field comand not found in type config.Config; using defaults
+2.1.308 (Claude Code)
+```
+
+### D4: An invalid value → warning, but still runs
+
+```sh
+printf 'panel:\n  side: top\n' > /tmp/pe-invalid.yaml
+PROMPT_ENGINE_CONFIG=/tmp/pe-invalid.yaml bin/prompt-engine --version
+```
+
+**Expected:**
+
+```
+prompt-engine: invalid /tmp/pe-invalid.yaml: panel.side must be "left" or "right", got "top"; using defaults
+2.1.308 (Claude Code)
+```
+
+### D5: The wrapped program doesn't exist → clear error
+
+```sh
+printf 'command: does-not-exist\n' > /tmp/pe-missing.yaml
+PROMPT_ENGINE_CONFIG=/tmp/pe-missing.yaml bin/prompt-engine; echo "exit=$?"
+```
+
+**Expected:**
+
+```
+prompt-engine: exec: "does-not-exist": executable file not found in $PATH
+exit=127
+```
+
+### D6: The default location is found
+
+The only test that uses the real location, `~/.config/prompt-engine/config.yaml`, with no `PROMPT_ENGINE_CONFIG`. Same trick as D2.
+
+> **If you already have a config there**, back it up first: `mv ~/.config/prompt-engine/config.yaml ~/.config/prompt-engine/config.yaml.bak`, and restore it afterwards.
+
+```sh
+mkdir -p ~/.config/prompt-engine
+printf 'command: printenv\nargs: [PE_TEST]\nenv:\n  PE_TEST: from-default-location\n' > ~/.config/prompt-engine/config.yaml
+bin/prompt-engine
+```
+
+**Expected:**
+
+```
+from-default-location
+```
+
+**Then remove it right away**, or `prompt-engine` will keep running `printenv` instead of `claude`:
+
+```sh
+rm ~/.config/prompt-engine/config.yaml
+```
+
+### Cleanup
+
+```sh
+rm -f /tmp/pe-env.yaml /tmp/pe-typo.yaml /tmp/pe-invalid.yaml /tmp/pe-missing.yaml
+```
 
 ---
 
@@ -192,4 +287,4 @@ Include:
 3. The matching lines from `/tmp/pe.log`
 4. Your terminal app (iTerm2, Terminal.app, Ghostty, …)
 
-**Cleanup:** `rm -f /tmp/pe.log /tmp/pe-test.txt /tmp/alt.yaml`
+**Cleanup:** `rm -f /tmp/pe.log /tmp/pe-test.txt`
