@@ -55,11 +55,13 @@ To clear the log between tests, run `: > /tmp/pe.log` in a third tab, or just wa
 **Log line format:** two kinds of lines.
 
 ```
-15:26:30.701 input  "\x1b[97;5u" -> Ctrl+a
+15:26:30.701 input  "\x1b[97;5u" -> Ctrl+a="\x1b[97;5u"
 15:26:30.734 synced=true  cursor=11  "fix the bug"
+15:26:31.120 input  "\x1b[O" -> Report="\x1b[O"
 ```
 
-- `input` lines show the exact bytes your terminal sent and the key(s) they were decoded as. Use these to report bugs. Mouse movement, focus changes and terminal replies are not logged.
+- `input` lines show the exact bytes your terminal sent (left of `->`), then each key they were decoded as, with that key's own bytes (`Key="bytes"`). Use these to report bugs.
+- `Report` keys are terminal replies and events, such as focus out (`\x1b[O`) and in (`\x1b[I`) when you switch windows. They're passed to `claude` but never change the buffer. Mouse movement is not logged.
 - `synced` lines show the buffer state after a change. `cursor` counts Unicode code points, not bytes or visible characters: a multi-part emoji like 👍🏽 counts as 2. Several fast changes can show up as a single line.
 
 Claude Code switches the terminal into an enhanced keyboard mode, so many keys arrive as sequences like `\x1b[97;5u` (Ctrl+A) rather than single bytes. That's expected.

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -90,8 +91,8 @@ func run() int {
 }
 
 // logStates appends decoded input and each tracker state change to path
-// until the process exits. Chunks made only of terminal reports (mouse
-// motion, focus, query replies) are skipped to keep the log readable.
+// until the process exits. Mouse reports are skipped: with any-motion
+// tracking on, every pointer move would otherwise flood the log.
 func logStates(path string, t *input.Tracker) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -107,8 +108,8 @@ func logStates(path string, t *input.Tracker) error {
 	t.OnKeys = func(raw []byte, keys []input.Key) {
 		var names []string
 		for _, k := range keys {
-			if k.Type != input.KeyReport {
-				names = append(names, k.String())
+			if !bytes.HasPrefix(k.Raw, []byte("\x1b[<")) {
+				names = append(names, fmt.Sprintf("%s=%q", k, k.Raw))
 			}
 		}
 		if len(names) > 0 {
