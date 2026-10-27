@@ -51,7 +51,7 @@ type Options struct {
 	Logf          func(format string, a ...any) // optional
 
 	// PanicOnGhost makes the renderer panic when it first draws ghost text,
-	// to exercise the pass-through fallback. Spike testing only.
+	// to exercise the pass-through fallback. Testing only.
 	PanicOnGhost bool
 }
 

@@ -1,5 +1,5 @@
 // Command vtharness drives a terminal program under a PTY from a script on
-// stdin, for spike measurements. It mirrors the program's output into an
+// stdin, for latency, memory, and rendering checks. It mirrors the program's output into an
 // x/vt emulator so the screen a user would see can be dumped.
 //
 //	vtharness [-cols 100] [-rows 30] -- prog args... < script

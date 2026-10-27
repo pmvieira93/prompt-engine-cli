@@ -35,12 +35,17 @@ const envActive = "PROMPT_ENGINE_ACTIVE"
 // input-buffer state change.
 const envDebugLog = "PROMPT_ENGINE_DEBUG_LOG"
 
-// Spike switches: PROMPT_ENGINE_PASSTHROUGH=1 runs the Phase 1 pass-through
-// wrapper instead of the emulator UI; PROMPT_ENGINE_FAKE_DELAY (a duration)
-// slows the fake suggester down to mimic a model.
+// Troubleshooting and test switches:
+//   - PROMPT_ENGINE_PASSTHROUGH=1 runs the plain pass-through wrapper instead
+//     of the emulator UI, to tell whether a glitch comes from the emulator.
+//   - PROMPT_ENGINE_FAKE_DELAY (a duration) slows the fake suggester down to
+//     mimic a model, until the Ollama client replaces it.
+//   - PROMPT_ENGINE_TEST_RENDER_PANIC=1 makes the renderer panic on the first
+//     ghost text, to exercise the pass-through fallback (FR-1.3).
 const (
 	envPassthrough = "PROMPT_ENGINE_PASSTHROUGH"
 	envFakeDelay   = "PROMPT_ENGINE_FAKE_DELAY"
+	envRenderPanic = "PROMPT_ENGINE_TEST_RENDER_PANIC"
 )
 
 func main() {
@@ -131,7 +136,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 		PanelPercent:  cfg.Panel.Width,
 		OnFilterError: onFilterError,
 		Logf:          logf,
-		PanicOnGhost:  os.Getenv("PROMPT_ENGINE_SPIKE_RENDER_PANIC") != "",
+		PanicOnGhost:  os.Getenv(envRenderPanic) != "",
 	})
 }
 

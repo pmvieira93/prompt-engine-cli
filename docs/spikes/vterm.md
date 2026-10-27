@@ -54,13 +54,13 @@ If Bubble Tea's renderer dies mid-session (a panic in `View` is recovered by Bub
 - `claude` is resized down and back up so it repaints;
 - ghost text is disabled, so Tab can't accept a suggestion nobody can see.
 
-Tested by forcing a panic with `PROMPT_ENGINE_SPIKE_RENDER_PANIC=1`: `claude` repainted, typing continued, exit code 0.
+Tested by forcing a panic with `PROMPT_ENGINE_TEST_RENDER_PANIC=1`: `claude` repainted, typing continued, exit code 0.
 
 ---
 
 ## 2. Measurements
 
-All on Apple M4 (macOS), Go 1.27.3, measured with `cmd/vtharness`: a Go PTY driver that types, times when bytes appear in the output, and mirrors the screen into its own x/vt emulator so it can be dumped. "Pass-through" is the Phase 1 build (master `40ccb2b`). `cmd/vtprobe` is a smaller tool that runs a program in x/vt and prints where its cursor is; it's how I checked that `claude` keeps the real cursor at the end of the prompt (needed to place ghost text) in both renderers.
+All on Apple M4 (macOS), Go 1.27.3, measured with `cmd/vtharness` (now `tools/vtharness`): a Go PTY driver that types, times when bytes appear in the output, and mirrors the screen into its own x/vt emulator so it can be dumped. "Pass-through" is the Phase 1 build (master `40ccb2b`). `cmd/vtprobe` (since removed; `tools/vtharness` `dump` covers it) was a smaller tool that runs a program in x/vt and prints where its cursor is; it's how I checked that `claude` keeps the real cursor at the end of the prompt (needed to place ghost text) in both renderers.
 
 ### 2.1 Echo latency (keystroke → echoed character in the terminal output)
 
@@ -210,7 +210,7 @@ To compare with the Phase 1 behaviour, run with `PROMPT_ENGINE_PASSTHROUGH=1`.
 | V12 | Scroll with the mouse wheel inside `claude` | Same behaviour as plain `claude` in the same renderer. |
 | V13 | Start `claude` in an untrusted folder (trust dialog appears) and type `impl` | **No** ghost text in the dialog. |
 | V14 | Quit with `/exit` | Back at the shell. Typed text echoes normally; arrow keys, Ctrl+A and Ctrl+E work in the shell (keyboard modes were restored). `echo $?` is `0`. |
-| V15 | Start with `PROMPT_ENGINE_SPIKE_RENDER_PANIC=1` and type `refa` | The screen flickers once and `claude` keeps working without ghost text. Log: `falling back to pass-through`. |
+| V15 | Start with `PROMPT_ENGINE_TEST_RENDER_PANIC=1` and type `refa` | The screen flickers once and `claude` keeps working without ghost text. Log: `falling back to pass-through`. |
 
 If something looks wrong, note the step and the log lines, and run the same step with `PROMPT_ENGINE_PASSTHROUGH=1` to see whether it's caused by the emulator.
 
