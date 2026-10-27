@@ -1,8 +1,12 @@
 # Manual Test Guide
 
-Covers **Phase 1**: the PTY wrapper and input buffer. Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E). Extend this guide as later phases land.
 
-**What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal and records what you type. Nothing should look or feel different from running `claude` directly. The only thing you can see is the debug log, which should mirror `claude`'s prompt box.
+**What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
+
+Suggestions currently come from a **fake suggester** that completes the last word from a fixed list: implement, refactor, explain, function, repository, documentation, performance, integration, tests. The Ollama client replaces it later in Phase 2.
+
+> ⚠️ **Don't press Enter** in Parts C and E unless a step says so: it sends a real prompt to `claude` and uses your account. To quit, type `/exit` and press Enter.
 
 ---
 
@@ -88,6 +92,9 @@ panel:          # not used until Phase 4
   width: 40
 templates:
   dir: templates
+keys:           # leader-prefixed shortcuts, like tmux
+  leader: ctrl+q  # ctrl+a..z or ctrl+\ ] ^ _; prefer letters, punctuation varies by keyboard layout
+  panel: p        # leader, then this key, toggles the side panel
 ```
 
 ---
@@ -267,24 +274,92 @@ rm -f /tmp/pe-env.yaml /tmp/pe-typo.yaml /tmp/pe-invalid.yaml /tmp/pe-missing.ya
 
 ---
 
-## 6. Known limitations (expected, not bugs)
+## 6. Part E: Ghost text and side panel
 
-| What you'll see | Why |
-|---|---|
-| Keys typed in permission dialogs or menus (e.g. `1`, arrows) show up in the log as prompt text or `synced=false` until the next Enter | The wrapper can't see `claude`'s screen yet. That will come with the Phase 2 screen-reading work. |
-| **Backslash + Enter** (`claude`'s way to add a new line) resets the log to `""`, while `claude` keeps the text | The buffer treats every Enter as "send". Use Option+Enter for multi-line text while testing. |
-| Picking a slash-command or file suggestion leaves the log `synced=false` | Autocomplete changes the text in ways we can't predict, so this is intended. |
-| A key pressed in the first few milliseconds after launch is sometimes missing from the log | `claude` still receives it; the terminal just isn't fully switched over yet. |
+Start it as in Part B, with the log open in Terminal B. Between tests, press **Ctrl+U** to clear the prompt.
+
+| # | Do this | Expected |
+|---|---|---|
+| E1 | Start it | Normal `claude` screen, colors intact, no stray characters. Typing feels as instant as plain `claude`. |
+| E2 | Type `please impl` and wait ¼ second | Dimmed `ement` appears right after the cursor; the cursor doesn't move. Log: `suggestion requested`, then `suggestion shown` |
+| E3 | Press **Tab** | `please implement` becomes normal text in `claude`'s box. Log: `suggestion accepted "ement"` |
+| E4 | Type ` the perf`, wait, press **Right Arrow** | Completes to `performance` |
+| E5 | Type ` refa`, wait, press **Esc** | Ghost text disappears, `refa` stays, and `claude` does **not** react to Esc. Log: `suggestion dismissed (esc)` |
+| E6 | Type ` docu`, wait, then quickly type `ment` | Ghost text disappears; no grey fragments left |
+| E7 | Ctrl+U, type `impl`, then press Left Arrow right away and wait ½ second | No ghost text (the cursor isn't at the end) |
+| E8 | Ctrl+U, type `@`, then **Tab** | `claude`'s own file autocomplete works (Tab is only taken while ghost text is showing) |
+| E9 | Type a few words, then press **Ctrl+P** | `claude` handles it (moves up / history); prompt-engine doesn't take it |
+| E10 | Press **Ctrl+Q**, then **p** | `claude` shrinks to about 60% width; a bordered panel on the right shows the prompt text and the current suggestion. Log: `leader: waiting for a shortcut key`, then `leader: toggle panel` |
+| E11 | With the panel open, type `refa` | The panel updates live with the text and the suggestion |
+| E12 | With the panel open, resize the window narrower, then wider (drag the window edge or the split-pane divider) | Both sides redraw to fit, no overlapping text |
+| E13 | Press **Ctrl+Q**, then **p** again | Back to full width, no leftover border |
+| E14 | Press **Ctrl+Q**, then **Esc** | Nothing happens. Log: `leader: cancelled` |
+| E15 | Press **Ctrl+Q** twice | A real Ctrl+Q is sent to `claude`. Log: `leader: sent ctrl+q to child` |
+| E16 | Quit with `/exit` + Enter, then `echo $?` | Back at a normal shell; typing, arrows and Ctrl+A/E work (keyboard modes restored); exit code `0` |
+
+### E17: No ghost text in dialogs
+
+A trust dialog only appears in a folder `claude` hasn't seen before:
+
+```sh
+mkdir -p /tmp/pe-untrusted && cd /tmp/pe-untrusted
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log ~/Workspace/GitHub/prompt-engine-cli/bin/prompt-engine
+```
+
+When the "Do you trust this folder?" dialog appears, type `impl` and wait. **Don't press Enter.** Quit with **Ctrl+C**, then `cd` back.
+
+**Expected:** no ghost text in the dialog. Log: `suggestion discarded … (prompt changed or cursor not in prompt)`.
+
+### E18: Slow model
+
+```sh
+PROMPT_ENGINE_FAKE_DELAY=400ms PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+Type `expl`, and keep typing `ain` before ghost text appears.
+
+**Expected:** no ghost text for the old word; the log shows the stale request being cancelled or discarded.
+
+### E19: Renderer failure falls back to pass-through (FR-1.3)
+
+```sh
+PROMPT_ENGINE_TEST_RENDER_PANIC=1 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+Type `refa`. The renderer is made to crash as soon as ghost text is drawn, which happens at `re`.
+
+**Expected:** the screen redraws once with **no** error text or stack trace, and `claude` keeps working without ghost text. Log: `renderer stopped (render panic: …); falling back to pass-through`, and no suggestion lines after it.
+
+### E20: Pass-through switch
+
+```sh
+PROMPT_ENGINE_PASSTHROUGH=1 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+**Expected:** behaves exactly like Phase 1, with no ghost text and no panel. If a glitch in Part E also happens here, the emulator isn't the cause.
 
 ---
 
-## 7. Reporting a problem
+## 7. Known limitations (expected, not bugs)
+
+| What you'll see | Why |
+|---|---|
+| Keys typed in permission dialogs or menus (e.g. `1`, arrows) show up in the log as prompt text or `synced=false` until the next Enter | The input buffer replays keys and doesn't read `claude`'s screen yet. Ghost text is already kept out of dialogs (E17); resyncing the buffer from the screen is planned. |
+| **Backslash + Enter** (`claude`'s way to add a new line) resets the log to `""`, while `claude` keeps the text | The buffer treats every Enter as "send". Use Option+Enter for multi-line text while testing. |
+| Picking a slash-command or file suggestion leaves the log `synced=false` | Autocomplete changes the text in ways we can't predict, so this is intended. |
+| A key pressed in the first few milliseconds after launch is sometimes missing from the log | `claude` still receives it; the terminal just isn't fully switched over yet. |
+| iTerm2's own scrollback doesn't show earlier conversation | The emulator draws in the alternate screen. Scroll inside `claude` instead. |
+| Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
+
+---
+
+## 8. Reporting a problem
 
 Include:
 
-1. The test number (e.g. C9)
+1. The test number (e.g. C9 or E5)
 2. What `claude` showed
 3. The matching lines from `/tmp/pe.log`
 4. Your terminal app (iTerm2, Terminal.app, Ghostty, …)
 
-**Cleanup:** `rm -f /tmp/pe.log /tmp/pe-test.txt`
+**Cleanup:** `rm -rf /tmp/pe.log /tmp/pe-test.txt /tmp/pe-untrusted`
