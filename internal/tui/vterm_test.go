@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
@@ -81,5 +83,22 @@ func TestViewGhostAtCursor(t *testing.T) {
 	}
 	if !strings.Contains(v.Content, "ement") || !strings.Contains(v.Content, "\x1b[") {
 		t.Fatal("ghost text not styled")
+	}
+}
+
+// TestDrawEmulatorMatchesDraw checks drawEmulator against vt's own Draw,
+// including styles, wide characters, and emoji.
+func TestDrawEmulatorMatchesDraw(t *testing.T) {
+	m := newTestModel(60, 8)
+	fillScreen(m)
+	m.app.emu.Write([]byte("\x1b[5;1H\x1b[1;4;38;2;255;0;0;48;5;22mbold\x1b[0m 中文 👍🏽 é\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\"))
+
+	want := lipgloss.NewCanvas(60, 8)
+	m.app.emu.Draw(want, uv.Rect(0, 0, 60, 8))
+	got := lipgloss.NewCanvas(60, 8)
+	drawEmulator(got, m.app.emu, 60, 8)
+
+	if g, w := got.Render(), want.Render(); g != w {
+		t.Fatalf("drawEmulator differs from Draw:\ngot  %q\nwant %q", g, w)
 	}
 }

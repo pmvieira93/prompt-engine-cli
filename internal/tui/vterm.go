@@ -414,6 +414,28 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// drawEmulator copies the emulator's screen onto scr. It replaces
+// vt.Emulator.Draw, which heap-allocates a clone of every cell on every
+// frame (about 1.5 MB at 200x60); the canvas stores cells by value, so one
+// reused cell is enough. Unlike Draw, it doesn't substitute default colors
+// set by the child with OSC 10/11: cells without a color keep the real
+// terminal's defaults.
+func drawEmulator(scr uv.Screen, emu *vt.SafeEmulator, w, h int) {
+	var c uv.Cell
+	for y := range h {
+		for x := 0; x < w; {
+			src := emu.CellAt(x, y)
+			if src == nil {
+				x++
+				continue
+			}
+			c = *src
+			scr.SetCell(x, y, &c)
+			x += max(c.Width, 1)
+		}
+	}
+}
+
 var ghostStyle = uv.Style{Fg: ansi.IndexedColor(244), Attrs: uv.AttrFaint}
 
 // View renders one frame. A panic while drawing is recovered here rather
@@ -441,7 +463,7 @@ func (m *model) view() tea.View {
 
 	emu := m.app.emu
 	ew, eh := emu.Width(), emu.Height()
-	emu.Draw(m.canvas, uv.Rect(0, 0, ew, eh))
+	drawEmulator(m.canvas, emu, ew, eh)
 	pos := emu.CursorPosition()
 	if sug := m.app.opt.Ctrl.Visible(); sug != "" {
 		if m.app.opt.PanicOnGhost {
