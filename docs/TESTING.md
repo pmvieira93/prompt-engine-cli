@@ -1,10 +1,10 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
-Suggestions currently come from a **fake suggester** that completes the last word from a fixed list: implement, refactor, explain, function, repository, documentation, performance, integration, tests. The Ollama client replaces it later in Phase 2.
+Suggestions come from a local model through **Ollama** (Part F). For repeatable results, Part E uses the **fake suggester** instead (`PROMPT_ENGINE_SUGGESTER=fake`), which completes the last word from a fixed list: implement, refactor, explain, function, repository, documentation, performance, integration, tests.
 
 > ⚠️ **Don't press Enter** in Parts C and E unless a step says so: it sends a real prompt to `claude` and uses your account. To quit, type `/exit` and press Enter.
 
@@ -18,6 +18,8 @@ Suggestions currently come from a **fake suggester** that completes the last wor
 |---|---|---|
 | Go installed | `go version` | `go1.26` or newer |
 | Claude Code installed and logged in | `claude --version` | `2.1.x (Claude Code)` |
+| Ollama running (Part F) | `curl -s localhost:11434/api/version` | `{"version":"…"}`. If not: `brew install ollama && brew services start ollama` |
+| Suggestion model downloaded (Part F) | `ollama list` | lists `qwen2.5-coder:1.5b`. If not: `ollama pull qwen2.5-coder:1.5b` (~1 GB) |
 
 ### 1.2 Build and run the unit tests
 
@@ -80,11 +82,13 @@ For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (o
 command: claude
 args: []
 env: {}
-llm:            # not used until Phase 2
-  enabled: true
+llm:
+  enabled: true      # false turns suggestions off
+  provider: ollama   # or fake (fixed word list, for testing)
   endpoint: http://localhost:11434
-  model: qwen2.5:1.5b
-  debounce: 150ms
+  model: qwen2.5-coder:1.5b  # must support fill-in-the-middle
+  max_tokens: 8      # length of each suggestion
+  debounce: 150ms    # pause in typing before asking
   timeout: 2s
 panel:          # not used until Phase 4
   visible: false
@@ -276,7 +280,13 @@ rm -f /tmp/pe-env.yaml /tmp/pe-typo.yaml /tmp/pe-invalid.yaml /tmp/pe-missing.ya
 
 ## 6. Part E: Ghost text and side panel
 
-Start it as in Part B, with the log open in Terminal B. Between tests, press **Ctrl+U** to clear the prompt.
+Start it with the **fake suggester**, so the expected results below are exact, and with the log open in Terminal B:
+
+```sh
+PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+Between tests, press **Ctrl+U** to clear the prompt.
 
 | # | Do this | Expected |
 |---|---|---|
@@ -304,7 +314,7 @@ A trust dialog only appears in a folder `claude` hasn't seen before:
 
 ```sh
 mkdir -p /tmp/pe-untrusted && cd /tmp/pe-untrusted
-PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log ~/Workspace/GitHub/prompt-engine-cli/bin/prompt-engine
+PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log ~/Workspace/GitHub/prompt-engine-cli/bin/prompt-engine
 ```
 
 When the "Do you trust this folder?" dialog appears, type `impl` and wait. **Don't press Enter.** Quit with **Ctrl+C**, then `cd` back.
@@ -314,7 +324,7 @@ When the "Do you trust this folder?" dialog appears, type `impl` and wait. **Don
 ### E18: Slow model
 
 ```sh
-PROMPT_ENGINE_FAKE_DELAY=400ms PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_FAKE_DELAY=400ms PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
 ```
 
 Type `expl`, and keep typing `ain` before ghost text appears.
@@ -324,7 +334,7 @@ Type `expl`, and keep typing `ain` before ghost text appears.
 ### E19: Renderer failure falls back to pass-through (FR-1.3)
 
 ```sh
-PROMPT_ENGINE_TEST_RENDER_PANIC=1 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_TEST_RENDER_PANIC=1 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
 ```
 
 Type `refa`. The renderer is made to crash as soon as ghost text is drawn, which happens at `re`.
@@ -341,7 +351,67 @@ PROMPT_ENGINE_PASSTHROUGH=1 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engin
 
 ---
 
-## 7. Known limitations (expected, not bugs)
+## 7. Part F: Real suggestions with Ollama
+
+Check the Ollama prerequisites in 1.1 first. Start it normally (no `PROMPT_ENGINE_SUGGESTER`), with the log open in Terminal B:
+
+```sh
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+The model's wording varies, so judge whether a suggestion is a sensible continuation rather than an exact match.
+
+| # | Do this | Expected |
+|---|---|---|
+| F1 | Start it and wait a couple of seconds | Log: `llm: qwen2.5-coder:1.5b loaded in …` (about 1 s the first time, much less once loaded) |
+| F2 | Type `explain how the input buf` and stop | Within about ¼ second, dimmed text that **finishes the word** and continues, e.g. `fer is used in …`. Log: `suggestion shown … (1xxms)` |
+| F3 | Press **Tab** | The suggestion becomes real text. A follow-up suggestion may appear after the next pause |
+| F4 | Ctrl+U, type `make the tests pa` and stop | Completes `pass`, not a misspelling |
+| F5 | Ctrl+U, type `why does the ghost text ` (ending with a space) and stop | The suggestion starts with a word, with no double space |
+| F6 | Type quickly without pausing | No suggestions while typing; one appears only after you stop. Typing never lags |
+| F7 | Look at the times in the `suggestion shown` lines | Mostly 50–300 ms |
+
+### F8: Ollama stopped
+
+```sh
+brew services stop ollama
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+Type `explain how the input buf` and stop.
+
+**Expected:** no ghost text, and typing works exactly as normal. Log: `llm: can't use …` at startup, and `suggestion error … connection refused` after each pause.
+
+Then, **without restarting** `prompt-engine`, run `brew services start ollama` in Terminal B, wait a few seconds, and type another word in Terminal A.
+
+**Expected:** suggestions come back (the first may take about a second while the model loads).
+
+### F9: A model without fill-in-the-middle
+
+```sh
+ollama pull qwen2.5:1.5b    # skip if already downloaded
+printf 'llm:\n  model: qwen2.5:1.5b\n' > /tmp/pe-nofim.yaml
+PROMPT_ENGINE_CONFIG=/tmp/pe-nofim.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+Type `refa` and stop.
+
+**Expected:** no ghost text; typing is normal. Log: `… does not support fill-in-the-middle; use one that does, such as qwen2.5-coder`.
+
+### F10: Suggestions turned off
+
+```sh
+printf 'llm:\n  enabled: false\n' > /tmp/pe-off.yaml
+PROMPT_ENGINE_CONFIG=/tmp/pe-off.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+**Expected:** no `llm:` or `suggestion` lines in the log at all. The panel (Ctrl+Q, then p) still works.
+
+**Cleanup:** `rm -f /tmp/pe-nofim.yaml /tmp/pe-off.yaml`, and `brew services start ollama` if you left it stopped.
+
+---
+
+## 8. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -350,15 +420,16 @@ PROMPT_ENGINE_PASSTHROUGH=1 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engin
 | After history, autocomplete or a slash command, a **multi-line or wrapped** prompt stays `synced=false` until Enter or Ctrl+C | Resync from the screen only reads single-line prompts, so a half-read prompt is never trusted. |
 | A key pressed in the first few milliseconds after launch is sometimes missing from the log | `claude` still receives it; the terminal just isn't fully switched over yet. |
 | iTerm2's own scrollback doesn't show earlier conversation | The emulator draws in the alternate screen. Scroll inside `claude` instead. |
+| Suggestions sometimes misspell a half-typed word (e.g. `refa` → `refact`) or drift into code-like text | The 1.5B model has little context about your project yet. Better context (recent prompts, repository details) is planned. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---
 
-## 8. Reporting a problem
+## 9. Reporting a problem
 
 Include:
 
-1. The test number (e.g. C9 or E5)
+1. The test number (e.g. C9, E5 or F2)
 2. What `claude` showed
 3. The matching lines from `/tmp/pe.log`
 4. Your terminal app (iTerm2, Terminal.app, Ghostty, …)

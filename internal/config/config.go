@@ -44,11 +44,16 @@ type Config struct {
 
 // LLMConfig configures the local suggestion backend (Phase 2).
 type LLMConfig struct {
-	Enabled  bool          `yaml:"enabled"`
-	Endpoint string        `yaml:"endpoint"`
-	Model    string        `yaml:"model"`
-	Debounce time.Duration `yaml:"debounce"`
-	Timeout  time.Duration `yaml:"timeout"`
+	Enabled bool `yaml:"enabled"`
+	// Provider is "ollama", or "fake" for an offline suggester that only
+	// completes a few fixed words (for testing).
+	Provider string `yaml:"provider"`
+	Endpoint string `yaml:"endpoint"`
+	// Model must support fill-in-the-middle completion.
+	Model     string        `yaml:"model"`
+	MaxTokens int           `yaml:"max_tokens"`
+	Debounce  time.Duration `yaml:"debounce"`
+	Timeout   time.Duration `yaml:"timeout"`
 }
 
 // PanelConfig configures the prompt diff side panel (Phase 4).
@@ -78,10 +83,14 @@ func Default() Config {
 		Command: "claude",
 		LLM: LLMConfig{
 			Enabled:  true,
+			Provider: "ollama",
 			Endpoint: "http://localhost:11434",
-			Model:    "qwen2.5:1.5b",
-			Debounce: 150 * time.Millisecond,
-			Timeout:  2 * time.Second,
+			// The PRD's qwen2.5:1.5b can't do fill-in-the-middle, which
+			// ghost text needs to finish half-typed words.
+			Model:     "qwen2.5-coder:1.5b",
+			MaxTokens: 8,
+			Debounce:  150 * time.Millisecond,
+			Timeout:   2 * time.Second,
 		},
 		Panel: PanelConfig{
 			Side:  "right",
@@ -166,6 +175,12 @@ func (c Config) Validate() error {
 	switch {
 	case c.Command == "":
 		return errors.New("command must not be empty")
+	case c.LLM.Provider != "ollama" && c.LLM.Provider != "fake":
+		return fmt.Errorf("llm.provider must be \"ollama\" or \"fake\", got %q", c.LLM.Provider)
+	case c.LLM.Provider == "ollama" && (c.LLM.Endpoint == "" || c.LLM.Model == ""):
+		return errors.New("llm.endpoint and llm.model must be set for the ollama provider")
+	case c.LLM.MaxTokens < 1 || c.LLM.MaxTokens > 64:
+		return fmt.Errorf("llm.max_tokens must be between 1 and 64, got %d", c.LLM.MaxTokens)
 	case c.LLM.Debounce < 0:
 		return errors.New("llm.debounce must not be negative")
 	case c.LLM.Timeout <= 0:
