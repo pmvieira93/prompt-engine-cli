@@ -80,6 +80,15 @@ func (c *Controller) ScreenPrompt() (text string, cursor int, ok bool) {
 	return f()
 }
 
+// SetKeys replaces the shortcut keys, e.g. after the config is edited. It
+// may be called while input is being filtered.
+func (c *Controller) SetKeys(leader, panel input.Binding) {
+	c.mu.Lock()
+	c.Leader, c.PanelKey = leader, panel
+	c.armed = false
+	c.mu.Unlock()
+}
+
 // Disabled reports whether Disable was called.
 func (c *Controller) Disabled() bool {
 	c.mu.Lock()

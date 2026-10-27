@@ -295,3 +295,45 @@ func TestWorkerQuietNearCompletionMenu(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestWorkerUpdate(t *testing.T) {
+	c := &Controller{Tracker: input.NewTracker()}
+	w := &Worker{Tracker: c.Tracker, Ctrl: c, Debounce: 10 * time.Millisecond, Timeout: time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+	time.Sleep(10 * time.Millisecond) // let Run subscribe
+
+	// No suggester: nothing is shown.
+	c.Filter([]byte("refa"))
+	time.Sleep(60 * time.Millisecond)
+	if v := c.Visible(); v != "" {
+		t.Fatalf("suggestion %q with suggestions off", v)
+	}
+
+	// Turning suggestions on applies from the next pause.
+	w.Update(suggest.Fake{}, 10*time.Millisecond, time.Second)
+	c.Filter([]byte("\x7fa"))
+	deadline := time.Now().Add(2 * time.Second)
+	for c.Visible() != "ctor" {
+		if time.Now().After(deadline) {
+			t.Fatalf("suggestion = %q after Update, want %q", c.Visible(), "ctor")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestSetKeys(t *testing.T) {
+	toggles := 0
+	c := leaderController(&toggles) // leader ctrl+]
+	c.Filter([]byte("\x1d"))        // arm the old leader
+	g, _ := input.ParseBinding("ctrl+g")
+	x, _ := input.ParseBinding("x")
+	c.SetKeys(g, x)
+	if out := string(c.Filter([]byte("p"))); out != "p" {
+		t.Fatalf("SetKeys should disarm a pending leader; child got %q", out)
+	}
+	if out := string(c.Filter([]byte("\x07x\x1d"))); out != "\x1d" || toggles != 1 {
+		t.Fatalf("new keys: child got %q, toggles %d", out, toggles)
+	}
+}

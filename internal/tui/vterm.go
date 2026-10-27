@@ -45,9 +45,12 @@ import (
 
 // Options configures Run.
 type Options struct {
-	Ctrl          *ghost.Controller
-	Tracker       *input.Tracker
-	PanelPercent  int // side panel width as a percentage of the terminal
+	Ctrl    *ghost.Controller
+	Tracker *input.Tracker
+	// PanelPercent returns the side panel's width as a percentage of the
+	// terminal. It's read at every layout, so a reloaded config applies the
+	// next time the panel opens or the window resizes.
+	PanelPercent  func() int
 	OnFilterError func(error)
 	Logf          func(format string, a ...any) // optional
 	// Rules, if set, gets told when the child can take inserted text.
@@ -458,7 +461,7 @@ func (a *app) restore(w io.Writer) {
 // childSize is the emulator/PTY size for a terminal of w×h cells.
 func (a *app) childSize(w, h int) (int, int) {
 	if a.panel.Load() {
-		return w - panelWidth(w, a.opt.PanelPercent), h
+		return w - panelWidth(w, a.opt.PanelPercent()), h
 	}
 	return w, h
 }

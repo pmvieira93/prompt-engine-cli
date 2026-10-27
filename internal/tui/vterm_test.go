@@ -17,7 +17,7 @@ import (
 
 func newTestModel(w, h int) *model {
 	tr := input.NewTracker()
-	a := newApp(w, h, Options{Ctrl: &ghost.Controller{Tracker: tr}, Tracker: tr, PanelPercent: 40})
+	a := newApp(w, h, Options{Ctrl: &ghost.Controller{Tracker: tr}, Tracker: tr, PanelPercent: func() int { return 40 }})
 	return &model{app: a, w: w, h: h}
 }
 

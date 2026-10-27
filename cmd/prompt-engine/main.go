@@ -10,11 +10,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -140,16 +142,54 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if cfg.LLM.Enabled {
-		worker := &ghost.Worker{
-			Tracker:   tracker,
-			Ctrl:      ctrl,
-			Suggester: newSuggester(ctx, cfg.LLM, logf),
-			Debounce:  cfg.LLM.Debounce,
-			Timeout:   cfg.LLM.Timeout,
-			Logf:      logf,
-		}
-		go worker.Run(ctx)
+	// The worker runs even with suggestions off, so a config edit can turn
+	// them on, and so it keeps resyncing the input buffer for the rules.
+	worker := &ghost.Worker{
+		Tracker:   tracker,
+		Ctrl:      ctrl,
+		Suggester: suggesterFor(ctx, cfg.LLM, logf),
+		Debounce:  cfg.LLM.Debounce,
+		Timeout:   cfg.LLM.Timeout,
+		Logf:      logf,
+	}
+	go worker.Run(ctx)
+
+	// Reload the config when it's edited (FR-4.3). Settings that only
+	// matter at startup are reported rather than applied.
+	var live atomic.Pointer[config.Config]
+	live.Store(&cfg)
+	if path, err := config.Path(); err != nil {
+		logf("config: not watching for edits: %v", err)
+	} else {
+		go config.Watch(ctx, path, time.Second, func(next config.Config, err error) {
+			if err != nil {
+				logf("config: %s; keeping the previous settings", strings.ReplaceAll(err.Error(), "\n", " "))
+				return
+			}
+			prev := live.Swap(&next)
+			var applied, restart []string
+			if next.LLM != prev.LLM {
+				worker.Update(suggesterFor(ctx, next.LLM, logf), next.LLM.Debounce, next.LLM.Timeout)
+				applied = append(applied, "llm")
+			}
+			if next.Keys != prev.Keys {
+				leader, _ := input.ParseBinding(next.Keys.Leader)
+				panel, _ := input.ParseBinding(next.Keys.Panel)
+				ctrl.SetKeys(leader, panel)
+				applied = append(applied, "keys")
+			}
+			if next.Panel != prev.Panel {
+				applied = append(applied, "panel")
+			}
+			if next.Command != prev.Command || !slices.Equal(next.Args, prev.Args) || !maps.Equal(next.Env, prev.Env) {
+				restart = append(restart, "command/args/env")
+			}
+			if next.Templates != prev.Templates {
+				restart = append(restart, "templates")
+			}
+			logf("config: reloaded %s; applied: %s; needs a restart: %s",
+				path, listOrNone(applied), listOrNone(restart))
+		})
 	}
 
 	var rawOutput io.Writer
@@ -166,7 +206,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 	return tui.Run(cmd, tui.Options{
 		Ctrl:          ctrl,
 		Tracker:       tracker,
-		PanelPercent:  cfg.Panel.Width,
+		PanelPercent:  func() int { return live.Load().Panel.Width },
 		OnFilterError: onFilterError,
 		Logf:          logf,
 		Rules:         injector,
@@ -195,6 +235,22 @@ func logStartup(logf func(string, ...any), cfg config.Config, cfgErr error) {
 		llm = fmt.Sprintf("%s, model %s", provider, cfg.LLM.Model)
 	}
 	logf("session start: config %s; suggestions %s", src, llm)
+}
+
+// suggesterFor returns the suggester cfg asks for, or nil when
+// suggestions are off.
+func suggesterFor(ctx context.Context, cfg config.LLMConfig, logf func(string, ...any)) suggest.Suggester {
+	if !cfg.Enabled {
+		return nil
+	}
+	return newSuggester(ctx, cfg, logf)
+}
+
+func listOrNone(items []string) string {
+	if len(items) == 0 {
+		return "none"
+	}
+	return strings.Join(items, ", ")
 }
 
 // newSuggester builds the configured suggester. For Ollama it loads the

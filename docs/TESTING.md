@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -447,7 +447,33 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 
 ---
 
-## 9. Known limitations (expected, not bugs)
+## 9. Part H: Config changes apply while running
+
+`prompt-engine` checks its config file once a second and applies edits to the running session. Nothing here sends a prompt.
+
+**Setup.** In Terminal A, start it with a throwaway config:
+
+```sh
+printf 'llm:\n  provider: fake\n' > /tmp/pe-live.yaml
+PROMPT_ENGINE_CONFIG=/tmp/pe-live.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+Edit the file from **Terminal B** with the commands below; you can stop `tail -f` with Ctrl+C and restart it after. After each edit, the log shows `config: reloaded /tmp/pe-live.yaml; applied: …; needs a restart: …` within about a second. In Terminal A, press Ctrl+U between steps.
+
+| # | Edit in Terminal B | Then in Terminal A | Expected |
+|---|---|---|---|
+| H1 | (none) | Type `refa` and stop | Ghost text `ctor` |
+| H2 | `printf 'llm:\n  provider: fake\n  enabled: false\n' > /tmp/pe-live.yaml` | Type `refa` and stop | **No** ghost text. Log: `applied: llm` |
+| H3 | `printf 'llm:\n  provider: fake\n  debounce: 1s\n' > /tmp/pe-live.yaml` | Type `refa` and stop | Ghost text comes back, but only about **1 second** after you stop typing |
+| H4 | `printf 'llm:\n  provider: fake\nkeys:\n  leader: ctrl+g\n' > /tmp/pe-live.yaml` | Press **Ctrl+G**, then **p**; again to close | The panel opens and closes. Log: `applied: llm, keys`, then `leader: toggle panel`. Ctrl+Q on its own is now just passed to `claude` |
+| H5 | `printf 'llm:\n  provider: fake\nkeys:\n  leader: ctrl+g\npanel:\n  width: 60\n' > /tmp/pe-live.yaml` | Ctrl+G, then p | The panel opens noticeably **wider** (60% instead of 40%). Close it again |
+| H6 | `printf 'comand: typo\n' > /tmp/pe-live.yaml` | Ctrl+G, then p | The panel still toggles with Ctrl+G: the broken edit was ignored. Log: `config: parse …; keeping the previous settings` |
+| H7 | `printf 'command: bash\n' > /tmp/pe-live.yaml` | Keep using it | `claude` keeps running; the command only changes on restart. Log: `needs a restart: command/args/env` |
+| H8 | `rm /tmp/pe-live.yaml` | Type `explain how the input buf` and stop | Back to the defaults: real suggestions from Ollama, and Ctrl+Q is the leader again. Log: `llm: qwen2.5-coder:1.5b loaded …` |
+
+---
+
+## 10. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -457,17 +483,19 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 | A key pressed in the first few milliseconds after launch is sometimes missing from the log | `claude` still receives it; the terminal just isn't fully switched over yet. |
 | iTerm2's own scrollback doesn't show earlier conversation | The emulator draws in the alternate screen. Scroll inside `claude` instead. |
 | Suggestions sometimes misspell a half-typed word (e.g. `refa` → `refact`) or drift into code-like text | The 1.5B model has little context about your project yet. Better context (recent prompts, repository details) is planned. |
+| Editing `command`, `args`, `env` or `templates.dir` while running has no effect until a restart | `claude` is already running with them. The log says `needs a restart: …` |
+| A new `panel.width` applies the next time the panel opens or the window resizes | The panel isn't re-laid out mid-display |
 | Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
 | Rules aren't added when the prompt text is unknown (`synced=false`, e.g. a multi-line prompt after history) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---
 
-## 10. Reporting a problem
+## 11. Reporting a problem
 
 Include:
 
-1. The test number (e.g. C9, E5, F2 or G1)
+1. The test number (e.g. C9, E5, F2, G1 or H3)
 2. What `claude` showed
 3. The matching lines from `/tmp/pe.log`
 4. Your terminal app (iTerm2, Terminal.app, Ghostty, …)
