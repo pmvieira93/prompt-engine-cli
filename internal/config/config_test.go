@@ -1,12 +1,13 @@
 package config
 
 import (
-	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 )
 
 func writeConfig(t *testing.T, body string) string {
