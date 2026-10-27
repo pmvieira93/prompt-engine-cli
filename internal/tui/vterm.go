@@ -53,6 +53,9 @@ type Options struct {
 	Logf          func(format string, a ...any) // optional
 	// Rules, if set, gets told when the child can take inserted text.
 	Rules *rules.Injector
+	// RawOutput, if set, receives a copy of everything the child writes,
+	// for debugging how it draws. Writes happen on the output goroutine.
+	RawOutput io.Writer
 
 	// PanicOnGhost makes the renderer panic when it first draws ghost text,
 	// to exercise the pass-through fallback. Testing only.
@@ -171,6 +174,9 @@ func newApp(cols, rows int, opt Options) *app {
 
 // Write receives child output.
 func (a *app) Write(p []byte) (int, error) {
+	if a.opt.RawOutput != nil {
+		_, _ = a.opt.RawOutput.Write(p)
+	}
 	if a.fallback.Load() {
 		return os.Stdout.Write(p)
 	}

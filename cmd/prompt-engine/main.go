@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
@@ -43,6 +44,8 @@ const envDebugLog = "PROMPT_ENGINE_DEBUG_LOG"
 //     to run the manual tests with the fake suggester's fixed results.
 //   - PROMPT_ENGINE_FAKE_DELAY (a duration) slows the fake suggester down to
 //     mimic a model.
+//   - PROMPT_ENGINE_DEBUG_OUTPUT names a file that receives a copy of all
+//     of the child's output, to debug how it draws.
 //   - PROMPT_ENGINE_TEST_RENDER_PANIC=1 makes the renderer panic on the first
 //     ghost text, to exercise the pass-through fallback (FR-1.3).
 const (
@@ -50,6 +53,7 @@ const (
 	envSuggester   = "PROMPT_ENGINE_SUGGESTER"
 	envFakeDelay   = "PROMPT_ENGINE_FAKE_DELAY"
 	envRenderPanic = "PROMPT_ENGINE_TEST_RENDER_PANIC"
+	envDebugOutput = "PROMPT_ENGINE_DEBUG_OUTPUT"
 )
 
 func main() {
@@ -148,6 +152,17 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 		go worker.Run(ctx)
 	}
 
+	var rawOutput io.Writer
+	if path := os.Getenv(envDebugOutput); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			logf("debug output: %v", err)
+		} else {
+			defer f.Close()
+			rawOutput = f
+		}
+	}
+
 	return tui.Run(cmd, tui.Options{
 		Ctrl:          ctrl,
 		Tracker:       tracker,
@@ -155,6 +170,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 		OnFilterError: onFilterError,
 		Logf:          logf,
 		Rules:         injector,
+		RawOutput:     rawOutput,
 		PanicOnGhost:  os.Getenv(envRenderPanic) != "",
 	})
 }
