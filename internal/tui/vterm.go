@@ -61,9 +61,10 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	if err != nil {
 		cols, rows = 80, 24
 	}
-	// Each frame allocates ~1 MB of cells and strings; without a limit the GC
-	// lets the heap double between cycles and RSS drifts past the PRD's
-	// 30 MB budget during heavy output. A soft limit trades a little CPU.
+	// The GC lets the heap grow to twice the live heap (~12 MB at 200x60)
+	// between cycles, which lands just over the PRD's 30 MB budget during
+	// heavy output. A soft limit caps that with room to spare; measured at
+	// 200x60 while streaming, it holds ~24 MB with no extra CPU.
 	debug.SetMemoryLimit(memoryLimit)
 	a := newApp(cols, rows, opt)
 	// 120 FPS (Bubble Tea's cap) halves the frame-tick share of echo latency;
@@ -115,8 +116,8 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 }
 
 const (
-	scrollbackLines = 500
-	memoryLimit     = 28 << 20 // below this the GC thrashes (live heap ~17 MB)
+	scrollbackLines = 1 // x/vt ignores 0; nothing reads the scrollback
+	memoryLimit     = 28 << 20 // a ceiling; the live heap is ~12 MB at 200x60
 )
 
 type app struct {
@@ -146,9 +147,9 @@ func newApp(cols, rows int, opt Options) *app {
 		modes: map[ansi.DECMode]bool{},
 		wake:  make(chan struct{}, 1),
 	}
-	// Scrollback cells are full structs (style colors are interfaces), so the
-	// default 10k lines costs tens of MB. Claude's fullscreen renderer keeps
-	// its own history; a small cap is enough for the classic renderer.
+	// Scrollback lines are never displayed (we render in the alternate screen
+	// and claude keeps its own history), yet each cell is a ~112-byte struct:
+	// even 500 lines cost ~11 MB at 200 columns. Keep the minimum.
 	a.emu.SetScrollbackSize(scrollbackLines)
 	a.emu.SetCallbacks(vt.Callbacks{
 		EnableMode:  func(m ansi.Mode) { a.setMode(m, true) },
