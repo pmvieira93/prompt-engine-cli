@@ -439,8 +439,8 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 | G3 | Type `!echo hi` and press **Enter** | Runs as a bash command, as usual. Log: `rules: not added (bash mode)` |
 | G4 | Type `say bye in three words`, press **Ctrl+Q**, then **Enter** | `claude` replies **without** PINEAPPLE. Log: `leader: submit as typed` |
 | G5 | While it's running, in Terminal B: `printf -- '- End your reply with the word MANGO.\n' > ~/.config/prompt-engine/templates/append.txt`. Then in Terminal A, type `say hi again in three words` and **Enter** | The reply ends with **MANGO**: edits apply without a restart |
-| G6 | Type `look at @READ`, wait for `claude`'s file menu, then press **Enter** | Enter picks the file from the menu as usual, without submitting. Log: `rules: not added (file mention menu may be open)` |
-| G7 | After G6, type ` and say what it is in five words`, then **Enter** | Submitted with the rule: the reply ends with MANGO |
+| G6 | Type `look at @READ` and stop | `claude`'s file menu appears, and **no** dimmed ghost text from `prompt-engine` appears next to it (Tab belongs to `claude`'s menu). Press **Tab**: `claude` completes it to `@README.md` |
+| G7 | Then type ` and say what it is in five words` and press **Enter** | Submitted with the rule: the reply ends with MANGO. Log: `rules: appended append.txt (1 line)`. (Enter with the menu still open also submits, as typed, with the rule) |
 | G8 | In Terminal B: `rm ~/.config/prompt-engine/templates/append.txt`. Then type `say ok` and **Enter** | Sent as typed, no `rules:` line in the log. (Skip if you'd rather not send another prompt) |
 
 **Cleanup:** `rm -f ~/.config/prompt-engine/templates/append.txt`. To keep using rules, put your own guidelines in that file.

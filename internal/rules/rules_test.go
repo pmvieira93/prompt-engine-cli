@@ -49,7 +49,6 @@ func TestBeforeSubmitSkips(t *testing.T) {
 		"slash command": state("/compact"),
 		"bash mode":     state("!ls"),
 		"memory note":   state("# use tabs"),
-		"mention menu":  state("look at @inter"),
 		"out of sync":   {Text: "abc", Cursor: 3},
 	}
 	for name, s := range cases {
@@ -63,9 +62,12 @@ func TestBeforeSubmitSkips(t *testing.T) {
 			}
 		})
 	}
-	in, _ := injector(t, "rules")
-	if in.BeforeSubmit(state("look at @internal/rules ")) == nil {
-		t.Error("a finished mention (followed by a space) should still get rules")
+	// Enter after a mention submits in claude, so it gets rules too.
+	for _, text := range []string{"look at @inter", "look at @internal/rules "} {
+		in, _ := injector(t, "rules")
+		if in.BeforeSubmit(state(text)) == nil {
+			t.Errorf("%q: rules not added", text)
+		}
 	}
 }
 

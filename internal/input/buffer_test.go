@@ -165,38 +165,35 @@ func TestTrackerResync(t *testing.T) {
 	}
 }
 
-func TestEnterInMentionMenuDesyncs(t *testing.T) {
-	b := NewBuffer()
-	if got := feed(b, "look at @READ\r"); got != "" {
-		t.Fatalf("Enter in the @ menu submitted %q", got)
-	}
-	if b.Synced() || b.Text() != "look at @READ" {
-		t.Fatalf("expected the text kept and out of sync, got %q synced=%v", b.Text(), b.Synced())
-	}
-
-	// Enter still submits a slash command, a finished mention, and an
-	// address that merely contains @.
-	for _, text := range []string{"/help", "look at @README.md ", "email me@example.com"} {
-		if got := feed(NewBuffer(), text+"\r"); got != text {
-			t.Errorf("%q: submitted %q", text, got)
+func TestEnterAfterMentionSubmits(t *testing.T) {
+	// In claude, Enter with the @ menu open submits the text as typed;
+	// Tab is what picks a file.
+	for _, text := range []string{"look at @READ", "/help", "look at @README.md "} {
+		b := NewBuffer()
+		if got := feed(b, text+"\r"); got != text || b.Text() != "" || !b.Synced() {
+			t.Errorf("%q: submitted %q, then text %q synced=%v", text, got, b.Text(), b.Synced())
 		}
 	}
 }
 
-func TestMentionMenuMayBeOpen(t *testing.T) {
+func TestCompletionMenuMayBeOpen(t *testing.T) {
 	cases := map[string]bool{
-		"look at @READ":       true,
-		"@inter":              true,
-		"look at @README.md ": false,
-		"/hel":                false,
-		"plain text":          false,
-		"":                    false,
-		"two lines\n@x":       true,
-		"done @x\n":           false,
+		"look at @READ":        true,
+		"@inter":               true,
+		"/hel":                 true,
+		"/compact":             true,
+		"look at @README.md ":  false,
+		"/compact focus":       false,
+		"see /usr/bin":         false,
+		"email me@example.com": false,
+		"plain text":           false,
+		"":                     false,
+		"two lines\n@x":        true,
+		"done @x\n":            false,
 	}
 	for text, want := range cases {
-		if got := MentionMenuMayBeOpen(text); got != want {
-			t.Errorf("MentionMenuMayBeOpen(%q) = %v, want %v", text, got, want)
+		if got := CompletionMenuMayBeOpen(text); got != want {
+			t.Errorf("CompletionMenuMayBeOpen(%q) = %v, want %v", text, got, want)
 		}
 	}
 }

@@ -44,12 +44,6 @@ func (b *Buffer) Apply(k Key) (submitted string, ok bool) {
 	case KeyNewline:
 		b.insert([]rune{'\n'})
 	case KeyEnter:
-		if MentionMenuMayBeOpen(b.Text()) {
-			// Enter picks a file from claude's @ menu: the prompt keeps
-			// its text, edited in a way we can't replay.
-			b.desync()
-			return "", false
-		}
 		submitted = b.Text()
 		b.reset()
 		return submitted, true
@@ -225,16 +219,21 @@ func (b *Buffer) wordStart() int {
 	return i
 }
 
-// MentionMenuMayBeOpen reports whether claude may be showing its file menu
-// for text, so that Enter would pick a file rather than submit: the last
-// word is an @-mention not yet followed by a space. (Enter on a slash
-// command's menu runs the command and clears the prompt, like a submit.)
-func MentionMenuMayBeOpen(text string) bool {
+// CompletionMenuMayBeOpen reports whether claude may be showing a
+// completion menu for text: the last word is an @-mention, or the text is
+// a slash command, not yet followed by a space. Tab picks from that menu,
+// so ghost text, which Tab would accept instead, must not compete with it.
+// (Enter still submits.)
+func CompletionMenuMayBeOpen(text string) bool {
 	if strings.HasSuffix(text, " ") || strings.HasSuffix(text, "\n") {
 		return false
 	}
 	fields := strings.Fields(text)
-	return len(fields) > 0 && strings.HasPrefix(fields[len(fields)-1], "@")
+	if len(fields) == 0 {
+		return false
+	}
+	last := fields[len(fields)-1]
+	return strings.HasPrefix(last, "@") || (len(fields) == 1 && strings.HasPrefix(last, "/"))
 }
 
 // normalizeNewlines converts CRLF and CR in pasted text to LF.

@@ -266,3 +266,32 @@ func TestBeforeSubmit(t *testing.T) {
 		t.Fatalf("BeforeSubmit called for leader+Enter")
 	}
 }
+
+// TestWorkerQuietNearCompletionMenu: while claude's @ or / menu may be
+// open, Tab must pick from it, so no ghost text competes for Tab.
+func TestWorkerQuietNearCompletionMenu(t *testing.T) {
+	c := &Controller{Tracker: input.NewTracker()}
+	w := &Worker{Tracker: c.Tracker, Ctrl: c, Suggester: suggest.Fake{Words: []string{"readme", "help"}},
+		Debounce: 10 * time.Millisecond, Timeout: time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+	time.Sleep(10 * time.Millisecond) // let Run subscribe
+
+	for _, text := range []string{"look at @rea", "\x15/hel"} {
+		c.Filter([]byte(text))
+		time.Sleep(80 * time.Millisecond)
+		if v := c.Visible(); v != "" {
+			t.Fatalf("%q: ghost text %q shown next to claude's menu", text, v)
+		}
+	}
+	// Sanity check: the same suggester does complete outside a menu.
+	c.Filter([]byte("\x15rea"))
+	deadline := time.Now().Add(2 * time.Second)
+	for c.Visible() != "dme" {
+		if time.Now().After(deadline) {
+			t.Fatalf("suggestion = %q outside a menu, want %q", c.Visible(), "dme")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}

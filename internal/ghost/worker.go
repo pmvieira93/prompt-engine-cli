@@ -47,6 +47,9 @@ func (w *Worker) Run(ctx context.Context) {
 					continue
 				}
 			}
+			if input.CompletionMenuMayBeOpen(s.Text) {
+				continue // Tab belongs to claude's menu
+			}
 			if w.Ctrl.Disabled() || !s.Synced || s.Cursor != utf8.RuneCountInString(s.Text) || strings.TrimSpace(s.Text) == "" {
 				continue
 			}

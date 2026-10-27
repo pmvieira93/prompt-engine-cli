@@ -72,8 +72,7 @@ func (in *Injector) BeforeSubmit(s input.State) []byte {
 }
 
 // skipReason says why s must be submitted without rules, or "" if it can
-// take them. Enter on these doesn't send a message to the model, or opens
-// a menu whose selection the rules would break.
+// take them: Enter on these doesn't send a message to the model.
 func skipReason(s input.State) string {
 	trimmed := strings.TrimSpace(s.Text)
 	switch {
@@ -87,8 +86,6 @@ func skipReason(s input.State) string {
 		return "bash mode"
 	case strings.HasPrefix(trimmed, "#"):
 		return "memory note"
-	case input.MentionMenuMayBeOpen(s.Text):
-		return "file mention menu may be open"
 	}
 	return ""
 }
