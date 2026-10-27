@@ -288,6 +288,7 @@ Start it as in Part B, with the log open in Terminal B. Between tests, press **C
 | E6 | Type ` docu`, wait, then quickly type `ment` | Ghost text disappears; no grey fragments left |
 | E7 | Ctrl+U, type `impl`, then press Left Arrow right away and wait ½ second | No ghost text (the cursor isn't at the end) |
 | E8 | Ctrl+U, type `@`, then **Tab** | `claude`'s own file autocomplete works (Tab is only taken while ghost text is showing) |
+| E8b | Ctrl+U, type `@`, browse the menu with Up/Down **without choosing**, Backspace the `@`, then type `refa` and wait | Ghost text `ctor` appears. Log: `synced=false` while browsing, then `buffer resynced from screen`, then `suggestion shown` for `refa` |
 | E9 | Type a few words, then press **Ctrl+P** | `claude` handles it (moves up / history); prompt-engine doesn't take it |
 | E10 | Press **Ctrl+Q**, then **p** | `claude` shrinks to about 60% width; a bordered panel on the right shows the prompt text and the current suggestion. Log: `leader: waiting for a shortcut key`, then `leader: toggle panel` |
 | E11 | With the panel open, type `refa` | The panel updates live with the text and the suggestion |
@@ -344,9 +345,9 @@ PROMPT_ENGINE_PASSTHROUGH=1 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engin
 
 | What you'll see | Why |
 |---|---|
-| Keys typed in permission dialogs or menus (e.g. `1`, arrows) show up in the log as prompt text or `synced=false` until the next Enter | The input buffer replays keys and doesn't read `claude`'s screen yet. Ghost text is already kept out of dialogs (E17); resyncing the buffer from the screen is planned. |
+| Keys typed in permission dialogs or menus (e.g. `1`, arrows) briefly show up in the log as prompt text or `synced=false` | The input buffer replays keys. When it loses track, it resyncs from `claude`'s screen within ~150ms (`buffer resynced from screen`), but only for a prompt that fits on one line. Ghost text is kept out of dialogs (E17). |
 | **Backslash + Enter** (`claude`'s way to add a new line) resets the log to `""`, while `claude` keeps the text | The buffer treats every Enter as "send". Use Option+Enter for multi-line text while testing. |
-| Picking a slash-command or file suggestion leaves the log `synced=false` | Autocomplete changes the text in ways we can't predict, so this is intended. |
+| After history, autocomplete or a slash command, a **multi-line or wrapped** prompt stays `synced=false` until Enter or Ctrl+C | Resync from the screen only reads single-line prompts, so a half-read prompt is never trusted. |
 | A key pressed in the first few milliseconds after launch is sometimes missing from the log | `claude` still receives it; the terminal just isn't fully switched over yet. |
 | iTerm2's own scrollback doesn't show earlier conversation | The emulator draws in the alternate screen. Scroll inside `claude` instead. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |

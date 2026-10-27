@@ -210,3 +210,30 @@ func TestWorkerSurvivesSuggesterPanic(t *testing.T) {
 		t.Fatalf("typing affected after suggester panic: %q", out)
 	}
 }
+
+// TestWorkerResyncsFromScreen reproduces browsing claude's @ menu: arrow
+// keys desync the buffer, and the screen is used to recover.
+func TestWorkerResyncsFromScreen(t *testing.T) {
+	c := &Controller{Tracker: input.NewTracker()}
+	c.SetScreen(func() (string, int, bool) { return "refa", 4, true })
+	w := &Worker{Tracker: c.Tracker, Ctrl: c, Suggester: suggest.Fake{}, Debounce: 20 * time.Millisecond, Timeout: time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+	time.Sleep(10 * time.Millisecond) // let Run subscribe
+
+	c.Filter([]byte("@\x1b[B\x7frefa"))
+	if c.Tracker.Snapshot().Synced {
+		t.Fatal("arrow key should have desynced the buffer")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for c.Visible() != "ctor" {
+		if time.Now().After(deadline) {
+			t.Fatalf("suggestion = %q, want %q (state %+v)", c.Visible(), "ctor", c.Tracker.Snapshot())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if s := c.Tracker.Snapshot(); s.Text != "refa" || s.Cursor != 4 || !s.Synced {
+		t.Fatalf("state after resync = %+v", s)
+	}
+}

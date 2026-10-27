@@ -144,3 +144,33 @@ func TestViewKeepsHyperlinks(t *testing.T) {
 		t.Fatalf("hyperlink dropped from the frame: %q", c)
 	}
 }
+
+func TestPromptText(t *testing.T) {
+	const rule = "\r\n──────────────────────────────"
+	cases := []struct {
+		name, screen string
+		text         string
+		cursor       int
+		ok           bool
+	}{
+		{"typed", "❯ refa" + rule + "\x1b[1;7H", "refa", 4, true},
+		{"cursor mid-text", "❯ refa" + rule + "\x1b[1;5H", "refa", 2, true},
+		{"placeholder is empty", "❯ \x1b[2mTry \"fix the bug\"\x1b[22m" + rule + "\x1b[1;3H", "", 0, true},
+		{"trailing space before cursor", "❯ fix " + rule + "\x1b[1;7H", "fix ", 4, true},
+		{"wide characters", "❯ 中文" + rule + "\x1b[1;7H", "中文", 2, true},
+		{"no rule below", "❯ refa\r\nmore text" + "\x1b[1;7H", "", 0, false},
+		{"not the prompt", "> refa" + rule + "\x1b[1;7H", "", 0, false},
+		{"may wrap", "❯ " + strings.Repeat("x", 38) + rule + "\x1b[1;40H", "", 0, false},
+		{"hidden cursor", "❯ refa" + rule + "\x1b[1;7H\x1b[?25l", "", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel(40, 4)
+			m.app.emu.Write([]byte(tc.screen))
+			text, cursor, ok := m.app.promptText()
+			if text != tc.text || cursor != tc.cursor || ok != tc.ok {
+				t.Fatalf("promptText = (%q, %d, %v), want (%q, %d, %v)", text, cursor, ok, tc.text, tc.cursor, tc.ok)
+			}
+		})
+	}
+}

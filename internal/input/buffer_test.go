@@ -141,3 +141,26 @@ func TestTrackerNotifiesOnChange(t *testing.T) {
 	default:
 	}
 }
+
+func TestTrackerResync(t *testing.T) {
+	tr := NewTracker()
+	tr.Filter([]byte("abc\x1b[A"))
+	s := tr.Snapshot()
+	if s.Synced {
+		t.Fatal("expected desync")
+	}
+	tr.Filter([]byte("x")) // newer input than the screen read
+	if tr.Resync(s.Rev, "refa", 4) {
+		t.Fatal("resync applied over newer input")
+	}
+	s = tr.Snapshot()
+	if !tr.Resync(s.Rev, "refa", 9) {
+		t.Fatal("resync not applied")
+	}
+	if s := tr.Snapshot(); s.Text != "refa" || s.Cursor != 4 || !s.Synced {
+		t.Fatalf("snapshot = %+v (cursor should clamp to 4)", s)
+	}
+	if tr.Resync(tr.Snapshot().Rev, "refa", 4) {
+		t.Error("identical resync reported a change")
+	}
+}

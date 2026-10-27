@@ -36,6 +36,7 @@ type Controller struct {
 	Leader, PanelKey input.Binding
 
 	mu       sync.Mutex
+	screen   func() (text string, cursor int, ok bool)
 	dec      input.Decoder
 	sug      string
 	disabled bool
@@ -49,6 +50,28 @@ func (c *Controller) Disable() {
 	c.mu.Lock()
 	c.disabled, c.sug = true, ""
 	c.mu.Unlock()
+}
+
+// SetScreen installs a reader for the prompt as the child's screen shows
+// it, used to resync the input buffer when replayed keys can't tell what
+// the child did with them. It may be called while the worker runs.
+func (c *Controller) SetScreen(f func() (text string, cursor int, ok bool)) {
+	c.mu.Lock()
+	c.screen = f
+	c.mu.Unlock()
+}
+
+// ScreenPrompt returns the prompt text and cursor (in runes) shown on the
+// child's screen, or ok == false if there is no screen reader or the
+// prompt can't be read reliably.
+func (c *Controller) ScreenPrompt() (text string, cursor int, ok bool) {
+	c.mu.Lock()
+	f := c.screen
+	c.mu.Unlock()
+	if f == nil {
+		return "", 0, false
+	}
+	return f()
 }
 
 // Disabled reports whether Disable was called.

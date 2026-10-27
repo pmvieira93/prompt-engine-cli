@@ -75,6 +75,7 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	opt.Ctrl.OnChange = a.Wake
 	opt.Ctrl.OnTogglePanel = a.TogglePanel
 	opt.Ctrl.Gate = a.cursorInPrompt
+	opt.Ctrl.SetScreen(a.promptText)
 	go a.wakeLoop()
 	go func() {
 		for range opt.Tracker.Subscribe() {
@@ -254,6 +255,76 @@ func (a *app) cursorInPrompt() bool {
 	}
 	return false
 }
+
+// promptText reads claude's prompt from the screen: the text after the
+// prompt marker on the cursor's row, and the cursor offset in runes. It only
+// reports a prompt that fits on one row, with the input box's bottom rule
+// directly below, so a wrapped or multi-line prompt is never half-read. Faint
+// cells are skipped: they are claude's placeholder ("Try ..."), not text.
+func (a *app) promptText() (text string, cursor int, ok bool) {
+	if a.emu.CursorHidden() {
+		return "", 0, false
+	}
+	pos := a.emu.CursorPosition()
+	marker := -1
+	for x := 0; x < pos.X; x++ {
+		c := a.emu.CellAt(x, pos.Y)
+		if c == nil || isBlank(c.Content) {
+			continue
+		}
+		if c.Content == promptMarker {
+			marker = x
+		}
+		break
+	}
+	start := marker + 2 // the marker, then a (non-breaking) space
+	if marker < 0 || pos.X < start || !a.isRule(pos.Y+1) {
+		return "", 0, false
+	}
+
+	w := a.emu.Width()
+	var rs []rune
+	cursor, end := -1, 0
+	for x := start; x < w; x++ {
+		if x == pos.X {
+			cursor = len(rs)
+		}
+		c := a.emu.CellAt(x, pos.Y)
+		if c == nil || c.Content == "" || c.Style.Attrs&uv.AttrFaint != 0 {
+			continue // wide-character continuation, or placeholder
+		}
+		if x == w-1 && !isBlank(c.Content) {
+			return "", 0, false // may continue on the next row
+		}
+		rs = append(rs, []rune(c.Content)...)
+		if !isBlank(c.Content) {
+			end = len(rs)
+		}
+	}
+	if cursor < 0 {
+		cursor = len(rs)
+	}
+	// Keep spaces typed before the cursor; drop the row's trailing padding.
+	return string(rs[:max(end, cursor)]), cursor, true
+}
+
+// isRule reports whether row y is a horizontal rule, like the lines above
+// and below claude's input box.
+func (a *app) isRule(y int) bool {
+	if y >= a.emu.Height() {
+		return false
+	}
+	for x := range a.emu.Width() {
+		c := a.emu.CellAt(x, y)
+		if c == nil || isBlank(c.Content) {
+			continue
+		}
+		return c.Content == "─"
+	}
+	return false
+}
+
+func isBlank(s string) bool { return s == "" || s == " " || s == "\u00a0" }
 
 // Wake schedules a redraw. It never blocks.
 func (a *app) Wake() {

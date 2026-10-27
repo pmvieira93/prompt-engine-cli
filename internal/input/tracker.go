@@ -48,14 +48,39 @@ func (t *Tracker) Filter(p []byte) []byte {
 	t.mu.Unlock()
 
 	if dirty {
-		for _, ch := range subs {
-			select {
-			case ch <- struct{}{}:
-			default: // a notification is already pending
-			}
-		}
+		notify(subs)
 	}
 	return p
+}
+
+// Resync replaces the tracked prompt with text and cursor, as read from the
+// child's screen, if the state is still at revision rev: input that arrived
+// since rev is newer than any screen read made for it. It reports whether
+// the state changed.
+func (t *Tracker) Resync(rev uint64, text string, cursor int) bool {
+	t.mu.Lock()
+	if t.buf.Rev() != rev {
+		t.mu.Unlock()
+		return false
+	}
+	t.buf.Set(text, cursor)
+	changed := t.buf.Rev() != rev
+	subs := t.subs
+	t.mu.Unlock()
+
+	if changed {
+		notify(subs)
+	}
+	return changed
+}
+
+func notify(subs []chan struct{}) {
+	for _, ch := range subs {
+		select {
+		case ch <- struct{}{}:
+		default: // a notification is already pending
+		}
+	}
 }
 
 // Snapshot returns the current prompt state.

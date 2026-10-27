@@ -38,6 +38,15 @@ func (w *Worker) Run(ctx context.Context) {
 			timer.Reset(w.Debounce)
 		case <-timer.C:
 			s := w.Tracker.Snapshot()
+			if !s.Synced && !w.Ctrl.Disabled() {
+				// Replayed keys lost track of the prompt (history, a menu,
+				// autocomplete). Take it from the screen instead; the
+				// resync notifies subscribers, which re-arms this timer.
+				if text, cur, ok := w.Ctrl.ScreenPrompt(); ok && w.Tracker.Resync(s.Rev, text, cur) {
+					w.logf("buffer resynced from screen rev=%d %q", s.Rev, text)
+					continue
+				}
+			}
 			if w.Ctrl.Disabled() || !s.Synced || s.Cursor != utf8.RuneCountInString(s.Text) || strings.TrimSpace(s.Text) == "" {
 				continue
 			}
