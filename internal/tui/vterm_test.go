@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"io"
 	"strings"
 	"testing"
 
@@ -100,5 +101,46 @@ func TestDrawEmulatorMatchesDraw(t *testing.T) {
 
 	if g, w := got.Render(), want.Render(); g != w {
 		t.Fatalf("drawEmulator differs from Draw:\ngot  %q\nwant %q", g, w)
+	}
+}
+
+func TestForwardsOSCToRealTerminal(t *testing.T) {
+	m := newTestModel(40, 5)
+	var replies strings.Builder
+	go func() { _, _ = io.Copy(&replies, m.app.emu) }() // emulator answers to the child
+
+	m.app.emu.Write([]byte(
+		"\x1b]9;build done\a" +
+			"\x1b]9;4;1;50\a" +
+			"\x1b]777;notify;claude;needs input\a" +
+			"\x1b]52;c;aGVsbG8=\a" +
+			"\x1b]7;file://host/tmp\a" +
+			"\x1b]11;?\a" +
+			"\x1b]10;rgb:ffff/0000/0000\a"))
+
+	m.app.mu.Lock()
+	got := strings.Join(m.app.raw, "")
+	m.app.mu.Unlock()
+	for _, want := range []string{
+		"\x1b]9;build done\a", "\x1b]9;4;1;50\a", "\x1b]777;notify;claude;needs input\a",
+		"\x1b]52;c;aGVsbG8=\a", "\x1b]7;file://host/tmp\a", "\x1b]11;?\a", "\x1b]10;rgb:ffff/0000/0000\a",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("not forwarded: %q", want)
+		}
+	}
+	if fg := m.app.emu.ForegroundColor(); fg == nil {
+		t.Error("color set was not applied to the emulator")
+	}
+	if strings.Contains(replies.String(), "]11;") {
+		t.Errorf("emulator answered a color query itself: %q", replies.String())
+	}
+}
+
+func TestViewKeepsHyperlinks(t *testing.T) {
+	m := newTestModel(40, 3)
+	m.app.emu.Write([]byte("\x1b]8;;https://example.com\x1b\\docs\x1b]8;;\x1b\\"))
+	if c := m.View().Content; !strings.Contains(c, "https://example.com") {
+		t.Fatalf("hyperlink dropped from the frame: %q", c)
 	}
 }

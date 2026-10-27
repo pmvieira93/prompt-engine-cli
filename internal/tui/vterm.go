@@ -17,6 +17,7 @@
 package tui
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -116,7 +117,7 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 }
 
 const (
-	scrollbackLines = 1 // x/vt ignores 0; nothing reads the scrollback
+	scrollbackLines = 1        // x/vt ignores 0; nothing reads the scrollback
 	memoryLimit     = 28 << 20 // a ceiling; the live heap is ~12 MB at 200x60
 )
 
@@ -336,6 +337,31 @@ func (a *app) registerForwarding() {
 		}
 		return fwd("\x1b[c")
 	})
+	// OSC sequences the real terminal must see. Handlers returning false
+	// also let the emulator apply the sequence.
+	osc := a.emu.RegisterOscHandler
+	forwardOSC := func(data []byte) { a.queueRaw("\x1b]" + string(data) + "\a") }
+	for _, cmd := range []int{
+		9,   // iTerm2 notifications and progress (9;4)
+		52,  // clipboard
+		777, // notifications (rxvt/Ghostty style)
+	} {
+		osc(cmd, func(data []byte) bool { forwardOSC(data); return true })
+	}
+	osc(7, func(data []byte) bool { // working directory, so new tabs open there
+		forwardOSC(data)
+		return false
+	})
+	for _, cmd := range []int{10, 11, 12, 110, 111, 112} { // default colors
+		osc(cmd, func(data []byte) bool {
+			forwardOSC(data)
+			// A query must be answered by the real terminal, not by the
+			// emulator's built-in white-on-black, so theme detection works.
+			// Sets and resets apply to both.
+			return bytes.Contains(data, []byte(";?"))
+		})
+	}
+
 	csi(ansi.Command('>', 0, 'm'), func(p ansi.Params) bool { // modifyOtherKeys
 		if res, _, _ := p.Param(0, 0); res != 4 {
 			return false
