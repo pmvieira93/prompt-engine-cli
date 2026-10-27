@@ -164,3 +164,39 @@ func TestTrackerResync(t *testing.T) {
 		t.Error("identical resync reported a change")
 	}
 }
+
+func TestEnterInMentionMenuDesyncs(t *testing.T) {
+	b := NewBuffer()
+	if got := feed(b, "look at @READ\r"); got != "" {
+		t.Fatalf("Enter in the @ menu submitted %q", got)
+	}
+	if b.Synced() || b.Text() != "look at @READ" {
+		t.Fatalf("expected the text kept and out of sync, got %q synced=%v", b.Text(), b.Synced())
+	}
+
+	// Enter still submits a slash command, a finished mention, and an
+	// address that merely contains @.
+	for _, text := range []string{"/help", "look at @README.md ", "email me@example.com"} {
+		if got := feed(NewBuffer(), text+"\r"); got != text {
+			t.Errorf("%q: submitted %q", text, got)
+		}
+	}
+}
+
+func TestMentionMenuMayBeOpen(t *testing.T) {
+	cases := map[string]bool{
+		"look at @READ":       true,
+		"@inter":              true,
+		"look at @README.md ": false,
+		"/hel":                false,
+		"plain text":          false,
+		"":                    false,
+		"two lines\n@x":       true,
+		"done @x\n":           false,
+	}
+	for text, want := range cases {
+		if got := MentionMenuMayBeOpen(text); got != want {
+			t.Errorf("MentionMenuMayBeOpen(%q) = %v, want %v", text, got, want)
+		}
+	}
+}

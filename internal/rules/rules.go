@@ -76,7 +76,6 @@ func (in *Injector) BeforeSubmit(s input.State) []byte {
 // a menu whose selection the rules would break.
 func skipReason(s input.State) string {
 	trimmed := strings.TrimSpace(s.Text)
-	words := strings.Fields(trimmed)
 	switch {
 	case !s.Synced:
 		return "prompt text unknown"
@@ -88,7 +87,7 @@ func skipReason(s input.State) string {
 		return "bash mode"
 	case strings.HasPrefix(trimmed, "#"):
 		return "memory note"
-	case strings.HasPrefix(words[len(words)-1], "@") && !strings.HasSuffix(s.Text, " "):
+	case input.MentionMenuMayBeOpen(s.Text):
 		return "file mention menu may be open"
 	}
 	return ""
