@@ -56,9 +56,9 @@ func main() {
 }
 
 func run() int {
-	cfg, err := config.Load()
-	if err != nil {
-		warn("%v; using defaults", err)
+	cfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		warn("%v; using defaults", cfgErr)
 	}
 
 	bin, err := exec.LookPath(cfg.Command)
@@ -90,6 +90,8 @@ func run() int {
 	if path := os.Getenv(envDebugLog); path != "" {
 		if logf, err = logStates(path, tracker); err != nil {
 			warn("debug log: %v", err)
+		} else {
+			logStartup(logf, cfg, cfgErr)
 		}
 	}
 
@@ -146,6 +148,28 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 		Logf:          logf,
 		PanicOnGhost:  os.Getenv(envRenderPanic) != "",
 	})
+}
+
+// logStartup records which config a session runs with, since the warning
+// for a bad config file is hidden as soon as the child draws its screen.
+func logStartup(logf func(string, ...any), cfg config.Config, cfgErr error) {
+	src := cfg.Source()
+	switch {
+	case cfgErr != nil:
+		src = fmt.Sprintf("defaults, because the config file failed: %v", cfgErr)
+	case src == "":
+		path, _ := config.Path()
+		src = "defaults (no file at " + path + ")"
+	}
+	llm := "off (llm.enabled: false)"
+	if cfg.LLM.Enabled {
+		provider := cfg.LLM.Provider
+		if p := os.Getenv(envSuggester); p != "" {
+			provider = p + " (from " + envSuggester + ")"
+		}
+		llm = fmt.Sprintf("%s, model %s", provider, cfg.LLM.Model)
+	}
+	logf("session start: config %s; suggestions %s", src, llm)
 }
 
 // newSuggester builds the configured suggester. For Ollama it loads the

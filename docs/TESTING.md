@@ -68,6 +68,7 @@ To clear the log between tests, run `: > /tmp/pe.log` in a third tab, or just wa
 
 - `input` lines show the exact bytes your terminal sent (left of `->`), then each key they were decoded as, with that key's own bytes (`Key="bytes"`). Use these to report bugs.
 - `Report` keys are terminal replies and events, such as focus out (`\x1b[O`) and in (`\x1b[I`) when you switch windows. They're passed to `claude` but never change the buffer. Mouse movement is not logged.
+- The first line of each session, `session start: …`, says which config file was used (or why the defaults were) and whether suggestions are on.
 - `synced` lines show the buffer state after a change. `cursor` counts Unicode code points, not bytes or visible characters: a multi-part emoji like 👍🏽 counts as 2. Several fast changes can show up as a single line.
 
 Claude Code switches the terminal into an enhanced keyboard mode, so many keys arrive as sequences like `\x1b[97;5u` (Ctrl+A) rather than single bytes. That's expected.
@@ -401,11 +402,17 @@ Type `refa` and stop.
 ### F10: Suggestions turned off
 
 ```sh
+Run these three lines one by one. The first empties the log, so lines from earlier tests can't be mistaken for this one:
+
+```sh
+: > /tmp/pe.log
 printf 'llm:\n  enabled: false\n' > /tmp/pe-off.yaml
 PROMPT_ENGINE_CONFIG=/tmp/pe-off.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
 ```
 
-**Expected:** no `llm:` or `suggestion` lines in the log at all. The panel (Ctrl+Q, then p) still works.
+**Expected:** the log starts with `session start: config /tmp/pe-off.yaml; suggestions off (llm.enabled: false)`, and has no `llm:` or `suggestion` lines after it. The panel (Ctrl+Q, then p) still works.
+
+If the first line names a different config, or says `defaults`, the setting didn't reach `prompt-engine`: check that `PROMPT_ENGINE_CONFIG=…` is on the same line as `bin/prompt-engine`.
 
 **Cleanup:** `rm -f /tmp/pe-nofim.yaml /tmp/pe-off.yaml`, and `brew services start ollama` if you left it stopped.
 
