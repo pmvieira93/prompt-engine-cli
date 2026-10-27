@@ -39,6 +39,7 @@ func TestDecodeSingleChunk(t *testing.T) {
 		{"\x1b[97;69u", []KeyType{KeyCtrl}},                          // Ctrl+A with Caps Lock on
 		{"\x1b[97;5:3u", []KeyType{KeyReport}},                       // key release event
 		{"\x1b[97;7u\x1b[57399u", []KeyType{KeyUnknown, KeyUnknown}}, // Ctrl+Alt+A, keypad 0
+		{"\x1d\x1c\x1b[93;5u", []KeyType{KeyCtrl, KeyCtrl, KeyCtrl}}, // Ctrl+] Ctrl+\\ (legacy, kitty)
 	}
 	for _, c := range cases {
 		var d Decoder

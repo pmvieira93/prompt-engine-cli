@@ -29,7 +29,7 @@ const (
 	KeyRight
 	KeyHome
 	KeyEnd
-	KeyCtrl   // Ctrl+<letter>; Ctrl holds 'a'..'z'
+	KeyCtrl   // Ctrl+<key>; Ctrl holds 'a'..'z' or one of \ ] ^ _
 	KeyReport // terminal reply to a query from the child (DA, XTVERSION, focus, …), not typed
 )
 
@@ -119,6 +119,8 @@ func decodeOne(b []byte) (Key, int) {
 		return Key{Type: KeyBackspace}, 1
 	case c >= 0x01 && c <= 0x1a:
 		return Key{Type: KeyCtrl, Ctrl: 'a' + c - 1}, 1
+	case c >= 0x1c && c <= 0x1f:
+		return Key{Type: KeyCtrl, Ctrl: c + 0x40}, 1 // Ctrl+\ ] ^ _
 	case c < 0x20:
 		return Key{Type: KeyUnknown}, 1
 	}
@@ -279,7 +281,7 @@ func modifiedKey(code, shifted rune, mods int) Key {
 		return Key{Type: KeyTab}
 	case (code == 0x7f || code == 0x08) && mods == 0:
 		return Key{Type: KeyBackspace}
-	case code >= 'a' && code <= 'z' && mods == modCtrl:
+	case code < 0x80 && isCtrlChar(byte(code)) && mods == modCtrl:
 		return Key{Type: KeyCtrl, Ctrl: byte(code)}
 	case mods == modShift && shifted != 0:
 		return Key{Type: KeyRunes, Runes: []rune{shifted}}

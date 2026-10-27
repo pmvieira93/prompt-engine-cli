@@ -126,6 +126,19 @@ func (b *Buffer) moveTo(pos int) {
 	}
 }
 
+// Set replaces the buffer with text and the cursor at rune offset cursor
+// (clamped), and marks it in sync: used when the child's actual prompt is
+// known from its screen.
+func (b *Buffer) Set(text string, cursor int) {
+	rs := []rune(text)
+	cursor = min(max(cursor, 0), len(rs))
+	if b.synced && b.cursor == cursor && string(b.runes) == text {
+		return
+	}
+	b.runes, b.cursor, b.synced = rs, cursor, true
+	b.rev++
+}
+
 func (b *Buffer) reset() {
 	if len(b.runes) == 0 && b.cursor == 0 && b.synced {
 		return

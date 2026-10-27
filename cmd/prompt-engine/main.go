@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,8 +20,11 @@ import (
 	"golang.org/x/term"
 
 	"github.com/pmvieira93/prompt-engine-cli/internal/config"
+	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
+	"github.com/pmvieira93/prompt-engine-cli/internal/suggest"
+	"github.com/pmvieira93/prompt-engine-cli/internal/tui"
 )
 
 // envActive marks a child already running under prompt-engine, so a nested
@@ -30,6 +34,19 @@ const envActive = "PROMPT_ENGINE_ACTIVE"
 // envDebugLog names a file that receives decoded input and every
 // input-buffer state change.
 const envDebugLog = "PROMPT_ENGINE_DEBUG_LOG"
+
+// Troubleshooting and test switches:
+//   - PROMPT_ENGINE_PASSTHROUGH=1 runs the plain pass-through wrapper instead
+//     of the emulator UI, to tell whether a glitch comes from the emulator.
+//   - PROMPT_ENGINE_FAKE_DELAY (a duration) slows the fake suggester down to
+//     mimic a model, until the Ollama client replaces it.
+//   - PROMPT_ENGINE_TEST_RENDER_PANIC=1 makes the renderer panic on the first
+//     ghost text, to exercise the pass-through fallback (FR-1.3).
+const (
+	envPassthrough = "PROMPT_ENGINE_PASSTHROUGH"
+	envFakeDelay   = "PROMPT_ENGINE_FAKE_DELAY"
+	envRenderPanic = "PROMPT_ENGINE_TEST_RENDER_PANIC"
+)
 
 func main() {
 	os.Exit(run())
@@ -66,18 +83,22 @@ func run() int {
 	cmd.Env = append(env, envActive+"=1")
 
 	tracker := input.NewTracker()
+	var logf func(string, ...any)
 	if path := os.Getenv(envDebugLog); path != "" {
-		if err := logStates(path, tracker); err != nil {
+		if logf, err = logStates(path, tracker); err != nil {
 			warn("debug log: %v", err)
 		}
 	}
 
 	filterErr := make(chan error, 1)
-	session := &pty.Session{
-		Filter:        tracker,
-		OnFilterError: func(err error) { filterErr <- err },
+	onFilterError := func(err error) { filterErr <- err }
+	var code int
+	if os.Getenv(envPassthrough) != "" {
+		session := &pty.Session{Filter: tracker, OnFilterError: onFilterError}
+		code, err = session.Run(cmd)
+	} else {
+		code, err = runGhost(cmd, cfg, tracker, logf, onFilterError)
 	}
-	code, err := session.Run(cmd)
 	if err != nil {
 		warn("%v", err)
 		return 1
@@ -90,16 +111,45 @@ func run() int {
 	return code
 }
 
+// runGhost runs cmd in the emulator UI with fake ghost-text suggestions.
+func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf func(string, ...any), onFilterError func(error)) (int, error) {
+	delay, _ := time.ParseDuration(os.Getenv(envFakeDelay))
+	// cfg has been validated (or is the defaults), so these parse.
+	leader, _ := input.ParseBinding(cfg.Keys.Leader)
+	panel, _ := input.ParseBinding(cfg.Keys.Panel)
+	ctrl := &ghost.Controller{Tracker: tracker, Logf: logf, Leader: leader, PanelKey: panel}
+	worker := &ghost.Worker{
+		Tracker:   tracker,
+		Ctrl:      ctrl,
+		Suggester: suggest.Fake{Delay: delay},
+		Debounce:  cfg.LLM.Debounce,
+		Timeout:   cfg.LLM.Timeout,
+		Logf:      logf,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go worker.Run(ctx)
+
+	return tui.Run(cmd, tui.Options{
+		Ctrl:          ctrl,
+		Tracker:       tracker,
+		PanelPercent:  cfg.Panel.Width,
+		OnFilterError: onFilterError,
+		Logf:          logf,
+		PanicOnGhost:  os.Getenv(envRenderPanic) != "",
+	})
+}
+
 // logStates appends decoded input and each tracker state change to path
 // until the process exits. Mouse reports are skipped: with any-motion
 // tracking on, every pointer move would otherwise flood the log.
-func logStates(path string, t *input.Tracker) error {
+func logStates(path string, t *input.Tracker) (logf func(string, ...any), err error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var mu sync.Mutex
-	logf := func(format string, a ...any) {
+	logf = func(format string, a ...any) {
 		mu.Lock()
 		defer mu.Unlock()
 		fmt.Fprintf(f, time.Now().Format("15:04:05.000")+" "+format+"\n", a...)
@@ -122,7 +172,7 @@ func logStates(path string, t *input.Tracker) error {
 			logf("synced=%-5v cursor=%-3d %q", s.Synced, s.Cursor, s.Text)
 		}
 	}()
-	return nil
+	return logf, nil
 }
 
 func warn(format string, a ...any) {
