@@ -38,12 +38,15 @@ const envDebugLog = "PROMPT_ENGINE_DEBUG_LOG"
 // Troubleshooting and test switches:
 //   - PROMPT_ENGINE_PASSTHROUGH=1 runs the plain pass-through wrapper instead
 //     of the emulator UI, to tell whether a glitch comes from the emulator.
+//   - PROMPT_ENGINE_SUGGESTER (ollama or fake) overrides llm.provider, e.g.
+//     to run the manual tests with the fake suggester's fixed results.
 //   - PROMPT_ENGINE_FAKE_DELAY (a duration) slows the fake suggester down to
-//     mimic a model, until the Ollama client replaces it.
+//     mimic a model.
 //   - PROMPT_ENGINE_TEST_RENDER_PANIC=1 makes the renderer panic on the first
 //     ghost text, to exercise the pass-through fallback (FR-1.3).
 const (
 	envPassthrough = "PROMPT_ENGINE_PASSTHROUGH"
+	envSuggester   = "PROMPT_ENGINE_SUGGESTER"
 	envFakeDelay   = "PROMPT_ENGINE_FAKE_DELAY"
 	envRenderPanic = "PROMPT_ENGINE_TEST_RENDER_PANIC"
 )
@@ -53,9 +56,9 @@ func main() {
 }
 
 func run() int {
-	cfg, err := config.Load()
-	if err != nil {
-		warn("%v; using defaults", err)
+	cfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		warn("%v; using defaults", cfgErr)
 	}
 
 	bin, err := exec.LookPath(cfg.Command)
@@ -87,6 +90,8 @@ func run() int {
 	if path := os.Getenv(envDebugLog); path != "" {
 		if logf, err = logStates(path, tracker); err != nil {
 			warn("debug log: %v", err)
+		} else {
+			logStartup(logf, cfg, cfgErr)
 		}
 	}
 
@@ -113,22 +118,27 @@ func run() int {
 
 // runGhost runs cmd in the emulator UI with fake ghost-text suggestions.
 func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf func(string, ...any), onFilterError func(error)) (int, error) {
-	delay, _ := time.ParseDuration(os.Getenv(envFakeDelay))
+	if logf == nil {
+		logf = func(string, ...any) {} // no debug log
+	}
 	// cfg has been validated (or is the defaults), so these parse.
 	leader, _ := input.ParseBinding(cfg.Keys.Leader)
 	panel, _ := input.ParseBinding(cfg.Keys.Panel)
 	ctrl := &ghost.Controller{Tracker: tracker, Logf: logf, Leader: leader, PanelKey: panel}
-	worker := &ghost.Worker{
-		Tracker:   tracker,
-		Ctrl:      ctrl,
-		Suggester: suggest.Fake{Delay: delay},
-		Debounce:  cfg.LLM.Debounce,
-		Timeout:   cfg.LLM.Timeout,
-		Logf:      logf,
-	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go worker.Run(ctx)
+	if cfg.LLM.Enabled {
+		worker := &ghost.Worker{
+			Tracker:   tracker,
+			Ctrl:      ctrl,
+			Suggester: newSuggester(ctx, cfg.LLM, logf),
+			Debounce:  cfg.LLM.Debounce,
+			Timeout:   cfg.LLM.Timeout,
+			Logf:      logf,
+		}
+		go worker.Run(ctx)
+	}
 
 	return tui.Run(cmd, tui.Options{
 		Ctrl:          ctrl,
@@ -138,6 +148,55 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 		Logf:          logf,
 		PanicOnGhost:  os.Getenv(envRenderPanic) != "",
 	})
+}
+
+// logStartup records which config a session runs with, since the warning
+// for a bad config file is hidden as soon as the child draws its screen.
+func logStartup(logf func(string, ...any), cfg config.Config, cfgErr error) {
+	src := cfg.Source()
+	switch {
+	case cfgErr != nil:
+		src = fmt.Sprintf("defaults, because the config file failed: %v", cfgErr)
+	case src == "":
+		path, _ := config.Path()
+		src = "defaults (no file at " + path + ")"
+	}
+	llm := "off (llm.enabled: false)"
+	if cfg.LLM.Enabled {
+		provider := cfg.LLM.Provider
+		if p := os.Getenv(envSuggester); p != "" {
+			provider = p + " (from " + envSuggester + ")"
+		}
+		llm = fmt.Sprintf("%s, model %s", provider, cfg.LLM.Model)
+	}
+	logf("session start: config %s; suggestions %s", src, llm)
+}
+
+// newSuggester builds the configured suggester. For Ollama it loads the
+// model in the background, so the first suggestion doesn't wait for it;
+// if the server is down, each suggestion fails fast and is only logged.
+func newSuggester(ctx context.Context, cfg config.LLMConfig, logf func(string, ...any)) suggest.Suggester {
+	provider := cfg.Provider
+	if p := os.Getenv(envSuggester); p != "" {
+		provider = p
+	}
+	if provider == "fake" {
+		delay, _ := time.ParseDuration(os.Getenv(envFakeDelay))
+		return suggest.Fake{Delay: delay}
+	}
+
+	o := &suggest.Ollama{Endpoint: cfg.Endpoint, Model: cfg.Model, MaxTokens: cfg.MaxTokens, KeepAlive: "30m"}
+	go func() {
+		wctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		start := time.Now()
+		if err := o.Warm(wctx); err != nil {
+			logf("llm: can't use %s at %s, so no suggestions until that's fixed: %v", cfg.Model, cfg.Endpoint, err)
+			return
+		}
+		logf("llm: %s loaded in %s", cfg.Model, time.Since(start).Round(time.Millisecond))
+	}()
+	return o
 }
 
 // logStates appends decoded input and each tracker state change to path

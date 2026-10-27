@@ -67,11 +67,14 @@ llm:
 
 func TestLoadFileErrorsFallBackToDefaults(t *testing.T) {
 	cases := map[string]string{
-		"unknown key": "comand: claude\n",
-		"bad yaml":    "llm: [\n",
-		"invalid":     "panel:\n  side: top\n",
-		"bad leader":  "keys:\n  leader: ctrl+1\n",
-		"same keys":   "keys:\n  leader: p\n  panel: p\n",
+		"unknown key":  "comand: claude\n",
+		"bad yaml":     "llm: [\n",
+		"invalid":      "panel:\n  side: top\n",
+		"bad leader":   "keys:\n  leader: ctrl+1\n",
+		"same keys":    "keys:\n  leader: p\n  panel: p\n",
+		"bad provider": "llm:\n  provider: openai\n",
+		"no model":     "llm:\n  model: \"\"\n",
+		"max tokens":   "llm:\n  max_tokens: 0\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
