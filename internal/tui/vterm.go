@@ -17,7 +17,6 @@
 package tui
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -146,6 +145,7 @@ type app struct {
 
 	panel         atomic.Bool
 	resizePending atomic.Bool
+	osc           oscFilter // only touched by Write, on the output goroutine
 	fallback      atomic.Bool
 	renderErr     atomic.Pointer[error]
 	wake          chan struct{}
@@ -165,10 +165,10 @@ func newApp(cols, rows int, opt Options) *app {
 	a.emu.SetCallbacks(vt.Callbacks{
 		EnableMode:  func(m ansi.Mode) { a.setMode(m, true) },
 		DisableMode: func(m ansi.Mode) { a.setMode(m, false) },
-		Title:       func(t string) { a.locked(func() { a.title = t }); a.Wake() },
 		Bell:        func() { a.queueRaw("\a") },
 	})
 	a.registerForwarding()
+	a.osc.handle = a.handleOSC
 	return a
 }
 
@@ -180,9 +180,11 @@ func (a *app) Write(p []byte) (int, error) {
 	if a.fallback.Load() {
 		return os.Stdout.Write(p)
 	}
-	n, err := a.emu.Write(p)
+	if _, err := a.emu.Write(a.osc.Filter(p)); err != nil {
+		return 0, err
+	}
 	a.Wake()
-	return n, err
+	return len(p), nil
 }
 
 // attach is called once the child is running.
@@ -429,31 +431,6 @@ func (a *app) registerForwarding() {
 		}
 		return fwd("\x1b[c")
 	})
-	// OSC sequences the real terminal must see. Handlers returning false
-	// also let the emulator apply the sequence.
-	osc := a.emu.RegisterOscHandler
-	forwardOSC := func(data []byte) { a.queueRaw("\x1b]" + string(data) + "\a") }
-	for _, cmd := range []int{
-		9,   // iTerm2 notifications and progress (9;4)
-		52,  // clipboard
-		777, // notifications (rxvt/Ghostty style)
-	} {
-		osc(cmd, func(data []byte) bool { forwardOSC(data); return true })
-	}
-	osc(7, func(data []byte) bool { // working directory, so new tabs open there
-		forwardOSC(data)
-		return false
-	})
-	for _, cmd := range []int{10, 11, 12, 110, 111, 112} { // default colors
-		osc(cmd, func(data []byte) bool {
-			forwardOSC(data)
-			// A query must be answered by the real terminal, not by the
-			// emulator's built-in white-on-black, so theme detection works.
-			// Sets and resets apply to both.
-			return bytes.Contains(data, []byte(";?"))
-		})
-	}
-
 	csi(ansi.Command('>', 0, 'm'), func(p ansi.Params) bool { // modifyOtherKeys
 		if res, _, _ := p.Param(0, 0); res != 4 {
 			return false
