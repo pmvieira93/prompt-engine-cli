@@ -3,7 +3,9 @@ package tui
 import (
 	"io"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -104,36 +106,121 @@ func TestDrawEmulatorMatchesDraw(t *testing.T) {
 	}
 }
 
+// replies collects what the emulator answers to the child.
+type replies struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (r *replies) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.b.Write(p)
+}
+
+func (r *replies) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.b.String()
+}
+
+func queued(a *app) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return strings.Join(a.raw, "")
+}
+
 func TestForwardsOSCToRealTerminal(t *testing.T) {
 	m := newTestModel(40, 5)
-	var replies strings.Builder
-	go func() { _, _ = io.Copy(&replies, m.app.emu) }() // emulator answers to the child
+	r := &replies{}
+	go func() { _, _ = io.Copy(r, m.app.emu) }()
 
-	m.app.emu.Write([]byte(
-		"\x1b]9;build done\a" +
+	m.app.Write([]byte(
+		"\x1b]9;build done ✳\a" +
 			"\x1b]9;4;1;50\a" +
-			"\x1b]777;notify;claude;needs input\a" +
+			"\x1b]777;notify;claude;needs input\x1b\\" +
 			"\x1b]52;c;aGVsbG8=\a" +
 			"\x1b]7;file://host/tmp\a" +
 			"\x1b]11;?\a" +
 			"\x1b]10;rgb:ffff/0000/0000\a"))
 
-	m.app.mu.Lock()
-	got := strings.Join(m.app.raw, "")
-	m.app.mu.Unlock()
+	got := queued(m.app)
 	for _, want := range []string{
-		"\x1b]9;build done\a", "\x1b]9;4;1;50\a", "\x1b]777;notify;claude;needs input\a",
+		"\x1b]9;build done ✳\a", "\x1b]9;4;1;50\a", "\x1b]777;notify;claude;needs input\a",
 		"\x1b]52;c;aGVsbG8=\a", "\x1b]7;file://host/tmp\a", "\x1b]11;?\a", "\x1b]10;rgb:ffff/0000/0000\a",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("not forwarded: %q", want)
+			t.Errorf("not forwarded intact: %q", want)
 		}
 	}
 	if fg := m.app.emu.ForegroundColor(); fg == nil {
 		t.Error("color set was not applied to the emulator")
 	}
-	if strings.Contains(replies.String(), "]11;") {
-		t.Errorf("emulator answered a color query itself: %q", replies.String())
+	time.Sleep(50 * time.Millisecond) // let any reply arrive
+	if strings.Contains(r.String(), "]11;") {
+		t.Errorf("emulator answered a color query itself: %q", r.String())
+	}
+}
+
+// TestTitleWithUTF8 reproduces claude's "✳ Three-word greeting" title: its
+// 0x9C byte made the emulator end the title early and print the rest of it
+// over the prompt.
+func TestTitleWithUTF8(t *testing.T) {
+	m := newTestModel(40, 3)
+	const title = "✳ Three-word greeting"
+	seq := "\x1b[2;3H\x1b]0;" + title + "\a❯"
+	// Split mid-character, as a read from the child can.
+	for _, part := range []string{seq[:9], seq[9:12], seq[12:]} {
+		m.app.Write([]byte(part))
+	}
+	if m.app.title != title {
+		t.Errorf("title = %q, want %q", m.app.title, title)
+	}
+	if screen := m.app.emu.Render(); strings.Contains(screen, "greeting") || !strings.Contains(screen, "❯") {
+		t.Fatalf("title text leaked onto the screen, or the output after it was lost: %q", screen)
+	}
+}
+
+func TestOSCFilter(t *testing.T) {
+	var seen []string
+	f := &oscFilter{handle: func(p []byte) []byte {
+		seen = append(seen, string(p))
+		return []byte("<" + string(p) + ">")
+	}}
+	cases := []struct{ in, out string }{
+		{"plain text", "plain text"},
+		{"a\x1b]0;t\x07b", "a<0;t>b"},
+		{"\x1b]8;;u\x1b\\x", "<8;;u>x"},
+		{"\x1b[31mred", "\x1b[31mred"},          // other sequences pass
+		{"\x1b\x1b]2;x\a", "\x1b<2;x>"},         // a lone ESC before an OSC
+		{"\x1b]2;cut\x1b]2;next\a", "<2;next>"}, // ESC ] cancels and restarts
+		{"\x1b]2;cut\x1b[1m", "\x1b[1m"},        // ESC [ cancels
+	}
+	for _, tc := range cases {
+		if got := string(f.Filter([]byte(tc.in))); got != tc.out {
+			t.Errorf("Filter(%q) = %q, want %q", tc.in, got, tc.out)
+		}
+	}
+	// Split across writes.
+	var got string
+	for _, part := range []string{"x\x1b", "]0;ti", "tle\x1b", "\\y"} {
+		got += string(f.Filter([]byte(part)))
+	}
+	if got != "x<0;title>y" {
+		t.Errorf("split: got %q", got)
+	}
+	// A runaway sequence is dropped without printing its payload.
+	big := "\x1b]0;" + strings.Repeat("z", maxOSC+10) + "\aend"
+	if got := string(f.Filter([]byte(big))); got != "end" {
+		t.Errorf("runaway: got %d bytes", len(got))
+	}
+}
+
+func TestHyperlinkWithC1ByteIsEncoded(t *testing.T) {
+	m := newTestModel(40, 3)
+	m.app.Write([]byte("\x1b]8;;https://example.com/✳\x1b\\x\x1b]8;;\x1b\\"))
+	if c := m.View().Content; !strings.Contains(c, "https://example.com/%E2%9C%B3") {
+		t.Fatalf("link not preserved: %q", c)
 	}
 }
 

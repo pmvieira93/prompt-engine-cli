@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
@@ -23,6 +24,7 @@ import (
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
+	"github.com/pmvieira93/prompt-engine-cli/internal/rules"
 	"github.com/pmvieira93/prompt-engine-cli/internal/suggest"
 	"github.com/pmvieira93/prompt-engine-cli/internal/tui"
 )
@@ -42,6 +44,8 @@ const envDebugLog = "PROMPT_ENGINE_DEBUG_LOG"
 //     to run the manual tests with the fake suggester's fixed results.
 //   - PROMPT_ENGINE_FAKE_DELAY (a duration) slows the fake suggester down to
 //     mimic a model.
+//   - PROMPT_ENGINE_DEBUG_OUTPUT names a file that receives a copy of all
+//     of the child's output, to debug how it draws.
 //   - PROMPT_ENGINE_TEST_RENDER_PANIC=1 makes the renderer panic on the first
 //     ghost text, to exercise the pass-through fallback (FR-1.3).
 const (
@@ -49,6 +53,7 @@ const (
 	envSuggester   = "PROMPT_ENGINE_SUGGESTER"
 	envFakeDelay   = "PROMPT_ENGINE_FAKE_DELAY"
 	envRenderPanic = "PROMPT_ENGINE_TEST_RENDER_PANIC"
+	envDebugOutput = "PROMPT_ENGINE_DEBUG_OUTPUT"
 )
 
 func main() {
@@ -125,6 +130,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 	leader, _ := input.ParseBinding(cfg.Keys.Leader)
 	panel, _ := input.ParseBinding(cfg.Keys.Panel)
 	ctrl := &ghost.Controller{Tracker: tracker, Logf: logf, Leader: leader, PanelKey: panel}
+	var injector *rules.Injector
+	if dir, err := cfg.TemplatesDir(); err != nil {
+		logf("rules: off: %v", err)
+	} else {
+		injector = &rules.Injector{Dir: dir, Logf: logf}
+		ctrl.BeforeSubmit = injector.BeforeSubmit
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -140,12 +152,25 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 		go worker.Run(ctx)
 	}
 
+	var rawOutput io.Writer
+	if path := os.Getenv(envDebugOutput); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			logf("debug output: %v", err)
+		} else {
+			defer f.Close()
+			rawOutput = f
+		}
+	}
+
 	return tui.Run(cmd, tui.Options{
 		Ctrl:          ctrl,
 		Tracker:       tracker,
 		PanelPercent:  cfg.Panel.Width,
 		OnFilterError: onFilterError,
 		Logf:          logf,
+		Rules:         injector,
+		RawOutput:     rawOutput,
 		PanicOnGhost:  os.Getenv(envRenderPanic) != "",
 	})
 }

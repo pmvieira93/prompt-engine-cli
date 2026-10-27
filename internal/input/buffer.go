@@ -1,6 +1,7 @@
 package input
 
 import (
+	"strings"
 	"unicode"
 
 	"github.com/rivo/uniseg"
@@ -216,6 +217,23 @@ func (b *Buffer) wordStart() int {
 		i--
 	}
 	return i
+}
+
+// CompletionMenuMayBeOpen reports whether claude may be showing a
+// completion menu for text: the last word is an @-mention, or the text is
+// a slash command, not yet followed by a space. Tab picks from that menu,
+// so ghost text, which Tab would accept instead, must not compete with it.
+// (Enter still submits.)
+func CompletionMenuMayBeOpen(text string) bool {
+	if strings.HasSuffix(text, " ") || strings.HasSuffix(text, "\n") {
+		return false
+	}
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return false
+	}
+	last := fields[len(fields)-1]
+	return strings.HasPrefix(last, "@") || (len(fields) == 1 && strings.HasPrefix(last, "/"))
 }
 
 // normalizeNewlines converts CRLF and CR in pasted text to LF.

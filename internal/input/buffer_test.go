@@ -164,3 +164,36 @@ func TestTrackerResync(t *testing.T) {
 		t.Error("identical resync reported a change")
 	}
 }
+
+func TestEnterAfterMentionSubmits(t *testing.T) {
+	// In claude, Enter with the @ menu open submits the text as typed;
+	// Tab is what picks a file.
+	for _, text := range []string{"look at @READ", "/help", "look at @README.md "} {
+		b := NewBuffer()
+		if got := feed(b, text+"\r"); got != text || b.Text() != "" || !b.Synced() {
+			t.Errorf("%q: submitted %q, then text %q synced=%v", text, got, b.Text(), b.Synced())
+		}
+	}
+}
+
+func TestCompletionMenuMayBeOpen(t *testing.T) {
+	cases := map[string]bool{
+		"look at @READ":        true,
+		"@inter":               true,
+		"/hel":                 true,
+		"/compact":             true,
+		"look at @README.md ":  false,
+		"/compact focus":       false,
+		"see /usr/bin":         false,
+		"email me@example.com": false,
+		"plain text":           false,
+		"":                     false,
+		"two lines\n@x":        true,
+		"done @x\n":            false,
+	}
+	for text, want := range cases {
+		if got := CompletionMenuMayBeOpen(text); got != want {
+			t.Errorf("CompletionMenuMayBeOpen(%q) = %v, want %v", text, got, want)
+		}
+	}
+}

@@ -17,7 +17,6 @@
 package tui
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -41,6 +40,7 @@ import (
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
+	"github.com/pmvieira93/prompt-engine-cli/internal/rules"
 )
 
 // Options configures Run.
@@ -50,6 +50,11 @@ type Options struct {
 	PanelPercent  int // side panel width as a percentage of the terminal
 	OnFilterError func(error)
 	Logf          func(format string, a ...any) // optional
+	// Rules, if set, gets told when the child can take inserted text.
+	Rules *rules.Injector
+	// RawOutput, if set, receives a copy of everything the child writes,
+	// for debugging how it draws. Writes happen on the output goroutine.
+	RawOutput io.Writer
 
 	// PanicOnGhost makes the renderer panic when it first draws ghost text,
 	// to exercise the pass-through fallback. Testing only.
@@ -76,6 +81,9 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	opt.Ctrl.OnTogglePanel = a.TogglePanel
 	opt.Ctrl.Gate = a.cursorInPrompt
 	opt.Ctrl.SetScreen(a.promptText)
+	if opt.Rules != nil {
+		opt.Rules.Ready = a.canInsert
+	}
 	go a.wakeLoop()
 	go func() {
 		for range opt.Tracker.Subscribe() {
@@ -137,6 +145,7 @@ type app struct {
 
 	panel         atomic.Bool
 	resizePending atomic.Bool
+	osc           oscFilter // only touched by Write, on the output goroutine
 	fallback      atomic.Bool
 	renderErr     atomic.Pointer[error]
 	wake          chan struct{}
@@ -156,21 +165,26 @@ func newApp(cols, rows int, opt Options) *app {
 	a.emu.SetCallbacks(vt.Callbacks{
 		EnableMode:  func(m ansi.Mode) { a.setMode(m, true) },
 		DisableMode: func(m ansi.Mode) { a.setMode(m, false) },
-		Title:       func(t string) { a.locked(func() { a.title = t }); a.Wake() },
 		Bell:        func() { a.queueRaw("\a") },
 	})
 	a.registerForwarding()
+	a.osc.handle = a.handleOSC
 	return a
 }
 
 // Write receives child output.
 func (a *app) Write(p []byte) (int, error) {
+	if a.opt.RawOutput != nil {
+		_, _ = a.opt.RawOutput.Write(p)
+	}
 	if a.fallback.Load() {
 		return os.Stdout.Write(p)
 	}
-	n, err := a.emu.Write(p)
+	if _, err := a.emu.Write(a.osc.Filter(p)); err != nil {
+		return 0, err
+	}
 	a.Wake()
-	return n, err
+	return len(p), nil
 }
 
 // attach is called once the child is running.
@@ -308,6 +322,15 @@ func (a *app) promptText() (text string, cursor int, ok bool) {
 	return string(rs[:max(end, cursor)]), cursor, true
 }
 
+// canInsert reports whether text can be inserted into claude's prompt: the
+// cursor is in it, and bracketed paste is on so newlines don't submit.
+func (a *app) canInsert() bool {
+	a.mu.Lock()
+	paste := a.modes[ansi.ModeBracketedPaste]
+	a.mu.Unlock()
+	return paste && a.cursorInPrompt()
+}
+
 // isRule reports whether row y is a horizontal rule, like the lines above
 // and below claude's input box.
 func (a *app) isRule(y int) bool {
@@ -408,31 +431,6 @@ func (a *app) registerForwarding() {
 		}
 		return fwd("\x1b[c")
 	})
-	// OSC sequences the real terminal must see. Handlers returning false
-	// also let the emulator apply the sequence.
-	osc := a.emu.RegisterOscHandler
-	forwardOSC := func(data []byte) { a.queueRaw("\x1b]" + string(data) + "\a") }
-	for _, cmd := range []int{
-		9,   // iTerm2 notifications and progress (9;4)
-		52,  // clipboard
-		777, // notifications (rxvt/Ghostty style)
-	} {
-		osc(cmd, func(data []byte) bool { forwardOSC(data); return true })
-	}
-	osc(7, func(data []byte) bool { // working directory, so new tabs open there
-		forwardOSC(data)
-		return false
-	})
-	for _, cmd := range []int{10, 11, 12, 110, 111, 112} { // default colors
-		osc(cmd, func(data []byte) bool {
-			forwardOSC(data)
-			// A query must be answered by the real terminal, not by the
-			// emulator's built-in white-on-black, so theme detection works.
-			// Sets and resets apply to both.
-			return bytes.Contains(data, []byte(";?"))
-		})
-	}
-
 	csi(ansi.Command('>', 0, 'm'), func(p ansi.Params) bool { // modifyOtherKeys
 		if res, _, _ := p.Param(0, 0); res != 4 {
 			return false

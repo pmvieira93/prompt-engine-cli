@@ -237,3 +237,61 @@ func TestWorkerResyncsFromScreen(t *testing.T) {
 		t.Fatalf("state after resync = %+v", s)
 	}
 }
+
+func TestBeforeSubmit(t *testing.T) {
+	toggles := 0
+	c := leaderController(&toggles)
+	var seen []input.State
+	c.BeforeSubmit = func(s input.State) []byte {
+		seen = append(seen, s)
+		return []byte("<rules>")
+	}
+
+	// Text and Enter in one read: BeforeSubmit must see the text.
+	if out := string(c.Filter([]byte("hello\r"))); out != "hello<rules>\r" {
+		t.Fatalf("child got %q", out)
+	}
+	if len(seen) != 1 || seen[0].Text != "hello" {
+		t.Fatalf("BeforeSubmit saw %+v", seen)
+	}
+	if s := c.Tracker.Snapshot(); s.Text != "" || !s.Synced {
+		t.Fatalf("after submit: %+v", s)
+	}
+
+	// Leader then Enter submits as typed.
+	if out := string(c.Filter([]byte("bye\x1d\r"))); out != "bye\r" {
+		t.Fatalf("leader+Enter: child got %q", out)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("BeforeSubmit called for leader+Enter")
+	}
+}
+
+// TestWorkerQuietNearCompletionMenu: while claude's @ or / menu may be
+// open, Tab must pick from it, so no ghost text competes for Tab.
+func TestWorkerQuietNearCompletionMenu(t *testing.T) {
+	c := &Controller{Tracker: input.NewTracker()}
+	w := &Worker{Tracker: c.Tracker, Ctrl: c, Suggester: suggest.Fake{Words: []string{"readme", "help"}},
+		Debounce: 10 * time.Millisecond, Timeout: time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+	time.Sleep(10 * time.Millisecond) // let Run subscribe
+
+	for _, text := range []string{"look at @rea", "\x15/hel"} {
+		c.Filter([]byte(text))
+		time.Sleep(80 * time.Millisecond)
+		if v := c.Visible(); v != "" {
+			t.Fatalf("%q: ghost text %q shown next to claude's menu", text, v)
+		}
+	}
+	// Sanity check: the same suggester does complete outside a menu.
+	c.Filter([]byte("\x15rea"))
+	deadline := time.Now().Add(2 * time.Second)
+	for c.Visible() != "dme" {
+		if time.Now().After(deadline) {
+			t.Fatalf("suggestion = %q outside a menu, want %q", c.Visible(), "dme")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
