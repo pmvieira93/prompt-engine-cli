@@ -237,3 +237,32 @@ func TestWorkerResyncsFromScreen(t *testing.T) {
 		t.Fatalf("state after resync = %+v", s)
 	}
 }
+
+func TestBeforeSubmit(t *testing.T) {
+	toggles := 0
+	c := leaderController(&toggles)
+	var seen []input.State
+	c.BeforeSubmit = func(s input.State) []byte {
+		seen = append(seen, s)
+		return []byte("<rules>")
+	}
+
+	// Text and Enter in one read: BeforeSubmit must see the text.
+	if out := string(c.Filter([]byte("hello\r"))); out != "hello<rules>\r" {
+		t.Fatalf("child got %q", out)
+	}
+	if len(seen) != 1 || seen[0].Text != "hello" {
+		t.Fatalf("BeforeSubmit saw %+v", seen)
+	}
+	if s := c.Tracker.Snapshot(); s.Text != "" || !s.Synced {
+		t.Fatalf("after submit: %+v", s)
+	}
+
+	// Leader then Enter submits as typed.
+	if out := string(c.Filter([]byte("bye\x1d\r"))); out != "bye\r" {
+		t.Fatalf("leader+Enter: child got %q", out)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("BeforeSubmit called for leader+Enter")
+	}
+}

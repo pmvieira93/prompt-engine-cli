@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -418,7 +418,36 @@ If the first line names a different config, or says `defaults`, the setting didn
 
 ---
 
-## 8. Known limitations (expected, not bugs)
+## 8. Part G: Rules added to your prompts
+
+`prompt-engine` appends the contents of `~/.config/prompt-engine/templates/append.txt` to each prompt you submit, just before the Enter. To make that visible, these tests use a rule whose effect shows up in `claude`'s reply.
+
+> ⚠️ **G1, G4, G5 and G7 send real prompts** to `claude`, so they use a little of your account. Keep the prompts short, as below.
+
+**Setup:**
+
+```sh
+mkdir -p ~/.config/prompt-engine/templates
+printf -- '- End your reply with the word PINEAPPLE.\n' > ~/.config/prompt-engine/templates/append.txt
+PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+| # | Do this | Expected |
+|---|---|---|
+| G1 | Type `say hi in three words` and press **Enter** | The prompt briefly shows `[Pasted text #1 +2 lines]` after your text, then `claude` replies, **ending with PINEAPPLE**. Log: `rules: appended append.txt (1 line)` |
+| G2 | Type `/help` and press **Enter** | Help opens normally (Esc closes it). Log: `rules: not added (slash command)` |
+| G3 | Type `!echo hi` and press **Enter** | Runs as a bash command, as usual. Log: `rules: not added (bash mode)` |
+| G4 | Type `say bye in three words`, press **Ctrl+Q**, then **Enter** | `claude` replies **without** PINEAPPLE. Log: `leader: submit as typed` |
+| G5 | While it's running, in Terminal B: `printf -- '- End your reply with the word MANGO.\n' > ~/.config/prompt-engine/templates/append.txt`. Then in Terminal A, type `say hi again in three words` and **Enter** | The reply ends with **MANGO**: edits apply without a restart |
+| G6 | Type `look at @READ`, wait for `claude`'s file menu, then press **Enter** | Enter picks the file from the menu as usual, without submitting. Log: `rules: not added (file mention menu may be open)` |
+| G7 | After G6, type ` and say what it is in five words`, then **Enter** | Submitted with the rule: the reply ends with MANGO |
+| G8 | In Terminal B: `rm ~/.config/prompt-engine/templates/append.txt`. Then type `say ok` and **Enter** | Sent as typed, no `rules:` line in the log. (Skip if you'd rather not send another prompt) |
+
+**Cleanup:** `rm -f ~/.config/prompt-engine/templates/append.txt`. To keep using rules, put your own guidelines in that file.
+
+---
+
+## 9. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -428,15 +457,17 @@ If the first line names a different config, or says `defaults`, the setting didn
 | A key pressed in the first few milliseconds after launch is sometimes missing from the log | `claude` still receives it; the terminal just isn't fully switched over yet. |
 | iTerm2's own scrollback doesn't show earlier conversation | The emulator draws in the alternate screen. Scroll inside `claude` instead. |
 | Suggestions sometimes misspell a half-typed word (e.g. `refa` → `refact`) or drift into code-like text | The 1.5B model has little context about your project yet. Better context (recent prompts, repository details) is planned. |
+| Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
+| Rules aren't added when the prompt text is unknown (`synced=false`, e.g. a multi-line prompt after history) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---
 
-## 9. Reporting a problem
+## 10. Reporting a problem
 
 Include:
 
-1. The test number (e.g. C9, E5 or F2)
+1. The test number (e.g. C9, E5, F2 or G1)
 2. What `claude` showed
 3. The matching lines from `/tmp/pe.log`
 4. Your terminal app (iTerm2, Terminal.app, Ghostty, …)

@@ -23,6 +23,7 @@ import (
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
+	"github.com/pmvieira93/prompt-engine-cli/internal/rules"
 	"github.com/pmvieira93/prompt-engine-cli/internal/suggest"
 	"github.com/pmvieira93/prompt-engine-cli/internal/tui"
 )
@@ -125,6 +126,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 	leader, _ := input.ParseBinding(cfg.Keys.Leader)
 	panel, _ := input.ParseBinding(cfg.Keys.Panel)
 	ctrl := &ghost.Controller{Tracker: tracker, Logf: logf, Leader: leader, PanelKey: panel}
+	var injector *rules.Injector
+	if dir, err := cfg.TemplatesDir(); err != nil {
+		logf("rules: off: %v", err)
+	} else {
+		injector = &rules.Injector{Dir: dir, Logf: logf}
+		ctrl.BeforeSubmit = injector.BeforeSubmit
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -146,6 +154,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 		PanelPercent:  cfg.Panel.Width,
 		OnFilterError: onFilterError,
 		Logf:          logf,
+		Rules:         injector,
 		PanicOnGhost:  os.Getenv(envRenderPanic) != "",
 	})
 }

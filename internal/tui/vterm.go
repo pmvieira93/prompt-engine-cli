@@ -41,6 +41,7 @@ import (
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
+	"github.com/pmvieira93/prompt-engine-cli/internal/rules"
 )
 
 // Options configures Run.
@@ -50,6 +51,8 @@ type Options struct {
 	PanelPercent  int // side panel width as a percentage of the terminal
 	OnFilterError func(error)
 	Logf          func(format string, a ...any) // optional
+	// Rules, if set, gets told when the child can take inserted text.
+	Rules *rules.Injector
 
 	// PanicOnGhost makes the renderer panic when it first draws ghost text,
 	// to exercise the pass-through fallback. Testing only.
@@ -76,6 +79,9 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	opt.Ctrl.OnTogglePanel = a.TogglePanel
 	opt.Ctrl.Gate = a.cursorInPrompt
 	opt.Ctrl.SetScreen(a.promptText)
+	if opt.Rules != nil {
+		opt.Rules.Ready = a.canInsert
+	}
 	go a.wakeLoop()
 	go func() {
 		for range opt.Tracker.Subscribe() {
@@ -306,6 +312,15 @@ func (a *app) promptText() (text string, cursor int, ok bool) {
 	}
 	// Keep spaces typed before the cursor; drop the row's trailing padding.
 	return string(rs[:max(end, cursor)]), cursor, true
+}
+
+// canInsert reports whether text can be inserted into claude's prompt: the
+// cursor is in it, and bracketed paste is on so newlines don't submit.
+func (a *app) canInsert() bool {
+	a.mu.Lock()
+	paste := a.modes[ansi.ModeBracketedPaste]
+	a.mu.Unlock()
+	return paste && a.cursorInPrompt()
 }
 
 // isRule reports whether row y is a horizontal rule, like the lines above

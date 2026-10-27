@@ -16,8 +16,9 @@ import (
 // input passes through unchanged.
 //
 // prompt-engine's own shortcuts are leader-prefixed, like tmux: Leader then
-// PanelKey toggles the panel, Leader twice sends Leader itself to the child,
-// and Esc or any other key cancels. Terminal reports (mouse motion, focus)
+// PanelKey toggles the panel, Leader then Enter submits without
+// BeforeSubmit, Leader twice sends Leader itself to the child, and Esc or
+// any other key cancels. Terminal reports (mouse motion, focus)
 // arriving in between pass through without cancelling.
 type Controller struct {
 	Tracker *input.Tracker
@@ -34,6 +35,11 @@ type Controller struct {
 	// Leader and PanelKey are the configured shortcut keys. A zero Leader
 	// turns shortcuts off.
 	Leader, PanelKey input.Binding
+
+	// BeforeSubmit, if set before use, is called on each Enter with the
+	// prompt as it stands, and returns input to send just before that
+	// Enter (e.g. rules to append), or nil. Leader then Enter skips it.
+	BeforeSubmit func(s input.State) []byte
 
 	mu       sync.Mutex
 	screen   func() (text string, cursor int, ok bool)
@@ -90,6 +96,7 @@ func (c *Controller) Filter(p []byte) []byte {
 	}
 	before := c.sug
 	toggles := 0
+	var res []byte // input already fed to the tracker
 	out := make([]byte, 0, len(p))
 	for _, k := range c.dec.Decode(p) {
 		switch {
@@ -104,6 +111,9 @@ func (c *Controller) Filter(p []byte) []byte {
 				out = append(out, c.PanelKey.Rest(k)...)
 			case c.Leader.Matches(k):
 				c.logf("leader: sent %s to child", c.Leader)
+				out = append(out, k.Raw...)
+			case k.Type == input.KeyEnter:
+				c.logf("leader: submit as typed")
 				out = append(out, k.Raw...)
 			case k.Type == input.KeyEscape:
 				c.logf("leader: cancelled")
@@ -123,6 +133,16 @@ func (c *Controller) Filter(p []byte) []byte {
 		case c.sug != "" && k.Type == input.KeyEscape:
 			c.logf("suggestion dismissed (esc) %q", c.sug)
 			c.sug = ""
+		case k.Type == input.KeyEnter && c.BeforeSubmit != nil:
+			if c.sug != "" {
+				c.logf("suggestion dismissed (typing) %q", c.sug)
+				c.sug = ""
+			}
+			// Bring the tracker up to this Enter, so BeforeSubmit sees text
+			// typed or pasted in the same read.
+			res = append(res, c.Tracker.Filter(out)...)
+			out = append(out[:0], c.BeforeSubmit(c.Tracker.Snapshot())...)
+			out = append(out, k.Raw...)
 		default:
 			if c.sug != "" && k.Type != input.KeyReport {
 				c.logf("suggestion dismissed (typing) %q", c.sug)
@@ -133,7 +153,7 @@ func (c *Controller) Filter(p []byte) []byte {
 	}
 	// Feed the tracker while still holding mu, so Show can't publish a
 	// suggestion for a buffer state this input is about to replace.
-	out = c.Tracker.Filter(out)
+	res = append(res, c.Tracker.Filter(out)...)
 	changed := c.sug != before
 	c.mu.Unlock()
 
@@ -145,7 +165,7 @@ func (c *Controller) Filter(p []byte) []byte {
 			c.OnTogglePanel()
 		}
 	}
-	return out
+	return res
 }
 
 // Show makes s the visible suggestion if the prompt is still at revision
