@@ -124,7 +124,7 @@ Verified against real `claude` (v2.1.308) in the harness:
   - Correct placement after wide characters and emoji (`👍🏽 é 中文 refa` → `ctor` drawn right after `refa`).
   - Not shown in dialogs.
 - **Resize:** `claude` re-lays out on window resize (100×30 → 70×20).
-- **Side panel (Ctrl+P):** `claude` is resized to 60% width and re-lays out (the long path becomes `~/…/`). The panel shows the live buffer, sync state and current suggestion. Ctrl+P again restores full width.
+- **Side panel (Ctrl+] then p):** `claude` is resized to 60% width and re-lays out (the long path becomes `~/…/`). The panel shows the live buffer, sync state and current suggestion. Ctrl+] then p again restores full width.
 - **Terminal handling:** modes and queries are forwarded, and the terminal is fully restored on exit. Exit codes are passed through.
 - **Fallback:** a renderer failure falls back to pass-through without freezing the screen.
 
@@ -141,7 +141,7 @@ Verified against real `claude` (v2.1.308) in the harness:
    - XTVERSION is forwarded, so `claude` believes it's talking to iTerm2 and may send iTerm2-only sequences, which the emulator ignores.
 
 Smaller ones:
-- **Ctrl+P is always taken by the panel stub,** so `claude` never receives it. The PRD's alternative, Ctrl+D, is `claude`'s exit key, so a different binding is needed.
+- **Shortcuts use a leader key, like tmux** (default Ctrl+], configurable under `keys:` in `config.yaml`). The first version took Ctrl+P, which `claude` uses for previous line/history, and the PRD's alternative, Ctrl+D, is `claude`'s exit key. With a leader, every plain Ctrl+<key> reaches `claude`. Pressing the leader twice sends it to `claude`; Esc or any unbound key cancels.
 - **The "is the cursor on the prompt?" check depends on `claude`'s current `❯` marker.** A UI change upstream would silently switch ghost text off. It fails safe: no suggestions, never wrong ones.
 - **Mouse events over the panel still go to `claude`,** with x-coordinates past `claude`'s width.
 - **Not tested in a real iTerm2 window:** only in the PTY harness, which stands in for iTerm2. Real-terminal behaviour (kitty keyboard negotiation, focus, IME, Option-drag selection) needs the manual checklist below.
@@ -203,7 +203,7 @@ To compare with the Phase 1 behaviour, run with `PROMPT_ENGINE_PASSTHROUGH=1`.
 | V5 | Type ` refa`, wait, then press Esc | Ghost text disappears and `claude` does **not** react to the Esc (nothing is interrupted). Log: `dismissed (esc)`. |
 | V6 | Type ` expl`, wait, then type `x` | Ghost text disappears and `x` is typed normally. |
 | V7 | Ctrl+U to clear, type `impl`, then immediately press Left Arrow and wait ½ s | No suggestion: the cursor isn't at the end of the text. |
-| V8 | Press Ctrl+P | `claude` shrinks to the left about 60% and redraws. A bordered panel on the right shows the buffer and suggestion. Ctrl+P again restores full width. |
+| V8 | Press Ctrl+], then p | `claude` shrinks to the left about 60% and redraws. A bordered panel on the right shows the buffer and suggestion. Ctrl+] then p again restores full width. Ctrl+P on its own now reaches `claude` (moves up / history). |
 | V9 | Resize the iTerm2 window narrower, then wider | `claude` redraws to fit both times, with the panel open and closed. |
 | V10 | Paste multi-line text | Same as plain `claude` (it collapses to `[Pasted text]` the same way). |
 | V11 | Shift+Enter / Option+Enter | Inserts a new line, same as plain `claude`. |

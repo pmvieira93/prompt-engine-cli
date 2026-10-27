@@ -109,7 +109,10 @@ func run() int {
 // runGhost runs cmd in the emulator UI with fake ghost-text suggestions.
 func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf func(string, ...any), onFilterError func(error)) (int, error) {
 	delay, _ := time.ParseDuration(os.Getenv(envFakeDelay))
-	ctrl := &ghost.Controller{Tracker: tracker, Logf: logf}
+	// cfg has been validated (or is the defaults), so these parse.
+	leader, _ := input.ParseBinding(cfg.Keys.Leader)
+	panel, _ := input.ParseBinding(cfg.Keys.Panel)
+	ctrl := &ghost.Controller{Tracker: tracker, Logf: logf, Leader: leader, PanelKey: panel}
 	worker := &ghost.Worker{
 		Tracker:   tracker,
 		Ctrl:      ctrl,

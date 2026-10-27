@@ -2,6 +2,7 @@ package ghost
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,14 +109,53 @@ func TestDisablePassesEverything(t *testing.T) {
 	}
 }
 
-func TestCtrlPTogglesPanel(t *testing.T) {
-	toggles := 0
-	c := &Controller{Tracker: input.NewTracker(), OnTogglePanel: func() { toggles++ }}
-	if out := c.Filter([]byte("a\x10\x1b[112;5u")); string(out) != "a" {
-		t.Fatalf("child got %q, want Ctrl+P swallowed", out)
+func leaderController(toggles *int) *Controller {
+	leader, _ := input.ParseBinding("ctrl+]")
+	panel, _ := input.ParseBinding("p")
+	return &Controller{
+		Tracker:       input.NewTracker(),
+		Leader:        leader,
+		PanelKey:      panel,
+		OnTogglePanel: func() { *toggles++ },
 	}
-	if toggles != 2 {
-		t.Fatalf("toggles = %d, want 2", toggles)
+}
+
+func TestLeaderShortcuts(t *testing.T) {
+	cases := []struct {
+		name, in, child string
+		toggles         int
+	}{
+		{"legacy leader then p", "a\x1dp", "a", 1},
+		{"kitty leader then p", "\x1b[93;5up", "", 1},
+		{"split across reads", "\x1d|p", "", 1},
+		{"reports don't cancel", "\x1d\x1b[<35;10;5M\x1b[Ip", "\x1b[<35;10;5M\x1b[I", 1},
+		{"leader twice sends it", "\x1d\x1d", "\x1d", 0},
+		{"esc cancels", "\x1d|\x1b|p", "p", 0},
+		{"unbound key is swallowed", "\x1dxq", "q", 0},
+		{"rest of a typed run passes", "\x1dpxy", "xy", 1},
+		{"Ctrl+P reaches the child", "\x10\x1b[112;5u", "\x10\x1b[112;5u", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			toggles := 0
+			c := leaderController(&toggles)
+			var child string
+			for _, chunk := range strings.Split(tc.in, "|") {
+				child += string(c.Filter([]byte(chunk)))
+			}
+			if child != tc.child || toggles != tc.toggles {
+				t.Fatalf("child got %q with %d toggles, want %q with %d", child, toggles, tc.child, tc.toggles)
+			}
+		})
+	}
+}
+
+func TestLeaderKeepsBufferInSync(t *testing.T) {
+	toggles := 0
+	c := leaderController(&toggles)
+	c.Filter([]byte("fix\x1dp bug"))
+	if s := c.Tracker.Snapshot(); s.Text != "fix bug" || !s.Synced {
+		t.Fatalf("snapshot = %+v", s)
 	}
 }
 

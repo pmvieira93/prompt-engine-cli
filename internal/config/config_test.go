@@ -68,6 +68,8 @@ func TestLoadFileErrorsFallBackToDefaults(t *testing.T) {
 		"unknown key": "comand: claude\n",
 		"bad yaml":    "llm: [\n",
 		"invalid":     "panel:\n  side: top\n",
+		"bad leader":  "keys:\n  leader: ctrl+1\n",
+		"same keys":   "keys:\n  leader: p\n  panel: p\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

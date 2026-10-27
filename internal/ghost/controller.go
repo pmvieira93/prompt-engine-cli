@@ -14,6 +14,11 @@ import (
 // sent to the child as typed text instead of the key), Esc dismisses it, and
 // any other key hides it and passes through. With no suggestion visible,
 // input passes through unchanged.
+//
+// prompt-engine's own shortcuts are leader-prefixed, like tmux: Leader then
+// PanelKey toggles the panel, Leader twice sends Leader itself to the child,
+// and Esc or any other key cancels. Terminal reports (mouse motion, focus)
+// arriving in between pass through without cancelling.
 type Controller struct {
 	Tracker *input.Tracker
 
@@ -26,10 +31,15 @@ type Controller struct {
 	// by checking that the child's cursor is in its prompt, not a dialog.
 	Gate func() bool
 
+	// Leader and PanelKey are the configured shortcut keys. A zero Leader
+	// turns shortcuts off.
+	Leader, PanelKey input.Binding
+
 	mu       sync.Mutex
 	dec      input.Decoder
 	sug      string
 	disabled bool
+	armed    bool // Leader was pressed; the next key is a command
 }
 
 // Disable hides any suggestion and turns interception off for good, e.g.
@@ -60,8 +70,29 @@ func (c *Controller) Filter(p []byte) []byte {
 	out := make([]byte, 0, len(p))
 	for _, k := range c.dec.Decode(p) {
 		switch {
-		case k.Type == input.KeyCtrl && k.Ctrl == 'p' && c.OnTogglePanel != nil:
-			toggles++ // swallowed: reserved for the side panel
+		case c.armed && k.Type == input.KeyReport:
+			out = append(out, k.Raw...)
+		case c.armed:
+			c.armed = false
+			switch {
+			case c.PanelKey.Matches(k):
+				c.logf("leader: toggle panel")
+				toggles++
+				out = append(out, c.PanelKey.Rest(k)...)
+			case c.Leader.Matches(k):
+				c.logf("leader: sent %s to child", c.Leader)
+				out = append(out, k.Raw...)
+			case k.Type == input.KeyEscape:
+				c.logf("leader: cancelled")
+			default:
+				c.logf("leader: no shortcut for %s", k)
+				if k.Type == input.KeyRunes && len(k.Runes) > 1 {
+					out = append(out, string(k.Runes[1:])...) // only the first character was the command
+				}
+			}
+		case !c.Leader.IsZero() && c.Leader.Matches(k):
+			c.armed = true
+			c.logf("leader: waiting for a shortcut key")
 		case c.sug != "" && (k.Type == input.KeyTab || k.Type == input.KeyRight):
 			c.logf("suggestion accepted %q", c.sug)
 			out = append(out, c.sug...)
@@ -87,7 +118,9 @@ func (c *Controller) Filter(p []byte) []byte {
 		c.OnChange()
 	}
 	for range toggles {
-		c.OnTogglePanel()
+		if c.OnTogglePanel != nil {
+			c.OnTogglePanel()
+		}
 	}
 	return out
 }

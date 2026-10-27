@@ -500,7 +500,7 @@ func (m *model) panelView(w int) string {
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Bold(true).Render("Prompt diff (FR-5 stub)"),
 		"",
-		"Ctrl+P hides this panel.",
+		fmt.Sprintf("%s then %s hides this panel.", m.app.opt.Ctrl.Leader, m.app.opt.Ctrl.PanelKey),
 		"",
 		"buffer:     "+quote(s.Text),
 		"synced:     "+boolStr(s.Synced),

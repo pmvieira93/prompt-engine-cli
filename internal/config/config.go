@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 )
 
 const (
@@ -34,6 +36,7 @@ type Config struct {
 	LLM       LLMConfig       `yaml:"llm"`
 	Panel     PanelConfig     `yaml:"panel"`
 	Templates TemplatesConfig `yaml:"templates"`
+	Keys      KeysConfig      `yaml:"keys"`
 
 	// path is the file this config was loaded from ("" if defaults only).
 	path string
@@ -53,6 +56,14 @@ type PanelConfig struct {
 	Visible bool   `yaml:"visible"`
 	Side    string `yaml:"side"`
 	Width   int    `yaml:"width"`
+}
+
+// KeysConfig sets prompt-engine's own shortcuts. They are leader-prefixed,
+// like tmux: press Leader, then the action key. This leaves every plain
+// Ctrl+<key> to the wrapped CLI. Pressing Leader twice sends it to the CLI.
+type KeysConfig struct {
+	Leader string `yaml:"leader"`
+	Panel  string `yaml:"panel"`
 }
 
 // TemplatesConfig locates prompt templates. Relative paths resolve against
@@ -78,6 +89,10 @@ func Default() Config {
 		},
 		Templates: TemplatesConfig{
 			Dir: "templates",
+		},
+		Keys: KeysConfig{
+			Leader: "ctrl+]",
+			Panel:  "p",
 		},
 	}
 }
@@ -159,6 +174,17 @@ func (c Config) Validate() error {
 		return fmt.Errorf("panel.side must be \"left\" or \"right\", got %q", c.Panel.Side)
 	case c.Panel.Width < 10 || c.Panel.Width > 90:
 		return fmt.Errorf("panel.width must be a percentage between 10 and 90, got %d", c.Panel.Width)
+	}
+	leader, err := input.ParseBinding(c.Keys.Leader)
+	if err != nil {
+		return fmt.Errorf("keys.leader: %w", err)
+	}
+	panel, err := input.ParseBinding(c.Keys.Panel)
+	if err != nil {
+		return fmt.Errorf("keys.panel: %w", err)
+	}
+	if leader == panel {
+		return errors.New("keys.panel must differ from keys.leader")
 	}
 	return nil
 }
