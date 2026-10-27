@@ -38,7 +38,7 @@ func (w *Worker) Run(ctx context.Context) {
 			timer.Reset(w.Debounce)
 		case <-timer.C:
 			s := w.Tracker.Snapshot()
-			if !s.Synced || s.Cursor != utf8.RuneCountInString(s.Text) || strings.TrimSpace(s.Text) == "" {
+			if w.Ctrl.Disabled() || !s.Synced || s.Cursor != utf8.RuneCountInString(s.Text) || strings.TrimSpace(s.Text) == "" {
 				continue
 			}
 			rctx, rcancel := context.WithTimeout(ctx, w.Timeout)

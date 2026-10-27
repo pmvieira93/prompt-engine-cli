@@ -41,6 +41,13 @@ func (c *Controller) Disable() {
 	c.mu.Unlock()
 }
 
+// Disabled reports whether Disable was called.
+func (c *Controller) Disabled() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.disabled
+}
+
 // Filter implements pty.Filter.
 func (c *Controller) Filter(p []byte) []byte {
 	c.mu.Lock()

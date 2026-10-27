@@ -17,6 +17,7 @@
 package tui
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -83,6 +84,9 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	teaDone := make(chan error, 1)
 	go func() {
 		_, err := a.prog.Run()
+		if p := a.renderErr.Load(); p != nil {
+			err = *p
+		}
 		if !sessionDone.Load() {
 			// The renderer died under a live session (e.g. a panic in View,
 			// which Bubble Tea recovers and restores the terminal from).
@@ -131,6 +135,7 @@ type app struct {
 	panel         atomic.Bool
 	resizePending atomic.Bool
 	fallback      atomic.Bool
+	renderErr     atomic.Pointer[error]
 	wake          chan struct{}
 }
 
@@ -171,6 +176,15 @@ func (a *app) attach(ptmx *os.File) {
 	// Emulator replies are written synchronously from inside emu.Write, so
 	// this reader must always be running or output would deadlock.
 	go func() { _, _ = io.Copy(ptmx, a.emu) }()
+}
+
+// renderFailed records the first render failure and stops the renderer.
+// Quit runs on its own goroutine: View is called from Bubble Tea's event
+// loop, which must keep running to receive the quit message.
+func (a *app) renderFailed(err error) {
+	if a.renderErr.CompareAndSwap(nil, &err) {
+		go a.prog.Quit()
+	}
 }
 
 // enterFallback switches to plain pass-through: child output goes straight
@@ -402,7 +416,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 var ghostStyle = uv.Style{Fg: ansi.IndexedColor(244), Attrs: uv.AttrFaint}
 
-func (m *model) View() tea.View {
+// View renders one frame. A panic while drawing is recovered here rather
+// than by Bubble Tea, whose handler prints a stack trace over the session;
+// the renderer then quits and Run falls back to pass-through.
+func (m *model) View() (v tea.View) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.app.renderFailed(fmt.Errorf("render panic: %v", r))
+			v = tea.NewView("")
+		}
+	}()
+	return m.view()
+}
+
+func (m *model) view() tea.View {
 	if m.w == 0 || m.h == 0 {
 		return tea.NewView("")
 	}
