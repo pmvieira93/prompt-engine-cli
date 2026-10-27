@@ -91,7 +91,7 @@ func Default() Config {
 			Dir: "templates",
 		},
 		Keys: KeysConfig{
-			Leader: "ctrl+]",
+			Leader: "ctrl+q", // a letter, so it types the same on every layout
 			Panel:  "p",
 		},
 	}

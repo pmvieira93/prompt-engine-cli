@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,5 +116,19 @@ func TestTemplatesDirRelativeToConfig(t *testing.T) {
 	}
 	if want := filepath.Join(filepath.Dir(path), "templates"); dir != want {
 		t.Errorf("templates dir = %q, want %q", dir, want)
+	}
+}
+
+func TestDefaultLeaderIsCtrlQ(t *testing.T) {
+	leader, err := input.ParseBinding(Default().Keys.Leader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d input.Decoder
+	for _, in := range []string{"\x11", "\x1b[113;5u", "\x1b[27;5;113~"} {
+		keys := d.Decode([]byte(in))
+		if len(keys) != 1 || !leader.Matches(keys[0]) {
+			t.Errorf("default leader does not match %q", in)
+		}
 	}
 }
