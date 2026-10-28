@@ -277,3 +277,24 @@ func TestPanelShowsStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestCursorInMultiLinePrompt(t *testing.T) {
+	const rule = "──────────────────────────────"
+	cases := []struct {
+		name, screen string
+		want         bool
+	}{
+		{"continuation row", rule + "\r\n❯ Fix it.\r\n\r\n  Context:\r\n  - Branch: main" + "\r\n" + rule + "\x1b[5;17H", true},
+		{"earlier prompt in the transcript", "❯ old prompt\r\n  its answer\r\n\r\n" + rule + "\x1b[2;12H", false},
+		{"below the input box", rule + "\r\n❯ hi\r\n" + rule + "\r\n  status line\x1b[4;5H", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel(40, 8)
+			m.app.emu.Write([]byte(tc.screen))
+			if got := m.app.cursorInPrompt(); got != tc.want {
+				t.Fatalf("cursorInPrompt = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

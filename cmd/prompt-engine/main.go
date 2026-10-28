@@ -23,6 +23,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/pmvieira93/prompt-engine-cli/internal/config"
+	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
@@ -129,9 +130,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		logf = func(string, ...any) {} // no debug log
 	}
 	// cfg has been validated (or is the defaults), so these parse.
-	leader, _ := input.ParseBinding(cfg.Keys.Leader)
-	panel, _ := input.ParseBinding(cfg.Keys.Panel)
-	ctrl := &ghost.Controller{Tracker: tracker, Logf: logf, Leader: leader, PanelKey: panel}
+	ctrl := &ghost.Controller{Tracker: tracker, Logf: logf}
+	ctrl.SetKeys(bindings(cfg.Keys))
 	var injector *rules.Injector
 	if dir, err := cfg.TemplatesDir(); err != nil {
 		logf("rules: off: %v", err)
@@ -186,9 +186,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				applied = append(applied, "llm")
 			}
 			if next.Keys != prev.Keys {
-				leader, _ := input.ParseBinding(next.Keys.Leader)
-				panel, _ := input.ParseBinding(next.Keys.Panel)
-				ctrl.SetKeys(leader, panel)
+				ctrl.SetKeys(bindings(next.Keys))
 				applied = append(applied, "keys")
 			}
 			if next.Panel != prev.Panel {
@@ -208,6 +206,69 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			}
 			setStatus(next, nil, note)
 		})
+	}
+
+	// Prompt expansion: leader, then keys.expand, rewrites the prompt in
+	// place for the user to review; keys.undo puts the original back.
+	var expansion struct {
+		sync.Mutex
+		running            bool
+		original, expanded string
+	}
+	ctrl.OnExpand = func(s input.State) {
+		if !s.Synced || strings.TrimSpace(s.Text) == "" {
+			logf("expand: nothing to expand (empty prompt, or its text is unknown)")
+			return
+		}
+		expansion.Lock()
+		if expansion.running {
+			expansion.Unlock()
+			logf("expand: already expanding")
+			return
+		}
+		expansion.running = true
+		expansion.Unlock()
+
+		go func() {
+			defer func() {
+				expansion.Lock()
+				expansion.running = false
+				expansion.Unlock()
+				ctrl.SetNotice("")
+			}()
+			cfg := live.Load()
+			ctrl.SetNotice("⟳ expanding…")
+			ectx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout)
+			defer cancel()
+			start := time.Now()
+			out, err := expandPrompt(ectx, *cfg, s.Text)
+			if err != nil {
+				logf("expand: failed: %v", err)
+				return
+			}
+			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
+				logf("expand: not applied: %v", err)
+				return
+			}
+			expansion.Lock()
+			expansion.original, expansion.expanded = s.Text, out
+			expansion.Unlock()
+			logf("expand: replaced %q with %q (%s)", s.Text, out, time.Since(start).Round(time.Millisecond))
+		}()
+	}
+	ctrl.OnUndo = func(s input.State) {
+		expansion.Lock()
+		original, expanded := expansion.original, expansion.expanded
+		expansion.Unlock()
+		if expanded == "" || s.Text != expanded {
+			logf("expand: nothing to undo (the prompt isn't the last expansion)")
+			return
+		}
+		if err := ctrl.Replace(s.Rev, expanded, original); err != nil {
+			logf("expand: undo not applied: %v", err)
+			return
+		}
+		logf("expand: undone, back to %q", original)
 	}
 
 	var rawOutput io.Writer
@@ -269,6 +330,43 @@ func describeConfig(cfg config.Config, cfgErr error) (src, llm string) {
 		}
 	}
 	return src, llm
+}
+
+// bindings parses validated key settings.
+func bindings(k config.KeysConfig) (leader, panel, expand, undo input.Binding) {
+	leader, _ = input.ParseBinding(k.Leader)
+	panel, _ = input.ParseBinding(k.Panel)
+	expand, _ = input.ParseBinding(k.Expand)
+	undo, _ = input.ParseBinding(k.Undo)
+	return leader, panel, expand, undo
+}
+
+// expandPrompt rewrites text with the configured model and appends git
+// context for the working directory. With the fake provider it uses a
+// fixed, offline rewrite, so tests are repeatable.
+func expandPrompt(ctx context.Context, cfg config.Config, text string) (string, error) {
+	dir, _ := os.Getwd()
+	provider := cfg.LLM.Provider
+	if p := os.Getenv(envSuggester); p != "" {
+		provider = p
+	}
+	templates, _ := cfg.TemplatesDir()
+	e := &expand.Expander{
+		Endpoint:     cfg.LLM.Endpoint,
+		Model:        cfg.LLM.ExpandModel,
+		KeepAlive:    "30m",
+		TemplatesDir: templates,
+		Context:      expand.GitContext(dir),
+	}
+	if provider == "fake" {
+		lines := e.Context(ctx)
+		out := "Please " + strings.TrimSpace(text) + "."
+		if len(lines) > 0 {
+			out += "\n\nContext:\n- " + strings.Join(lines, "\n- ")
+		}
+		return out, nil
+	}
+	return e.Expand(ctx, text)
 }
 
 // suggesterFor returns the suggester cfg asks for, or nil when

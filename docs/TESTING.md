@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -20,6 +20,7 @@ Suggestions come from a local model through **Ollama** (Part F). For repeatable 
 | Claude Code installed and logged in | `claude --version` | `2.1.x (Claude Code)` |
 | Ollama running (Part F) | `curl -s localhost:11434/api/version` | `{"version":"…"}`. If not: `brew install ollama && brew services start ollama` |
 | Suggestion model downloaded (Part F) | `ollama list` | lists `qwen2.5-coder:1.5b`. If not: `ollama pull qwen2.5-coder:1.5b` (~1 GB) |
+| Expansion model downloaded (Part I) | `ollama list` | lists `qwen2.5:7b`. If not: `ollama pull qwen2.5:7b` (~4.7 GB) |
 
 ### 1.2 Build and run the unit tests
 
@@ -89,6 +90,8 @@ llm:
   endpoint: http://localhost:11434
   model: qwen2.5-coder:1.5b  # must support fill-in-the-middle
   max_tokens: 8      # length of each suggestion
+  expand_model: qwen2.5:7b  # rewrites prompts on request (keys.expand)
+  expand_timeout: 30s
   debounce: 150ms    # pause in typing before asking
   timeout: 2s
 panel:          # not used until Phase 4
@@ -100,6 +103,8 @@ templates:
 keys:           # leader-prefixed shortcuts, like tmux
   leader: ctrl+q  # ctrl+a..z or ctrl+\ ] ^ _; prefer letters, punctuation varies by keyboard layout
   panel: p        # leader, then this key, toggles the side panel
+  expand: e       # leader, then this key, rewrites the prompt in place
+  undo: u         # leader, then this key, puts back the prompt from before the last expansion
 ```
 
 ---
@@ -475,7 +480,55 @@ Edit the file from **Terminal B** with the commands below; you can stop `tail -f
 
 ---
 
-## 10. Known limitations (expected, not bugs)
+## 10. Part I: Prompt expansion
+
+**Ctrl+Q, then e** rewrites the prompt in `claude`'s input box: a local model fixes typos and spells out shorthand, and `prompt-engine` adds the git branch and staged files underneath. Nothing is sent: you review it and press Enter yourself. **Ctrl+Q, then u** puts the original back. None of these tests press Enter.
+
+**Setup:** check the expansion model in 1.1, then from the repository root:
+
+```sh
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+The model's wording varies, so judge whether it kept your meaning rather than matching exactly.
+
+| # | Do this | Expected |
+|---|---|---|
+| I1 | Type `fix teh failing tst in config`, then **Ctrl+Q**, **e** | `⟳ expanding…` appears after the text (no ghost text). Within about a second (several seconds the very first time, while the model loads), the input box shows a corrected prompt, e.g. `Fix the failing test in the config.`, then a blank line, `Context:` and `- Branch: …`. Log: `expand: replaced … (…ms)` |
+| I2 | **Ctrl+Q**, **u** | The original `fix teh failing tst in config` is back. Log: `expand: undone` |
+| I3 | **Ctrl+Q**, **u** again | Nothing changes. Log: `expand: nothing to undo` |
+| I4 | Ctrl+U to clear, then **Ctrl+Q**, **e** on the empty prompt | Nothing happens. Log: `expand: nothing to expand` |
+| I5 | Type `add tests for ollama client + handle timeouts + log errs`, **Ctrl+Q**, **e** | All three parts are kept, and nothing is added that you didn't ask for |
+| I6 | Ctrl+U, type `refactor tracker to use chans`, **Ctrl+Q**, **e**, then **immediately** type `x` | The expansion is discarded, because you typed meanwhile: your text stays as typed (`…chansx`). Log: `expand: not applied: the prompt changed meanwhile` |
+| I7 | Ctrl+U, then type a two-line prompt: `line one`, **Option+Enter**, `line two`. Press **Ctrl+Q**, **e** | Expanded in place, both lines' content kept |
+| I8 | Ctrl+U, quit with `/exit` | — |
+
+### I9: Staged changes appear in the context
+
+Stage any small change in a repository you don't mind touching, e.g. a scratch one:
+
+```sh
+mkdir -p /tmp/pe-repo && cd /tmp/pe-repo && git init -q && printf 'one\ntwo\n' > notes.txt && git add notes.txt
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log ~/Workspace/GitHub/prompt-engine-cli/bin/prompt-engine
+```
+
+`claude` asks whether to trust the folder; accept. Type `explain the notes`, then Ctrl+Q, e.
+
+**Expected:** the context lists `- Staged changes: notes.txt (+2 −0)`. Quit, then `cd -` and `rm -rf /tmp/pe-repo`.
+
+### I10: Your own instructions
+
+```sh
+printf 'Rewrite the request as a numbered list of steps. Output only the list.\n' > ~/.config/prompt-engine/templates/system.txt
+```
+
+Without restarting, type `set up the project and run the tests`, Ctrl+Q, e.
+
+**Expected:** a numbered list. Then `rm ~/.config/prompt-engine/templates/system.txt` to go back to the built-in instructions.
+
+---
+
+## 11. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -487,17 +540,18 @@ Edit the file from **Terminal B** with the commands below; you can stop `tail -f
 | Suggestions sometimes misspell a half-typed word (e.g. `refa` → `refact`) or drift into code-like text | The 1.5B model has little context about your project yet. Better context (recent prompts, repository details) is planned. |
 | Editing `command`, `args`, `env` or `templates.dir` while running has no effect until a restart | `claude` is already running with them. The log says `needs a restart: …` |
 | A new `panel.width` applies the next time the panel opens or the window resizes | The panel isn't re-laid out mid-display |
+| Expansion only uses git context (branch, staged files), not the contents of files or recent commits | Small models given more context invented requirements from it. The context is added by `prompt-engine`, not by the model, so it's always accurate |
 | Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
 | Rules aren't added when the prompt text is unknown (`synced=false`, e.g. a multi-line prompt after history) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---
 
-## 11. Reporting a problem
+## 12. Reporting a problem
 
 Include:
 
-1. The test number (e.g. C9, E5, F2, G1 or H3)
+1. The test number (e.g. C9, E5, F2, G1, H3 or I1)
 2. What `claude` showed
 3. The matching lines from `/tmp/pe.log`
 4. Your terminal app (iTerm2, Terminal.app, Ghostty, …)
