@@ -462,6 +462,7 @@ Edit the file from **Terminal B** with the commands below; you can stop `tail -f
 
 | # | Edit in Terminal B | Then in Terminal A | Expected |
 |---|---|---|---|
+| H0 | (none) | Press **Ctrl+Q**, then **p** | The panel's **Session** section shows `config: /tmp/pe-live.yaml` and `suggestions: fake (fixed word list)`. If it says `defaults`, `PROMPT_ENGINE_CONFIG` didn't reach `prompt-engine`: restart it. Close the panel again |
 | H1 | (none) | Type `refa` and stop | Ghost text `ctor` |
 | H2 | `printf 'llm:\n  provider: fake\n  enabled: false\n' > /tmp/pe-live.yaml` | Type `refa` and stop | **No** ghost text. Log: `applied: llm` |
 | H3 | `printf 'llm:\n  provider: fake\n  debounce: 1s\n' > /tmp/pe-live.yaml` | Type `refa` and stop | Ghost text comes back, but only about **1 second** after you stop typing |
@@ -469,6 +470,7 @@ Edit the file from **Terminal B** with the commands below; you can stop `tail -f
 | H5 | `printf 'llm:\n  provider: fake\nkeys:\n  leader: ctrl+g\npanel:\n  width: 60\n' > /tmp/pe-live.yaml` | Ctrl+G, then p | The panel opens noticeably **wider** (60% instead of 40%). Close it again |
 | H6 | `printf 'comand: typo\n' > /tmp/pe-live.yaml` | Ctrl+G, then p | The panel still toggles with Ctrl+G: the broken edit was ignored. Log: `config: parse …; keeping the previous settings` |
 | H7 | `printf 'command: bash\n' > /tmp/pe-live.yaml` | Keep using it | `claude` keeps running; the command only changes on restart. Log: `needs a restart: command/args/env` |
+| H7b | (none) | Ctrl+Q, then p | The Session section says `needs a restart: command/args/env`. Close the panel |
 | H8 | `rm /tmp/pe-live.yaml` | Type `explain how the input buf` and stop | Back to the defaults: real suggestions from Ollama, and Ctrl+Q is the leader again. Log: `llm: qwen2.5-coder:1.5b loaded …` |
 
 ---

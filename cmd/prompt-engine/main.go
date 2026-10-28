@@ -109,7 +109,7 @@ func run() int {
 		session := &pty.Session{Filter: tracker, OnFilterError: onFilterError}
 		code, err = session.Run(cmd)
 	} else {
-		code, err = runGhost(cmd, cfg, tracker, logf, onFilterError)
+		code, err = runGhost(cmd, cfg, cfgErr, tracker, logf, onFilterError)
 	}
 	if err != nil {
 		warn("%v", err)
@@ -124,7 +124,7 @@ func run() int {
 }
 
 // runGhost runs cmd in the emulator UI with fake ghost-text suggestions.
-func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf func(string, ...any), onFilterError func(error)) (int, error) {
+func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tracker, logf func(string, ...any), onFilterError func(error)) (int, error) {
 	if logf == nil {
 		logf = func(string, ...any) {} // no debug log
 	}
@@ -158,12 +158,25 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 	// matter at startup are reported rather than applied.
 	var live atomic.Pointer[config.Config]
 	live.Store(&cfg)
+	// status is what the side panel shows about the config in use.
+	var status atomic.Pointer[[]string]
+	setStatus := func(cfg config.Config, cfgErr error, note string) {
+		src, llm := describeConfig(cfg, cfgErr)
+		lines := []string{"config:      " + src, "suggestions: " + llm}
+		if note != "" {
+			lines = append(lines, note)
+		}
+		status.Store(&lines)
+	}
+	setStatus(cfg, cfgErr, "")
 	if path, err := config.Path(); err != nil {
 		logf("config: not watching for edits: %v", err)
 	} else {
 		go config.Watch(ctx, path, time.Second, func(next config.Config, err error) {
 			if err != nil {
-				logf("config: %s; keeping the previous settings", strings.ReplaceAll(err.Error(), "\n", " "))
+				msg := strings.ReplaceAll(err.Error(), "\n", " ")
+				logf("config: %s; keeping the previous settings", msg)
+				setStatus(*live.Load(), nil, "last edit rejected: "+msg)
 				return
 			}
 			prev := live.Swap(&next)
@@ -189,6 +202,11 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 			}
 			logf("config: reloaded %s; applied: %s; needs a restart: %s",
 				path, listOrNone(applied), listOrNone(restart))
+			note := ""
+			if len(restart) > 0 {
+				note = "needs a restart: " + listOrNone(restart)
+			}
+			setStatus(next, nil, note)
 		})
 	}
 
@@ -207,6 +225,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 		Ctrl:          ctrl,
 		Tracker:       tracker,
 		PanelPercent:  func() int { return live.Load().Panel.Width },
+		Status:        func() []string { return *status.Load() },
 		OnFilterError: onFilterError,
 		Logf:          logf,
 		Rules:         injector,
@@ -218,23 +237,38 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, tracker *input.Tracker, logf fun
 // logStartup records which config a session runs with, since the warning
 // for a bad config file is hidden as soon as the child draws its screen.
 func logStartup(logf func(string, ...any), cfg config.Config, cfgErr error) {
-	src := cfg.Source()
+	src, llm := describeConfig(cfg, cfgErr)
+	logf("session start: config %s; suggestions %s", src, llm)
+}
+
+// describeConfig says where cfg came from and what suggestions it gives,
+// for the debug log and the side panel.
+func describeConfig(cfg config.Config, cfgErr error) (src, llm string) {
+	src = cfg.Source()
 	switch {
 	case cfgErr != nil:
-		src = fmt.Sprintf("defaults, because the config file failed: %v", cfgErr)
+		src = "defaults, because the config file failed: " + strings.ReplaceAll(cfgErr.Error(), "\n", " ")
 	case src == "":
 		path, _ := config.Path()
 		src = "defaults (no file at " + path + ")"
 	}
-	llm := "off (llm.enabled: false)"
+	llm = "off (llm.enabled: false)"
 	if cfg.LLM.Enabled {
 		provider := cfg.LLM.Provider
 		if p := os.Getenv(envSuggester); p != "" {
-			provider = p + " (from " + envSuggester + ")"
+			provider = p
 		}
-		llm = fmt.Sprintf("%s, model %s", provider, cfg.LLM.Model)
+		switch {
+		case provider == "fake":
+			llm = "fake (fixed word list)"
+		default:
+			llm = fmt.Sprintf("%s, model %s", provider, cfg.LLM.Model)
+		}
+		if os.Getenv(envSuggester) != "" {
+			llm += " (from " + envSuggester + ")"
+		}
 	}
-	logf("session start: config %s; suggestions %s", src, llm)
+	return src, llm
 }
 
 // suggesterFor returns the suggester cfg asks for, or nil when

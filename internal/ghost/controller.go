@@ -89,6 +89,13 @@ func (c *Controller) SetKeys(leader, panel input.Binding) {
 	c.mu.Unlock()
 }
 
+// Keys returns the current shortcut keys.
+func (c *Controller) Keys() (leader, panel input.Binding) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Leader, c.PanelKey
+}
+
 // Disabled reports whether Disable was called.
 func (c *Controller) Disabled() bool {
 	c.mu.Lock()

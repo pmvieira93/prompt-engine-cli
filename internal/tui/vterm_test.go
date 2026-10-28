@@ -261,3 +261,19 @@ func TestPromptText(t *testing.T) {
 		})
 	}
 }
+
+func TestPanelShowsStatus(t *testing.T) {
+	m := newTestModel(100, 14)
+	path := "/private/tmp/some/long/directory/structure/pe-live.yaml"
+	m.app.opt.Status = func() []string {
+		return []string{"config:      " + path, "suggestions: fake (fixed word list)"}
+	}
+	m.app.panel.Store(true)
+	m.app.resizeChild(100, 14)
+	screen := strings.Join(screenLines(m), "\n")
+	for _, want := range []string{"Session", "suggestions: fake", "pe-live.yaml"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("panel is missing %q:\n%s", want, screen)
+		}
+	}
+}
