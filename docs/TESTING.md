@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -615,7 +615,7 @@ In Terminal B: `printf 'expand:\n  on_enter: auto\n' > /tmp/pe-auto.yaml`
 | K8 | Type `say hi in thre words`, press **Enter**, then **at once** type `x` | Nothing is sent: typing cancels the automatic send, and the prompt reads `say hi in thre wordsx`. Log: `auto expansion cancelled`. Ctrl+C to clear |
 | K8b | Turn auto off again (`printf 'expand:\n  on_enter: off\n' > /tmp/pe-auto.yaml`), Ctrl+C, type `now using code-reviewer look into MR !110`, **Ctrl+Q**, **e** (don't send) | `code-reviewer` and `!110` are kept exactly, e.g. `Have the code-reviewer look into MR !110.` If a rewrite ever drops a name like that, your text is kept instead, with a notice saying which name it changed. Turn auto back on for K9: `printf 'expand:\n  on_enter: auto\n' > /tmp/pe-auto.yaml` |
 | K9 | Type `/help` and **Enter** | Help opens at once, with no `⟳ expanding…` (slash commands are never expanded). Esc to close |
-| K9b | Copy the four lines below (**including** both ```` ``` ```` lines), paste them, then **Enter** | Sent as typed at once, with no `⟳ expanding…`. Log: `not auto-expanded (long, or contains pasted or code text)`. Claude only answers (6: `é` is two bytes) |
+| K9b | Copy the four lines below (**including** both ```` ``` ```` lines), paste them, then **Enter** | A paste on its own is your prompt, so it's expanded and sent: the sentence may be reworded, the code block arrives exactly as pasted. Log: `expand: auto expanded and sent "…```go…"`. Claude only answers (6: `é` is two bytes) |
 | K10 | Quit with `/exit`, then `tail -4 ~/.local/state/prompt-engine/history.jsonl` | K4's line has `"expanded":true,"auto":true`; K6's has `"auto":true,"stopped":"you pressed Esc"`; no prompt text |
 
 K9b's text to paste:
@@ -644,7 +644,50 @@ In auto mode, a rewrite that breaks any of these is not used: the prompt is sent
 
 ---
 
-## 13. Known limitations (expected, not bugs)
+## 13. Part L: Rewriting around pastes
+
+[PRD Appendix 1](../PRD-APPENDIX-1.md), FR-7.4e: what you type is rewritten; what you paste is kept exactly. A prompt that is only a paste is rewritten, except its code blocks, unless it looks like a log, trace, JSON or diff.
+
+**Setup:** as for Part K, with auto off: `printf 'expand:\n  on_enter: off\n' > /tmp/pe-auto.yaml`. Steps L1–L5 use **Ctrl+Q**, **e** and **don't send**; clear with **Ctrl+C** between them. Copy each paste from the blocks below the table.
+
+| # | Do this | Expected |
+|---|---|---|
+| L1 | Type `waht does thsi do: `, then paste **A** | Only your words are fixed (`What does this do: …`); the pasted code is unchanged. Log: `expand: replaced …` |
+| L2 | Paste **B** only | Rewritten as a prompt: `Refactor the parser to use a lookup table instead of the big switch.` |
+| L3 | Paste K9b's four lines only | The sentence is fixed or reworded; the ```` ```go ```` block is unchanged |
+| L4 | Paste **C** only | Nothing changes. A notice: `nothing to rewrite: the paste looks like a log, trace, JSON or diff` |
+| L5 | Type `see: `, then paste **C** | Nothing changes. A notice: `nothing to rewrite: too little typed around the paste` |
+| L6 | Turn auto on (`printf 'expand:\n  on_enter: auto\n' > /tmp/pe-auto.yaml`). Type `what does this print, just answr: `, paste **A**, **Enter** (sends a harmless question) | Your words fixed, the code unchanged, then sent. Log: `expand: Enter held while expanding "what does this print, just answr: <<PASTE_1>>"`, then `auto expanded and sent` |
+
+**A** (one line of code):
+
+```
+x := strings.TrimRight(s, "\n")
+```
+
+**B** (a request written elsewhere):
+
+```
+refactr the paresr to use a lookup tabel insted of the big switch
+```
+
+**C** (a Go panic):
+
+```
+panic: runtime error: index out of range [3] with length 3
+
+goroutine 1 [running]:
+main.main()
+	/src/main.go:12 +0x1d
+```
+
+In the log, kept parts show as `<<PASTE_1>>`, `<<PASTE_2>>`… in what the model was given. If a rewrite drops or moves one, it isn't used (`kept your text: the rewrite dropped or repeated a pasted part`).
+
+**Cleanup:** `rm -f /tmp/pe-auto.yaml`.
+
+---
+
+## 14. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -659,6 +702,9 @@ In auto mode, a rewrite that breaks any of these is not used: the prompt is sent
 | Expansion only uses git context (branch, staged files), not the contents of files or recent commits | Small models given more context invented requirements from it. The context is added by `prompt-engine`, not by the model, so it's always accurate |
 | If you edit an expanded prompt before sending it, the panel shows your edited text as "typed" | The panel only knows the original once the prompt still matches the expansion exactly |
 | In auto mode, typing while `⟳ expanding…` shows cancels the send, so you press Enter again (and it expands again) | Anything typed after Enter would otherwise go into a prompt that's about to be replaced |
+| Around a paste, a typo can come back wrong (seen: `what does this, just answr:` → `just ansr:`, every time) | Typo-only rewrites keep nearly every word, so no word check can tell a bad fix from a good one; with the missing word (`what does this print, just answr:`) it was fixed |
+| A paste that you then edit counts as typed text, so it can be rewritten | The kept parts are found by their exact pasted text |
+| A long paste that `claude` shows as `[Pasted text #1 +N lines]` is never rewritten if the prompt was re-read from the screen | The screen only has the placeholder, not the text |
 | A typo the model misreads as a name can get through in auto mode (e.g. `rfcator tracker` → `the RFCator tracker`) | The rewrite keeps nearly all your words, so no word-based check can tell it from a good typo fix. Use the shortcut and review when a prompt has heavy typos |
 | Session context only includes your prompts, not `claude`'s replies | Level L1 of PRD Appendix 1. Replies (L2) and session summaries (L3) are later candidates |
 | Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
@@ -667,7 +713,7 @@ In auto mode, a rewrite that breaks any of these is not used: the prompt is sent
 
 ---
 
-## 14. Reporting a problem
+## 15. Reporting a problem
 
 Include:
 

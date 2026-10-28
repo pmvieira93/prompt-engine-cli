@@ -30,6 +30,8 @@ func TestGuard(t *testing.T) {
 		{"with test-runner run the e2e suite", "Run the E2E suite with the test runner.", true},
 		{"with test-runner run the e2e suite", "Run the E2E suite with the test-runner.", false},
 		{"say hi in 3 words", "Say hi in three words.", false},
+		// A question at the end, without its "?" (seen around a paste).
+		{"the eror is <<PASTE_1>> when i run make, can yuo fix it", "The error is <<PASTE_1>> when I run make, can you fix it?", false},
 	}
 	for _, tc := range cases {
 		reason := Guard(tc.typed, tc.rewritten)

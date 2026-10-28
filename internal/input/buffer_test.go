@@ -1,6 +1,7 @@
 package input
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -101,6 +102,22 @@ func TestBufferSubmitResets(t *testing.T) {
 	}
 	if b.Text() != "" || b.Cursor() != 0 {
 		t.Fatalf("buffer not reset: %q", b.Text())
+	}
+}
+
+func TestBufferRecordsPastes(t *testing.T) {
+	b := NewBuffer()
+	feed(b, "see: \x1b[200~a\r\nb\x1b[201~ and \x1b[200~c\x1b[201~")
+	if got := strings.Join(b.Pastes(), "|"); got != "a\nb|c" {
+		t.Fatalf("pastes = %q, want %q", got, "a\nb|c")
+	}
+	feed(b, "\x03")
+	if len(b.Pastes()) != 0 {
+		t.Fatalf("pastes kept after Ctrl+C: %q", b.Pastes())
+	}
+	feed(b, "\x1b[200~x\x1b[201~\r")
+	if len(b.Pastes()) != 0 {
+		t.Fatalf("pastes kept after submit: %q", b.Pastes())
 	}
 }
 

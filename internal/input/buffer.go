@@ -16,6 +16,9 @@ type Buffer struct {
 	cursor int
 	synced bool
 	rev    uint64
+	// pastes holds what was pasted since the prompt was last empty, so a
+	// rewrite can keep it exactly (PRD Appendix 1, FR-7.4e).
+	pastes []string
 }
 
 // NewBuffer returns an empty, in-sync buffer.
@@ -30,6 +33,10 @@ func (b *Buffer) Cursor() int { return b.cursor }
 // Synced reports whether the buffer is believed to match the child's prompt.
 func (b *Buffer) Synced() bool { return b.synced }
 
+// Pastes returns the text of each paste since the prompt was last
+// cleared, oldest first. Later edits may have changed or removed them.
+func (b *Buffer) Pastes() []string { return b.pastes }
+
 // Rev increments on every change to text, cursor, or sync state.
 func (b *Buffer) Rev() uint64 { return b.rev }
 
@@ -40,7 +47,11 @@ func (b *Buffer) Apply(k Key) (submitted string, ok bool) {
 	case KeyRunes:
 		b.insert(k.Runes)
 	case KeyPaste:
-		b.insert(normalizeNewlines(k.Runes))
+		rs := normalizeNewlines(k.Runes)
+		b.insert(rs)
+		if len(rs) > 0 {
+			b.pastes = append(b.pastes, string(rs))
+		}
 	case KeyNewline:
 		b.insert([]rune{'\n'})
 	case KeyEnter:
@@ -137,6 +148,9 @@ func (b *Buffer) Set(text string, cursor int) {
 		return
 	}
 	b.runes, b.cursor, b.synced = rs, cursor, true
+	if len(rs) == 0 {
+		b.pastes = nil
+	}
 	b.rev++
 }
 
@@ -144,7 +158,7 @@ func (b *Buffer) reset() {
 	if len(b.runes) == 0 && b.cursor == 0 && b.synced {
 		return
 	}
-	b.runes, b.cursor, b.synced = b.runes[:0], 0, true
+	b.runes, b.cursor, b.synced, b.pastes = b.runes[:0], 0, true, nil
 	b.rev++
 }
 
