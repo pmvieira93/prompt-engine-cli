@@ -79,6 +79,7 @@ func TestLoadFileErrorsFallBackToDefaults(t *testing.T) {
 		"bad context":  "expand:\n  context: everything\n",
 		"bad on_enter": "expand:\n  on_enter: always\n",
 		"no prompts":   "expand:\n  context_prompts: 0\n",
+		"no pause":     "expand:\n  on_enter: preview\n  preview_pause: 0s\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -197,5 +198,15 @@ func TestWatch(t *testing.T) {
 	case e := <-events:
 		t.Fatalf("reload without a change: %+v", e)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestLoadPreviewMode(t *testing.T) {
+	cfg, err := LoadFile(writeConfig(t, "expand:\n  on_enter: preview\n  preview_pause: 1500ms\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Expand.OnEnter != "preview" || cfg.Expand.PreviewPause != 1500*time.Millisecond {
+		t.Fatalf("expand = %+v", cfg.Expand)
 	}
 }

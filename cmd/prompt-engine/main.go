@@ -176,7 +176,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 	var status atomic.Pointer[[]string]
 	setStatus := func(cfg config.Config, cfgErr error, note string) {
 		src, llm := describeConfig(cfg, cfgErr)
-		lines := []string{"config:      " + src, "suggestions: " + llm}
+		lines := []string{"config:      " + src, "suggestions: " + llm,
+			fmt.Sprintf("expansion:   %s on Enter, model %s", cfg.Expand.OnEnter, cfg.LLM.ExpandModel)}
 		if note != "" {
 			lines = append(lines, note)
 		}
@@ -208,6 +209,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			}
 			if next.Expand != prev.Expand {
 				applied = append(applied, "expand") // read on each expansion and Enter
+				if next.Expand.OnEnter != "off" && prev.Expand.OnEnter == "off" {
+					go warmExpander(ctx, next, logf)
+				}
 			}
 			if next.History != prev.History {
 				applied = append(applied, "history") // read on each submit
@@ -255,8 +259,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		original, expanded string
 	}
 	var autoExpand func(context.Context, context.CancelFunc, config.Config, input.State, expand.Plan)
-	if cfg.Expand.OnEnter == "auto" {
-		go warmExpander(ctx, cfg, logf) // so the first Enter isn't slowed by loading it
+	var readyPreview func(input.State) string // a prepared rewrite for the prompt, or
+	if cfg.Expand.OnEnter != "off" {
+		go warmExpander(ctx, cfg, logf) // so the first rewrite isn't slowed by loading it
 	}
 	ctrl.OnExpand = func(s input.State) {
 		if !s.Synced || strings.TrimSpace(s.Text) == "" {
@@ -267,6 +272,18 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		if expansion.running {
 			expansion.Unlock()
 			logf("expand: already expanding")
+			return
+		}
+		if out := readyPreview(s); out != "" {
+			expansion.Unlock()
+			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
+				logf("expand: preview not applied: %v", err)
+				return
+			}
+			expansion.Lock()
+			expansion.original, expansion.expanded = s.Text, out
+			expansion.Unlock()
+			logf("expand: used the preview: replaced %q with %q", s.Text, out)
 			return
 		}
 		plan := expand.PlanRewrite(s.Text, s.Pastes)
@@ -335,6 +352,115 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		}
 		logf("expand: undone, back to %q", original)
 	}
+
+	// Preview mode (expand.on_enter: preview, PRD Appendix 1, FR-7.6):
+	// when typing pauses, a rewrite is prepared in the background and the
+	// panel shows it; the expand shortcut then applies it at once, and
+	// Enter sends the prompt as typed. It passes the same guard rails as
+	// auto mode, so what's offered is what auto mode would send.
+	var preview struct {
+		sync.Mutex
+		text    string // the prompt the preview is for
+		out     string // its rewrite, or "" if there is none
+		reason  string // why there is none
+		pending bool   // being prepared
+		cancel  context.CancelFunc
+	}
+	readyPreview = func(s input.State) string {
+		preview.Lock()
+		defer preview.Unlock()
+		if !s.Synced || preview.pending || preview.text != s.Text {
+			return ""
+		}
+		return preview.out
+	}
+	preparePreview := func() {
+		cfg := live.Load()
+		s := tracker.Snapshot()
+		expansion.Lock()
+		expanded := expansion.expanded != "" && s.Text == expansion.expanded
+		expansion.Unlock()
+		preview.Lock()
+		if cfg.Expand.OnEnter != "preview" || preview.text == s.Text { // ready, or being prepared
+			preview.Unlock()
+			return
+		}
+		show := s.Synced && !expanded && rules.SkipReason(s) == "" && len(strings.Fields(s.Text)) >= cfg.Expand.MinWords
+		plan := expand.PlanRewrite(s.Text, s.Pastes)
+		preview.text, preview.out, preview.reason, preview.pending = s.Text, "", "", false
+		switch {
+		case !show:
+			preview.text = "" // nothing to offer: the panel shows the last prompt sent
+			preview.Unlock()
+			ctrl.Redraw()
+			return
+		case plan.Skip != "":
+			preview.reason = plan.Skip
+			preview.Unlock()
+			logf("expand: no preview: %s", plan.Skip)
+			ctrl.Redraw()
+			return
+		}
+		pctx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
+		preview.pending, preview.cancel = true, cancel
+		preview.Unlock()
+		ctrl.Redraw()
+
+		start := time.Now()
+		earlier := earlierPrompts()
+		masked, err := expandPrompt(pctx, *cfg, plan, earlier)
+		cancelled := pctx.Err() == context.Canceled
+		cancel()
+		var out, reason string
+		switch {
+		case cancelled:
+			return // typing resumed: a newer preview is on its way
+		case err != nil:
+			reason = "the rewrite failed: " + err.Error()
+		default:
+			if reason = expand.Guard(plan.Masked, masked, earlier...); reason == "" {
+				if out, err = plan.Restore(masked); err != nil {
+					reason = err.Error()
+				}
+			}
+		}
+		preview.Lock()
+		if preview.text != s.Text || !preview.pending {
+			preview.Unlock()
+			return
+		}
+		preview.out, preview.reason, preview.pending, preview.cancel = out, reason, false, nil
+		preview.Unlock()
+		took := time.Since(start).Round(time.Millisecond)
+		if out == "" {
+			logf("expand: no preview for %q: %s (%s)", plan.Masked, reason, took)
+		} else {
+			logf("expand: preview ready for %q: %q (%s)", s.Text, out, took)
+			if !ctrl.PanelOpen() {
+				k := ctrl.CurrentKeys()
+				flashNotice(ctrl, fmt.Sprintf("✎ rewrite ready · %s then %s uses it, %s then %s shows it", k.Leader, k.Expand, k.Leader, k.Panel))
+			}
+		}
+		ctrl.Redraw()
+	}
+	go func() {
+		var timer *time.Timer
+		for range tracker.Subscribe() {
+			preview.Lock()
+			if preview.cancel != nil && tracker.Snapshot().Text != preview.text {
+				preview.cancel() // the prompt changed: that rewrite is stale
+				preview.cancel, preview.pending = nil, false
+			}
+			preview.Unlock()
+			if live.Load().Expand.OnEnter != "preview" {
+				continue
+			}
+			if timer != nil {
+				timer.Stop()
+			}
+			timer = time.AfterFunc(live.Load().Expand.PreviewPause, preparePreview)
+		}
+	}()
 
 	// Automatic expansion on Enter (expand.on_enter: auto, PRD Appendix 1,
 	// FR-7): the hook holds back Enter on a real prompt, a goroutine
@@ -491,6 +617,28 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			go recordHistory(h, sub, logf)
 		}
 	}
+	previewDiff := func() *tui.Diff {
+		s := tracker.Snapshot()
+		preview.Lock()
+		text, out, reason, pending := preview.text, preview.out, preview.reason, preview.pending
+		preview.Unlock()
+		if live.Load().Expand.OnEnter != "preview" || !s.Synced || text == "" || text != s.Text {
+			return nil
+		}
+		k := ctrl.CurrentKeys()
+		switch {
+		case pending:
+			return &tui.Diff{Title: "Preparing a rewrite…", Ops: diff.Words(text, text)}
+		case out == "":
+			return &tui.Diff{Title: "No rewrite suggested", Ops: diff.Words(text, text),
+				Notes: []string{"Not offered: " + reason + ".", "Enter sends what you typed."}}
+		}
+		return &tui.Diff{
+			Title: "Suggested rewrite (not used yet)",
+			Ops:   diff.Words(text, out),
+			Notes: []string{fmt.Sprintf("%s then %s uses it; Enter sends what you typed.", k.Leader, k.Expand)},
+		}
+	}
 	panelDiff := func() *tui.Diff {
 		// An expansion waiting to be sent: preview it, with the rules.
 		expansion.Lock()
@@ -508,6 +656,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				Ops:   diff.Words(original, preview),
 				Notes: []string{"Enter sends it; the undo key puts your text back."},
 			}
+		}
+		if d := previewDiff(); d != nil {
+			return d
 		}
 		sub := lastSent.Load()
 		if sub == nil {
