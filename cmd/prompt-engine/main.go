@@ -190,8 +190,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				ctrl.SetKeys(bindings(next.Keys))
 				applied = append(applied, "keys")
 			}
-			if next.Panel != prev.Panel {
+			if next.Panel.Side != prev.Panel.Side || next.Panel.Width != prev.Panel.Width {
 				applied = append(applied, "panel")
+			}
+			if next.History != prev.History {
+				applied = append(applied, "history") // read on each submit
+			}
+			if next.Panel.Visible != prev.Panel.Visible {
+				restart = append(restart, "panel.visible") // only opens it at startup
 			}
 			if next.Command != prev.Command || !slices.Equal(next.Args, prev.Args) || !maps.Equal(next.Env, prev.Env) {
 				restart = append(restart, "command/args/env")
