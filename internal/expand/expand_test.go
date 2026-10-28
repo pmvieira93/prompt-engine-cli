@@ -134,3 +134,10 @@ func TestExpandStripsOldContext(t *testing.T) {
 		t.Fatalf("sent %q, got %q", req.Messages[1].Content, got)
 	}
 }
+
+func TestExpandOnlyContext(t *testing.T) {
+	e, _ := fakeChat(t, `{"message":{"content":"x"}}`)
+	if got, err := e.Expand(context.Background(), "Context:\n- Branch: main"); err == nil {
+		t.Fatalf("got %q, want an error", got)
+	}
+}

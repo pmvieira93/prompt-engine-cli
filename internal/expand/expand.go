@@ -50,7 +50,9 @@ type Expander struct {
 
 // Expand returns text rewritten, with any context appended.
 func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
-	text = StripContext(text)
+	if text = StripContext(text); text == "" {
+		return "", errors.New("nothing to expand besides the context lines")
+	}
 	system, err := e.system()
 	if err != nil {
 		return "", err
