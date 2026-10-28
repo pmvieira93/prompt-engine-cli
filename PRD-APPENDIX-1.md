@@ -1,7 +1,7 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.2.0  
+**Appendix Version:** 1.3.0  
 **Date:** 2026-10-28  
 **Status:** Proposed, planned as Phase 4.5
 
@@ -84,6 +84,16 @@ A setting for when expansion runs:
 
   The panel and the log say why.
 * **FR-7.4b:** The name check also applies to expansion by shortcut: a rewrite that loses a name is not applied, the typed text is kept, and a notice says which name. Seen in Phase 4.5 testing: "now using code-reviewer look into MR !110" became "Can you review the code in merge request !110?". The expansion instructions also tell the model to keep such names; with that, every test rewrite kept them.
+* **FR-7.4c:** Meaning guard rails, tuned on real 7B rewrites. In `auto`, a rewrite is also not used when it:
+  * changes the number of negations (*not, never, without, only…*). Rewording is fine: "don't touch the tests" → "without changing the tests";
+  * adds a destructive action the developer didn't ask for (*delete, remove, reset, force, push…*);
+  * turns a question into an instruction ("and what about multi line prompts" → "Can you handle multi-line prompts?");
+  * changes quoted or `code` text (this one applies to the shortcut too);
+  * changes the language. Seen: Portuguese and Spanish prompts came back in English. `prompt-engine` detects the language and names it in the request when it isn't English, since naming languages in the instructions made the model translate English prompts;
+  * brings in details from earlier prompts when the request doesn't refer back to them. Seen: "Don't touch the tests or the config loader." added to an unrelated request;
+  * is far longer than what was typed (more than about 3× + 15 words);
+  * lacks most of the typed words, compared in any order (more than 60%).
+* **FR-7.4d:** `auto` leaves prompts that look pasted (over 400 characters, 6+ lines, or a code block) unexpanded, and holds Enter for at most `expand.auto_timeout` (default 5 s).
 * **FR-7.5:** The history log (FR-5.4) records whether a prompt was auto-expanded, and whether a guard rail stopped it.
 * **FR-7.6 (later, optional):** `preview` mode, if `auto` turns out too blunt.
 
@@ -91,6 +101,8 @@ A setting for when expansion runs:
 
 * **Nothing is reviewed before the CLI acts on it.** In Claude Code's auto mode, a misread request is executed immediately. This was observed in Phase 4 testing, when a test prompt ("fix the bug in the config") made Claude Code edit the repository. This is why `auto` is opt-in and the guard rails come first.
 * **Latency on every Enter:** about 0.5–1.5 s with the 7B model once loaded, and about 3 s for the first prompt while it loads. Short prompts skip expansion (FR-7.2); the model can be warmed at startup when `auto` is on.
+
+**Known limit:** a typo misread as a name ("rfcator tracker" → "the RFCator tracker") keeps nearly all the typed words, so no word-based check can tell it from a good typo fix.
 
 ### 3.4 Decision: a stopped rewrite sends the prompt as typed
 

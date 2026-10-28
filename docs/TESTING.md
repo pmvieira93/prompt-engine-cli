@@ -112,6 +112,7 @@ expand:
   context_prompts: 3
   on_enter: off       # or auto: Enter expands the prompt, then sends it (guard rails apply)
   min_words: 3        # in auto mode, shorter prompts are sent as typed
+  auto_timeout: 5s    # in auto mode, after this the prompt is sent as typed
 history:
   enabled: true       # one line of metrics per prompt sent
   include_text: false # also store the prompts themselves
@@ -614,7 +615,21 @@ In Terminal B: `printf 'expand:\n  on_enter: auto\n' > /tmp/pe-auto.yaml`
 | K8 | Type `say hi in thre words`, press **Enter**, then **at once** type `x` | Nothing is sent: typing cancels the automatic send, and the prompt reads `say hi in thre wordsx`. Log: `auto expansion cancelled`. Ctrl+C to clear |
 | K8b | Turn auto off again (`printf 'expand:\n  on_enter: off\n' > /tmp/pe-auto.yaml`), Ctrl+C, type `now using code-reviewer look into MR !110`, **Ctrl+Q**, **e** (don't send) | `code-reviewer` and `!110` are kept exactly, e.g. `Have the code-reviewer look into MR !110.` If a rewrite ever drops a name like that, your text is kept instead, with a notice saying which name it changed. Turn auto back on for K9: `printf 'expand:\n  on_enter: auto\n' > /tmp/pe-auto.yaml` |
 | K9 | Type `/help` and **Enter** | Help opens at once, with no `⟳ expanding…` (slash commands are never expanded). Esc to close |
+| K9b | Paste a few lines including a ```` ``` ```` code block, then **Enter** | Sent as typed at once, with no `⟳ expanding…`. Log: `not auto-expanded (long, or contains pasted or code text)` |
 | K10 | Quit with `/exit`, then `tail -4 ~/.local/state/prompt-engine/history.jsonl` | K4's line has `"expanded":true,"auto":true`; K6's has `"auto":true,"stopped":"you pressed Esc"`; no prompt text |
+
+### Guard rails (no prompts sent)
+
+These check that a rewrite keeps your meaning. Use the shortcut and **don't send**: turn auto off first (`printf 'expand:\n  on_enter: off\n' > /tmp/pe-auto.yaml`). Clear with Ctrl+C between steps.
+
+| # | Type this, then **Ctrl+Q**, **e** | Expected rewrite |
+|---|---|---|
+| K11 | `don't touch the tests, just fix the config loadr` | Keeps the negation, possibly reworded (`…without changing the tests`) |
+| K12 | `how does the input buffer resync from the screen` | Still a question, not an instruction |
+| K13 | `explica como funciona o buffer de entrada` | Still in **Portuguese** (e.g. `Explica como funciona o buffer de entrada.`) |
+| K14 | ``fix the error `connection refused: dial tcp [::1]:11434` in the client`` | The part in backticks is kept exactly |
+
+In auto mode, a rewrite that breaks any of these is not used: the prompt is sent as typed, and the log line `expand: auto rewrite "…" not used (…)` gives the reason. The checks themselves are covered by the unit tests (`go test ./internal/expand/`).
 
 **Cleanup:** `rm -f /tmp/pe-auto.yaml`.
 
@@ -635,6 +650,7 @@ In Terminal B: `printf 'expand:\n  on_enter: auto\n' > /tmp/pe-auto.yaml`
 | Expansion only uses git context (branch, staged files), not the contents of files or recent commits | Small models given more context invented requirements from it. The context is added by `prompt-engine`, not by the model, so it's always accurate |
 | If you edit an expanded prompt before sending it, the panel shows your edited text as "typed" | The panel only knows the original once the prompt still matches the expansion exactly |
 | In auto mode, typing while `⟳ expanding…` shows cancels the send, so you press Enter again (and it expands again) | Anything typed after Enter would otherwise go into a prompt that's about to be replaced |
+| A typo the model misreads as a name can get through in auto mode (e.g. `rfcator tracker` → `the RFCator tracker`) | The rewrite keeps nearly all your words, so no word-based check can tell it from a good typo fix. Use the shortcut and review when a prompt has heavy typos |
 | Session context only includes your prompts, not `claude`'s replies | Level L1 of PRD Appendix 1. Replies (L2) and session summaries (L3) are later candidates |
 | Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
 | Rules aren't added when the prompt text is unknown (`synced=false`, e.g. a multi-line prompt after history) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
