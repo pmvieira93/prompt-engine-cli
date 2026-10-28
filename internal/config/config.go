@@ -89,9 +89,15 @@ type ExpandConfig struct {
 	Context        string `yaml:"context"`
 	ContextPrompts int    `yaml:"context_prompts"`
 	// OnEnter is "off" (expand only on the shortcut, reviewed before
-	// sending) or "auto": Enter expands the prompt, then sends it, unless
-	// a guard rail stops the rewrite (PRD Appendix 1, FR-7).
+	// sending), "auto": Enter expands the prompt, then sends it, unless a
+	// guard rail stops the rewrite (PRD Appendix 1, FR-7), or "preview":
+	// a rewrite is prepared while typing pauses and shown in the panel,
+	// the expand shortcut applies it at once, and Enter sends the prompt
+	// as typed (FR-7.6).
 	OnEnter string `yaml:"on_enter"`
+	// PreviewPause is how long typing must pause before preview mode
+	// prepares a rewrite.
+	PreviewPause time.Duration `yaml:"preview_pause"`
 	// MinWords: in auto mode, shorter prompts ("yes", "continue") are sent
 	// as typed.
 	MinWords int `yaml:"min_words"`
@@ -152,7 +158,8 @@ func Default() Config {
 		History: HistoryConfig{Enabled: true},
 		// Recent prompts resolved every follow-up tested ("add tests for
 		// it") without adding requirements to unrelated ones.
-		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", MinWords: 3, AutoTimeout: 5 * time.Second},
+		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", MinWords: 3, AutoTimeout: 5 * time.Second,
+			PreviewPause: time.Second},
 	}
 }
 
@@ -241,8 +248,10 @@ func (c Config) Validate() error {
 		return errors.New("llm.timeout must be positive")
 	case c.Expand.Context != "none" && c.Expand.Context != "prompts":
 		return fmt.Errorf("expand.context must be \"none\" or \"prompts\", got %q", c.Expand.Context)
-	case c.Expand.OnEnter != "off" && c.Expand.OnEnter != "auto":
-		return fmt.Errorf("expand.on_enter must be \"off\" or \"auto\", got %q", c.Expand.OnEnter)
+	case c.Expand.OnEnter != "off" && c.Expand.OnEnter != "auto" && c.Expand.OnEnter != "preview":
+		return fmt.Errorf("expand.on_enter must be \"off\", \"auto\" or \"preview\", got %q", c.Expand.OnEnter)
+	case c.Expand.PreviewPause <= 0:
+		return errors.New("expand.preview_pause must be positive")
 	case c.Expand.AutoTimeout <= 0:
 		return errors.New("expand.auto_timeout must be positive")
 	case c.Expand.MinWords < 1:

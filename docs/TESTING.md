@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -687,7 +687,34 @@ In the log, kept parts show as `<<PASTE_1>>`, `<<PASTE_2>>`… in what the model
 
 ---
 
-## 14. Known limitations (expected, not bugs)
+## 14. Part M: Preview mode
+
+[PRD Appendix 1](../PRD-APPENDIX-1.md), FR-7.6: when you pause typing (`expand.preview_pause`, 1 s), the rewrite is prepared in the background and the panel shows it. **Ctrl+Q**, **e** then uses it at once; **Enter** sends what you typed. It passes the same guard rails as auto mode.
+
+**Setup:**
+
+```sh
+printf 'expand:\n  on_enter: preview\n' > /tmp/pe-auto.yaml
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-auto.yaml
+```
+
+Open the panel (Ctrl+Q, then p). Its Session section should say `expansion:   preview on Enter`. Clear the prompt between steps with **Ctrl+C**.
+
+| # | Do this | Expected |
+|---|---|---|
+| M1 | Type `fix teh failing tst in config` and stop | The panel shows `Preparing a rewrite…`, then within about a second `Suggested rewrite (not used yet)` with the corrections in green. Your prompt is unchanged. Log: `expand: preview ready for …` |
+| M2 | **Ctrl+Q**, **e** | The rewrite replaces your prompt at once, with no `⟳ expanding…`. The panel says `Ready to send (not sent yet)`. Log: `expand: used the preview`. Then **Ctrl+Q**, **u** puts your text back; don't send |
+| M3 | Type `explain how the input buffr works`, wait for the suggestion, then type ` and the trackr` | The suggestion goes as you type, and a new one for the whole prompt appears after you stop |
+| M4 | Paste **C** from Part L (Cmd+V) | `No rewrite suggested`, with `Not offered: the paste looks like a log, trace, JSON or diff.` Log: `expand: no preview: …` |
+| M5 | Type `ok thanks` | Nothing is suggested (shorter than `min_words`); the panel shows the last prompt sent |
+| M6 | Type `say helo in thre words`, wait for the suggestion, then **Enter** (sends a harmless prompt) | Sent **as typed** (`helo`, `thre`): Enter never uses the suggestion. The panel: **Last prompt sent** with nothing changed |
+| M7 | Close the panel (**Ctrl+Q**, **p**). Type `tell me a joke abuot cats` and stop | A notice at the cursor for a few seconds: `✎ rewrite ready · ctrl+q then e uses it, ctrl+q then p shows it`. Then **Ctrl+Q**, **e**, **Enter** (sends a harmless prompt): sent corrected, and the panel's **Last prompt sent** says `· expanded` |
+
+**Cleanup:** `rm -f /tmp/pe-auto.yaml`.
+
+---
+
+## 15. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -703,6 +730,7 @@ In the log, kept parts show as `<<PASTE_1>>`, `<<PASTE_2>>`… in what the model
 | If you edit an expanded prompt before sending it, the panel shows your edited text as "typed" | The panel only knows the original once the prompt still matches the expansion exactly |
 | In auto mode, typing while `⟳ expanding…` shows cancels the send, so you press Enter again (and it expands again) | Anything typed after Enter would otherwise go into a prompt that's about to be replaced |
 | Around a paste, a typo can come back wrong (seen: `what does this, just answr:` → `just ansr:`, every time) | Typo-only rewrites keep nearly every word, so no word check can tell a bad fix from a good one; with the missing word (`what does this print, just answr:`) it was fixed |
+| In preview mode, the expansion model runs after every pause in typing | That's what prepares the suggestion. It's cancelled as soon as you type again, but it uses CPU while it runs; use `off` or a longer `expand.preview_pause` to run it less |
 | A paste that you then edit counts as typed text, so it can be rewritten | The kept parts are found by their exact pasted text |
 | A long paste that `claude` shows as `[Pasted text #1 +N lines]` is never rewritten if the prompt was re-read from the screen | The screen only has the placeholder, not the text |
 | A typo the model misreads as a name can get through in auto mode (e.g. `rfcator tracker` → `the RFCator tracker`) | The rewrite keeps nearly all your words, so no word-based check can tell it from a good typo fix. Use the shortcut and review when a prompt has heavy typos |
@@ -713,7 +741,7 @@ In the log, kept parts show as `<<PASTE_1>>`, `<<PASTE_2>>`… in what the model
 
 ---
 
-## 15. Reporting a problem
+## 16. Reporting a problem
 
 Include:
 

@@ -105,6 +105,7 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	opt.Ctrl.OnTogglePanel = a.TogglePanel
 	opt.Ctrl.Gate = a.cursorInPrompt
 	opt.Ctrl.SetScreen(a.promptText)
+	opt.Ctrl.SetPanelOpen(a.panel.Load)
 	opt.Ctrl.CanInsert = a.canInsert
 	opt.Ctrl.OnResizePanel = a.ResizePanel
 	opt.Ctrl.MouseOffset = a.mouseOffset

@@ -81,15 +81,16 @@ type Controller struct {
 	// which sends the prompt without BeforeSubmit: e.g. to still record it.
 	OnSubmitAsTyped func(s input.State)
 
-	mu       sync.Mutex
-	output   io.Writer // to the child, for Replace
-	notice   string    // shown at the cursor, e.g. "expanding…"
-	screen   func() (text string, cursor int, ok bool)
-	dec      input.Decoder
-	sug      string
-	disabled bool
-	armed    bool      // Leader was pressed; the next key is a command
-	repeat   time.Time // until when Wider/Narrower work without Leader
+	mu        sync.Mutex
+	output    io.Writer // to the child, for Replace
+	notice    string    // shown at the cursor, e.g. "expanding…"
+	screen    func() (text string, cursor int, ok bool)
+	panelOpen func() bool
+	dec       input.Decoder
+	sug       string
+	disabled  bool
+	armed     bool      // Leader was pressed; the next key is a command
+	repeat    time.Time // until when Wider/Narrower work without Leader
 }
 
 // Disable hides any suggestion and turns interception off for good, e.g.
@@ -108,6 +109,29 @@ func (c *Controller) SetScreen(f func() (text string, cursor int, ok bool)) {
 	c.mu.Lock()
 	c.screen = f
 	c.mu.Unlock()
+}
+
+// SetPanelOpen installs a check for whether the side panel is showing.
+func (c *Controller) SetPanelOpen(f func() bool) {
+	c.mu.Lock()
+	c.panelOpen = f
+	c.mu.Unlock()
+}
+
+// PanelOpen reports whether the side panel is showing; false if unknown.
+func (c *Controller) PanelOpen() bool {
+	c.mu.Lock()
+	f := c.panelOpen
+	c.mu.Unlock()
+	return f != nil && f()
+}
+
+// Redraw asks for the screen to be drawn again, e.g. when what the panel
+// shows has changed.
+func (c *Controller) Redraw() {
+	if c.OnChange != nil {
+		c.OnChange()
+	}
 }
 
 // ScreenPrompt returns the prompt text and cursor (in runes) shown on the
