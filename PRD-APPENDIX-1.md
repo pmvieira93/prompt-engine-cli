@@ -1,7 +1,7 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.4.0  
+**Appendix Version:** 1.5.0  
 **Date:** 2026-10-28  
 **Status:** Proposed, planned as Phase 4.5
 
@@ -93,8 +93,8 @@ A setting for when expansion runs:
   * brings in details from earlier prompts when the request doesn't refer back to them. Seen: "Don't touch the tests or the config loader." added to an unrelated request;
   * is far longer than what was typed (more than about 3× + 15 words);
   * lacks most of the typed words, compared in any order (more than 60%).
-* **FR-7.4d:** `auto` leaves prompts that look pasted (over 400 characters, 6+ lines, or a code block) unexpanded, and holds Enter for at most `expand.auto_timeout` (default 5 s).
-* **FR-7.4e (later):** Fix what the developer typed, and keep what they pasted. This replaces FR-7.4d's all-or-nothing skip, and the same rule should apply to expansion by shortcut:
+* **FR-7.4d:** `auto` holds Enter for at most `expand.auto_timeout` (default 5 s), plus time for long prompts (FR-7.4e). *Originally it also left prompts that looked pasted (over 400 characters, 6+ lines, or a code block) unexpanded; FR-7.4e replaced that.*
+* **FR-7.4e:** Fix what the developer typed, and keep what they pasted. This replaces FR-7.4d's all-or-nothing skip, and applies to expansion by shortcut too:
 
   | Prompt | What is rewritten |
   |---|---|
@@ -107,6 +107,15 @@ A setting for when expansion runs:
   * A paste on its own that isn't a request (a stack trace, log lines, JSON, a diff, recognised by the shape of its lines) is sent as is. When unsure, it is sent as is.
   * Size: about 1 s per 100 words with the 7B model, so auto expansion stops at about 300 words of prose (code not counted), with the time limit scaled to the length.
   * The meaning guard rails (FR-7.4b, FR-7.4c) apply to the rewritten parts. If the parts can't be put back together exactly, the prompt is sent as typed.
+
+  As built (tested with `qwen2.5:7b`):
+  * Kept parts reach the model as markers (`<<PASTE_1>>`), which it copied exactly and in place in every test; square-bracket markers got moved. A rewrite that drops, repeats or reorders a marker is not used.
+  * Typo-only instructions are used around a paste and for prompts over 60 words, since the rewording instructions ask for under 60 words. In typo mode the model copied the "Request:" label, so the label is "Message:", and an echoed label is removed.
+  * A 92-word prompt took 5.3 s, so the time limit grows by about 6 s per 100 words, up to 300 words.
+  * Session context (FR-6) gives earlier prompts with their pasted parts as "(pasted text)". Seen in testing: given an earlier pasted trace, the model put it in place of a new paste's marker.
+  * A question at the end of a prompt ("…, can you fix it") counts as a question, so a rewrite that adds its "?" isn't stopped.
+  * Typo fixes kept the markers in every test, and fixed 7 of 8 prompts; one (`what does this, just answr:`) came back as `just ansr:` every time. Like the RFCator case, no word-based check can catch it.
+  * Not handled: a paste edited afterwards counts as typed; a long paste that `claude` shows as `[Pasted text #1 +N lines]` is not rewritten if the prompt text came from the screen.
 * **FR-7.5:** The history log (FR-5.4) records whether a prompt was auto-expanded, and whether a guard rail stopped it.
 * **FR-7.6 (later, optional):** `preview` mode, if `auto` turns out too blunt.
 
@@ -133,4 +142,4 @@ In order:
 2. **Automatic enhancement** (`expand.on_enter: auto`, FR-7.1 to FR-7.5), with the guard rails, the escape hatches, and short-prompt skipping.
 3. A manual test round (the next part of `docs/TESTING.md`) before merging.
 
-Later candidates: rewriting typed text around pastes (FR-7.4e, next after Phase 4.5 merges), L2/L3 context (FR-6.3), ghost text with session context (FR-6.2), and `preview` mode (FR-7.6).
+Built after the Phase 4.5 merge: rewriting typed text around pastes (FR-7.4e). Later candidates: L2/L3 context (FR-6.3), ghost text with session context (FR-6.2), and `preview` mode (FR-7.6).
