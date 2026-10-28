@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -107,6 +107,11 @@ keys:           # leader-prefixed shortcuts, like tmux
   undo: u         # leader, then this key, puts back the prompt from before the last expansion
   panel_wider: "+"     # leader, then this key, widens the panel by 5%
   panel_narrower: "-"  # leader, then this key, narrows it
+expand:
+  context: prompts    # or none: give the expansion model the last prompts sent, to resolve "it", "same"…
+  context_prompts: 3
+  on_enter: off       # or auto: Enter expands the prompt, then sends it (guard rails apply)
+  min_words: 3        # in auto mode, shorter prompts are sent as typed
 history:
   enabled: true       # one line of metrics per prompt sent
   include_text: false # also store the prompts themselves
@@ -573,7 +578,48 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-left.y
 
 ---
 
-## 12. Known limitations (expected, not bugs)
+## 12. Part K: Session context and automatic expansion
+
+Phase 4.5 ([PRD Appendix 1](../PRD-APPENDIX-1.md)): expansion now knows your last few prompts, and can run automatically on Enter.
+
+> ⚠️ **K1, K4, K5, K6 and K7 send real prompts.** They're all harmless (greetings, a joke). Don't substitute coding requests: in auto mode, `claude` acts on them straight away.
+
+**Setup:** a throwaway config, edited from Terminal B as you go (it reloads within a second):
+
+```sh
+printf 'expand:\n  on_enter: off\n' > /tmp/pe-auto.yaml
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-auto.yaml
+```
+
+Open the panel (Ctrl+Q, then p) to see each result. Clear the prompt between steps with **Ctrl+C**.
+
+### Session context
+
+| # | Do this | Expected |
+|---|---|---|
+| K1 | Send `say hello in three words` (**Enter**). Then type `now say it in portuguese` and press **Ctrl+Q**, **e** (don't send) | The rewrite says what "it" is, e.g. `Say "hello" in three words in Portuguese.` |
+| K2 | Ctrl+C, type `what is two plus two`, **Ctrl+Q**, **e** | Rewritten on its own: nothing about hello or Portuguese is added |
+| K3 | In Terminal B: `printf 'expand:\n  on_enter: off\n  context: none\n' > /tmp/pe-auto.yaml`. Then Ctrl+C, type `now say it in portuguese`, **Ctrl+Q**, **e** | Without context, the rewrite can't say what "it" is (e.g. `Say it in Portuguese.`) |
+
+### Automatic expansion on Enter
+
+In Terminal B: `printf 'expand:\n  on_enter: auto\n' > /tmp/pe-auto.yaml`
+
+| # | Do this | Expected |
+|---|---|---|
+| K4 | Type `say helo in thre words` and press **Enter** | `⟳ expanding…` for about a second, then the corrected prompt is sent. The panel: **Last prompt sent** with the corrections in green and `· auto-expanded`. Log: `expand: auto expanded and sent …` |
+| K5 | Type `ok thanks` and **Enter** | Sent as typed straight away: it's shorter than `min_words` (3) |
+| K6 | Type `tell me a joke abuot cats`, press **Enter**, then **Esc** at once, while `⟳ expanding…` shows | Sent as typed (`abuot` uncorrected). The panel says `Sent as typed: the automatic rewrite wasn't used (you pressed Esc).` |
+| K7 | Type `say bye in thre words`, then **Ctrl+Q**, **Enter** | Sent as typed, with no `⟳ expanding…`. The panel shows it with nothing changed |
+| K8 | Type `say hi in thre words`, press **Enter**, then **at once** type `x` | Nothing is sent: typing cancels the automatic send, and the prompt reads `say hi in thre wordsx`. Log: `auto expansion cancelled`. Ctrl+C to clear |
+| K9 | Type `/help` and **Enter** | Help opens at once, with no `⟳ expanding…` (slash commands are never expanded). Esc to close |
+| K10 | Quit with `/exit`, then `tail -4 ~/.local/state/prompt-engine/history.jsonl` | K4's line has `"expanded":true,"auto":true`; K6's has `"auto":true,"stopped":"you pressed Esc"`; no prompt text |
+
+**Cleanup:** `rm -f /tmp/pe-auto.yaml`.
+
+---
+
+## 13. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -587,17 +633,19 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-left.y
 | A new `panel.width` applies the next time the panel opens or the window resizes | The panel isn't re-laid out mid-display |
 | Expansion only uses git context (branch, staged files), not the contents of files or recent commits | Small models given more context invented requirements from it. The context is added by `prompt-engine`, not by the model, so it's always accurate |
 | If you edit an expanded prompt before sending it, the panel shows your edited text as "typed" | The panel only knows the original once the prompt still matches the expansion exactly |
+| In auto mode, typing while `⟳ expanding…` shows cancels the send, so you press Enter again (and it expands again) | Anything typed after Enter would otherwise go into a prompt that's about to be replaced |
+| Session context only includes your prompts, not `claude`'s replies | Level L1 of PRD Appendix 1. Replies (L2) and session summaries (L3) are later candidates |
 | Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
 | Rules aren't added when the prompt text is unknown (`synced=false`, e.g. a multi-line prompt after history) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---
 
-## 13. Reporting a problem
+## 14. Reporting a problem
 
 Include:
 
-1. The test number (e.g. C9, E5, F2, G1, H3, I1 or J2)
+1. The test number (e.g. C9, E5, F2, G1, H3, I1, J2 or K4)
 2. What `claude` showed
 3. The matching lines from `/tmp/pe.log`
 4. Your terminal app (iTerm2, Terminal.app, Ghostty, …)
