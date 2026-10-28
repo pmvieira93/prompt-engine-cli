@@ -54,6 +54,10 @@ type LLMConfig struct {
 	MaxTokens int           `yaml:"max_tokens"`
 	Debounce  time.Duration `yaml:"debounce"`
 	Timeout   time.Duration `yaml:"timeout"`
+	// ExpandModel rewrites prompts on request (leader, then keys.expand).
+	// It can be larger and slower than Model, since it only runs when asked.
+	ExpandModel   string        `yaml:"expand_model"`
+	ExpandTimeout time.Duration `yaml:"expand_timeout"`
 }
 
 // PanelConfig configures the prompt diff side panel (Phase 4).
@@ -69,6 +73,8 @@ type PanelConfig struct {
 type KeysConfig struct {
 	Leader string `yaml:"leader"`
 	Panel  string `yaml:"panel"`
+	Expand string `yaml:"expand"` // rewrite the prompt with llm.expand_model
+	Undo   string `yaml:"undo"`   // put back the prompt from before the last expansion
 }
 
 // TemplatesConfig locates prompt templates. Relative paths resolve against
@@ -91,6 +97,10 @@ func Default() Config {
 			MaxTokens: 8,
 			Debounce:  150 * time.Millisecond,
 			Timeout:   2 * time.Second,
+			// Faithful rewrites needed 7B in testing: 1.5B and 3B models
+			// invented requirements or misread shorthand.
+			ExpandModel:   "qwen2.5:7b",
+			ExpandTimeout: 30 * time.Second, // includes loading the model
 		},
 		Panel: PanelConfig{
 			Side:  "right",
@@ -102,6 +112,8 @@ func Default() Config {
 		Keys: KeysConfig{
 			Leader: "ctrl+q", // a letter, so it types the same on every layout
 			Panel:  "p",
+			Expand: "e",
+			Undo:   "u",
 		},
 	}
 }
@@ -179,6 +191,10 @@ func (c Config) Validate() error {
 		return fmt.Errorf("llm.provider must be \"ollama\" or \"fake\", got %q", c.LLM.Provider)
 	case c.LLM.Provider == "ollama" && (c.LLM.Endpoint == "" || c.LLM.Model == ""):
 		return errors.New("llm.endpoint and llm.model must be set for the ollama provider")
+	case c.LLM.Provider == "ollama" && c.LLM.ExpandModel == "":
+		return errors.New("llm.expand_model must be set for the ollama provider")
+	case c.LLM.ExpandTimeout <= 0:
+		return errors.New("llm.expand_timeout must be positive")
 	case c.LLM.MaxTokens < 1 || c.LLM.MaxTokens > 64:
 		return fmt.Errorf("llm.max_tokens must be between 1 and 64, got %d", c.LLM.MaxTokens)
 	case c.LLM.Debounce < 0:
@@ -190,16 +206,19 @@ func (c Config) Validate() error {
 	case c.Panel.Width < 10 || c.Panel.Width > 90:
 		return fmt.Errorf("panel.width must be a percentage between 10 and 90, got %d", c.Panel.Width)
 	}
-	leader, err := input.ParseBinding(c.Keys.Leader)
-	if err != nil {
-		return fmt.Errorf("keys.leader: %w", err)
-	}
-	panel, err := input.ParseBinding(c.Keys.Panel)
-	if err != nil {
-		return fmt.Errorf("keys.panel: %w", err)
-	}
-	if leader == panel {
-		return errors.New("keys.panel must differ from keys.leader")
+	seen := map[input.Binding]string{}
+	for _, k := range []struct{ name, value string }{
+		{"keys.leader", c.Keys.Leader}, {"keys.panel", c.Keys.Panel},
+		{"keys.expand", c.Keys.Expand}, {"keys.undo", c.Keys.Undo},
+	} {
+		b, err := input.ParseBinding(k.value)
+		if err != nil {
+			return fmt.Errorf("%s: %w", k.name, err)
+		}
+		if other, dup := seen[b]; dup {
+			return fmt.Errorf("%s must differ from %s", k.name, other)
+		}
+		seen[b] = k.name
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package ghost
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -329,11 +330,97 @@ func TestSetKeys(t *testing.T) {
 	c.Filter([]byte("\x1d"))        // arm the old leader
 	g, _ := input.ParseBinding("ctrl+g")
 	x, _ := input.ParseBinding("x")
-	c.SetKeys(g, x)
+	c.SetKeys(g, x, input.Binding{}, input.Binding{})
 	if out := string(c.Filter([]byte("p"))); out != "p" {
 		t.Fatalf("SetKeys should disarm a pending leader; child got %q", out)
 	}
 	if out := string(c.Filter([]byte("\x07x\x1d"))); out != "\x1d" || toggles != 1 {
 		t.Fatalf("new keys: child got %q, toggles %d", out, toggles)
+	}
+}
+
+// recorder collects what Replace writes to the child.
+type recorder struct{ strings.Builder }
+
+func expandController(t *testing.T) (*Controller, *recorder, *[]string) {
+	t.Helper()
+	toggles := 0
+	c := leaderController(&toggles) // leader ctrl+]
+	c.ExpandKey, _ = input.ParseBinding("e")
+	c.UndoKey, _ = input.ParseBinding("u")
+	var got []string
+	c.OnExpand = func(s input.State) { got = append(got, "expand:"+s.Text) }
+	c.OnUndo = func(s input.State) { got = append(got, "undo:"+s.Text) }
+	out := &recorder{}
+	c.SetOutput(out)
+	return c, out, &got
+}
+
+func TestLeaderExpandAndUndo(t *testing.T) {
+	c, _, got := expandController(t)
+	// Text and the shortcut in one read: the action sees the text.
+	if out := string(c.Filter([]byte("fix teh bug\x1de"))); out != "fix teh bug" {
+		t.Fatalf("child got %q", out)
+	}
+	c.Filter([]byte("\x1du"))
+	if strings.Join(*got, "|") != "expand:fix teh bug|undo:fix teh bug" {
+		t.Fatalf("actions = %q", *got)
+	}
+}
+
+func TestReplace(t *testing.T) {
+	c, out, _ := expandController(t)
+	c.Filter([]byte("fix 👍🏽 teh\x1b[D\x1b[D"))
+	s := c.Tracker.Snapshot()
+	if err := c.Replace(s.Rev, s.Text, "Fix the bug.\n\nContext:\n- Branch: main\tx"); err != nil {
+		t.Fatal(err)
+	}
+	// Two Rights to the end, 9 Backspaces (f i x space 👍🏽 space t e h: the
+	// emoji is one), then the new text typed, with line breaks as Alt+Enter
+	// and the tab as spaces.
+	want := "\x1b[C\x1b[C" + strings.Repeat("\x7f", 9) + "Fix the bug.\x1b\r\x1b\rContext:\x1b\r- Branch: main    x"
+	if out.String() != want {
+		t.Fatalf("wrote %q\nwant  %q", out.String(), want)
+	}
+	if s := c.Tracker.Snapshot(); s.Text != "Fix the bug.\n\nContext:\n- Branch: main    x" || !s.Synced {
+		t.Fatalf("tracker after Replace: %+v", s)
+	}
+}
+
+func TestReplaceRefusesStale(t *testing.T) {
+	c, out, _ := expandController(t)
+	c.Filter([]byte("fix"))
+	s := c.Tracker.Snapshot()
+	c.Filter([]byte("ed")) // typed while the model was working
+	if err := c.Replace(s.Rev, s.Text, "Fix."); !errors.Is(err, ErrStale) {
+		t.Fatalf("err = %v", err)
+	}
+	c.CanInsert = func() bool { return false }
+	s = c.Tracker.Snapshot()
+	if err := c.Replace(s.Rev, s.Text, "Fix."); err == nil {
+		t.Fatal("replaced while the cursor wasn't in the prompt")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("wrote %q", out.String())
+	}
+}
+
+func TestNoticeBlocksSuggestions(t *testing.T) {
+	c := &Controller{Tracker: input.NewTracker()}
+	c.Filter([]byte("refa"))
+	rev := c.Tracker.Snapshot().Rev
+	if !c.Show("ctor", rev) {
+		t.Fatal("Show failed")
+	}
+	c.SetNotice("⟳ expanding…")
+	if c.Visible() != "" {
+		t.Fatal("the notice didn't replace the suggestion")
+	}
+	if c.Show("ctor", rev) {
+		t.Fatal("a suggestion was shown over the notice")
+	}
+	c.SetNotice("")
+	if !c.Show("ctor", rev) {
+		t.Fatal("suggestions didn't resume after the notice")
 	}
 }

@@ -4,7 +4,12 @@
 package ghost
 
 import (
+	"errors"
+	"io"
+	"strings"
 	"sync"
+
+	"github.com/rivo/uniseg"
 
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 )
@@ -32,9 +37,18 @@ type Controller struct {
 	// by checking that the child's cursor is in its prompt, not a dialog.
 	Gate func() bool
 
-	// Leader and PanelKey are the configured shortcut keys. A zero Leader
-	// turns shortcuts off.
-	Leader, PanelKey input.Binding
+	// Leader, PanelKey, ExpandKey, and UndoKey are the configured shortcut
+	// keys (see SetKeys). A zero Leader turns shortcuts off.
+	Leader, PanelKey, ExpandKey, UndoKey input.Binding
+
+	// OnExpand and OnUndo, if set before use, are called after Leader then
+	// ExpandKey or UndoKey, with the prompt as it stands. They must not
+	// block: start the work and apply it later with Replace.
+	OnExpand, OnUndo func(s input.State)
+
+	// CanInsert, if set, must approve every Replace: e.g. the child's cursor
+	// is in its prompt, not a dialog.
+	CanInsert func() bool
 
 	// BeforeSubmit, if set before use, is called on each Enter with the
 	// prompt as it stands, and returns input to send just before that
@@ -42,6 +56,8 @@ type Controller struct {
 	BeforeSubmit func(s input.State) []byte
 
 	mu       sync.Mutex
+	output   io.Writer // to the child, for Replace
+	notice   string    // shown at the cursor, e.g. "expanding…"
 	screen   func() (text string, cursor int, ok bool)
 	dec      input.Decoder
 	sug      string
@@ -82,18 +98,100 @@ func (c *Controller) ScreenPrompt() (text string, cursor int, ok bool) {
 
 // SetKeys replaces the shortcut keys, e.g. after the config is edited. It
 // may be called while input is being filtered.
-func (c *Controller) SetKeys(leader, panel input.Binding) {
+func (c *Controller) SetKeys(leader, panel, expand, undo input.Binding) {
 	c.mu.Lock()
-	c.Leader, c.PanelKey = leader, panel
+	c.Leader, c.PanelKey, c.ExpandKey, c.UndoKey = leader, panel, expand, undo
 	c.armed = false
 	c.mu.Unlock()
 }
 
-// Keys returns the current shortcut keys.
-func (c *Controller) Keys() (leader, panel input.Binding) {
+// SetOutput sets where Replace writes: the child's input.
+func (c *Controller) SetOutput(w io.Writer) {
+	c.mu.Lock()
+	c.output = w
+	c.mu.Unlock()
+}
+
+// SetNotice sets a short message shown at the cursor, like ghost text but
+// not acceptable with Tab; "" clears it.
+func (c *Controller) SetNotice(msg string) {
+	c.mu.Lock()
+	changed := c.notice != msg || (msg != "" && c.sug != "")
+	c.notice = msg
+	if msg != "" {
+		c.sug = "" // the notice replaces any suggestion, so Tab can't take it
+	}
+	c.mu.Unlock()
+	if changed && c.OnChange != nil {
+		c.OnChange()
+	}
+}
+
+// Notice returns the message set with SetNotice.
+func (c *Controller) Notice() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.Leader, c.PanelKey
+	return c.notice
+}
+
+// ErrStale reports a Replace for a prompt that has changed since.
+var ErrStale = errors.New("the prompt changed meanwhile")
+
+// Replace swaps the prompt text from for to in the child, as typed input:
+// it moves to the end, deletes from character by character, and types to,
+// with line breaks as Alt+Enter so they don't submit. Typed rather than
+// pasted, because claude collapses a multi-line paste to "[Pasted text]"
+// and the user couldn't review it. It only applies if the prompt is still
+// from at revision rev, so it never overwrites what the user typed since.
+func (c *Controller) Replace(rev uint64, from, to string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s := c.Tracker.Snapshot()
+	switch {
+	case c.output == nil:
+		return errors.New("no output to the child")
+	case s.Rev != rev || !s.Synced || s.Text != from:
+		return ErrStale
+	case c.CanInsert != nil && !c.CanInsert():
+		return errors.New("the cursor isn't in the prompt")
+	}
+	var b strings.Builder
+	rs := []rune(s.Text)
+	for range uniseg.GraphemeClusterCount(string(rs[s.Cursor:])) {
+		b.WriteString("\x1b[C")
+	}
+	b.WriteString(strings.Repeat("\x7f", uniseg.GraphemeClusterCount(from)))
+	b.WriteString(typed(to))
+	c.sug = ""
+	_, err := c.output.Write(c.Tracker.Filter([]byte(b.String())))
+	return err
+}
+
+// typed encodes text as keystrokes: line breaks as Alt+Enter (a new line
+// in claude's prompt), tabs as spaces (Tab would autocomplete), and other
+// control characters dropped.
+func typed(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	var b strings.Builder
+	for _, r := range text {
+		switch {
+		case r == '\n' || r == '\r':
+			b.WriteString("\x1b\r")
+		case r == '\t':
+			b.WriteString("    ")
+		case r < 0x20 || r == 0x7f:
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// Keys returns the current shortcut keys.
+func (c *Controller) Keys() (leader, panel, expand, undo input.Binding) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Leader, c.PanelKey, c.ExpandKey, c.UndoKey
 }
 
 // Disabled reports whether Disable was called.
@@ -112,7 +210,8 @@ func (c *Controller) Filter(p []byte) []byte {
 	}
 	before := c.sug
 	toggles := 0
-	var res []byte // input already fed to the tracker
+	var actions []func() // OnExpand/OnUndo calls, run after unlocking
+	var res []byte       // input already fed to the tracker
 	out := make([]byte, 0, len(p))
 	for _, k := range c.dec.Decode(p) {
 		switch {
@@ -125,6 +224,25 @@ func (c *Controller) Filter(p []byte) []byte {
 				c.logf("leader: toggle panel")
 				toggles++
 				out = append(out, c.PanelKey.Rest(k)...)
+			case c.ExpandKey.Matches(k) && c.OnExpand != nil, c.UndoKey.Matches(k) && c.OnUndo != nil:
+				expand := c.ExpandKey.Matches(k)
+				// Bring the tracker up to this key, so the action sees the
+				// prompt as it is now.
+				res = append(res, c.Tracker.Filter(out)...)
+				out = out[:0]
+				s, fn := c.Tracker.Snapshot(), c.OnUndo
+				if expand {
+					c.logf("leader: expand prompt")
+					fn = c.OnExpand
+				} else {
+					c.logf("leader: undo expansion")
+				}
+				actions = append(actions, func() { fn(s) })
+				rest := c.UndoKey.Rest(k)
+				if expand {
+					rest = c.ExpandKey.Rest(k)
+				}
+				out = append(out, rest...)
 			case c.Leader.Matches(k):
 				c.logf("leader: sent %s to child", c.Leader)
 				out = append(out, k.Raw...)
@@ -181,6 +299,9 @@ func (c *Controller) Filter(p []byte) []byte {
 			c.OnTogglePanel()
 		}
 	}
+	for _, act := range actions {
+		act()
+	}
 	return res
 }
 
@@ -188,7 +309,7 @@ func (c *Controller) Filter(p []byte) []byte {
 // rev. It reports whether the suggestion was shown.
 func (c *Controller) Show(s string, rev uint64) bool {
 	c.mu.Lock()
-	ok := s != "" && !c.disabled && c.Tracker.Snapshot().Rev == rev && (c.Gate == nil || c.Gate())
+	ok := s != "" && !c.disabled && c.notice == "" && c.Tracker.Snapshot().Rev == rev && (c.Gate == nil || c.Gate())
 	if ok {
 		c.sug = s
 	}

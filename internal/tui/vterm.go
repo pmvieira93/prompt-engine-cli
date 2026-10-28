@@ -87,6 +87,7 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	opt.Ctrl.OnTogglePanel = a.TogglePanel
 	opt.Ctrl.Gate = a.cursorInPrompt
 	opt.Ctrl.SetScreen(a.promptText)
+	opt.Ctrl.CanInsert = a.canInsert
 	if opt.Rules != nil {
 		opt.Rules.Ready = a.canInsert
 	}
@@ -196,6 +197,7 @@ func (a *app) Write(p []byte) (int, error) {
 // attach is called once the child is running.
 func (a *app) attach(ptmx *os.File) {
 	a.ptmx.Store(ptmx)
+	a.opt.Ctrl.SetOutput(ptmx)
 	// Emulator replies are written synchronously from inside emu.Write, so
 	// this reader must always be running or output would deadlock.
 	go func() { _, _ = io.Copy(ptmx, a.emu) }()
@@ -266,14 +268,35 @@ func (a *app) cursorInPrompt() bool {
 		return false
 	}
 	pos := a.emu.CursorPosition()
-	for x := 0; x < pos.X; x++ {
-		c := a.emu.CellAt(x, pos.Y)
-		if c == nil || c.Content == "" || c.Content == " " {
-			continue
+	if a.firstContent(pos.Y, pos.X) == promptMarker {
+		return true
+	}
+	// A continuation row of a multi-line prompt: walk up to the marker's
+	// row. It must sit right under the input box's top rule, since earlier
+	// prompts in the transcript are drawn with the marker too.
+	for y := pos.Y - 1; y >= 0; y-- {
+		switch a.firstContent(y, a.emu.Width()) {
+		case promptMarker:
+			return a.isRule(y - 1)
+		case "─":
+			return false
 		}
-		return c.Content == promptMarker
 	}
 	return false
+}
+
+// firstContent returns the first non-blank cell's content in row y,
+// looking at columns before limit, or "" if there is none.
+func (a *app) firstContent(y, limit int) string {
+	if y < 0 {
+		return ""
+	}
+	for x := 0; x < limit; x++ {
+		if c := a.emu.CellAt(x, y); c != nil && !isBlank(c.Content) {
+			return c.Content
+		}
+	}
+	return ""
 }
 
 // promptText reads claude's prompt from the screen: the text after the
@@ -572,6 +595,8 @@ func (m *model) view() tea.View {
 			panic("PanicOnGhost: simulated renderer failure")
 		}
 		drawGhost(m.canvas, pos.X, pos.Y, ew, sug)
+	} else if note := m.app.opt.Ctrl.Notice(); note != "" {
+		drawGhost(m.canvas, pos.X, pos.Y, ew, "  "+note)
 	}
 	if m.app.panel.Load() && ew < m.w {
 		// lipgloss Layer.Draw ignores X/Y and repaints its whole area, so
@@ -621,7 +646,7 @@ var panelBorder = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
 
 func (m *model) panelView(w int) string {
 	s := m.app.opt.Tracker.Snapshot()
-	leader, panel := m.app.opt.Ctrl.Keys()
+	leader, panel, _, _ := m.app.opt.Ctrl.Keys()
 	lines := []string{
 		lipgloss.NewStyle().Bold(true).Render("Prompt diff (FR-5 stub)"),
 		"",
