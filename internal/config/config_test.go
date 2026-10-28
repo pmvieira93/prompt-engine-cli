@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,5 +135,64 @@ func TestDefaultLeaderIsCtrlQ(t *testing.T) {
 		if len(keys) != 1 || !leader.Matches(keys[0]) {
 			t.Errorf("default leader does not match %q", in)
 		}
+	}
+}
+
+func TestWatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	type event struct {
+		cfg Config
+		err error
+	}
+	events := make(chan event, 10)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go Watch(ctx, path, 10*time.Millisecond, func(c Config, err error) { events <- event{c, err} })
+
+	next := func(what string) event {
+		t.Helper()
+		select {
+		case e := <-events:
+			return e
+		case <-time.After(2 * time.Second):
+			t.Fatalf("no reload after %s", what)
+			return event{}
+		}
+	}
+	time.Sleep(30 * time.Millisecond) // let Watch take its first stamp
+
+	if err := os.WriteFile(path, []byte("llm:\n  model: m1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e := next("creating the file"); e.err != nil || e.cfg.LLM.Model != "m1" {
+		t.Fatalf("create: %+v", e)
+	}
+
+	if err := os.WriteFile(path, []byte("llm:\n  model: m2-longer\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e := next("editing the file"); e.err != nil || e.cfg.LLM.Model != "m2-longer" {
+		t.Fatalf("edit: %+v", e)
+	}
+
+	if err := os.WriteFile(path, []byte("comand: typo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if e := next("a broken edit"); e.err == nil {
+		t.Fatal("broken edit reported no error")
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if e := next("deleting the file"); e.err != nil || e.cfg.LLM.Model != Default().LLM.Model {
+		t.Fatalf("delete: %+v", e)
+	}
+
+	select {
+	case e := <-events:
+		t.Fatalf("reload without a change: %+v", e)
+	case <-time.After(50 * time.Millisecond):
 	}
 }

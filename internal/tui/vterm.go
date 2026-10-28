@@ -45,13 +45,19 @@ import (
 
 // Options configures Run.
 type Options struct {
-	Ctrl          *ghost.Controller
-	Tracker       *input.Tracker
-	PanelPercent  int // side panel width as a percentage of the terminal
+	Ctrl    *ghost.Controller
+	Tracker *input.Tracker
+	// PanelPercent returns the side panel's width as a percentage of the
+	// terminal. It's read at every layout, so a reloaded config applies the
+	// next time the panel opens or the window resizes.
+	PanelPercent  func() int
 	OnFilterError func(error)
 	Logf          func(format string, a ...any) // optional
 	// Rules, if set, gets told when the child can take inserted text.
 	Rules *rules.Injector
+	// Status, if set, returns lines describing the session (e.g. which
+	// config is in use) for the side panel. It's called at every redraw.
+	Status func() []string
 	// RawOutput, if set, receives a copy of everything the child writes,
 	// for debugging how it draws. Writes happen on the output goroutine.
 	RawOutput io.Writer
@@ -458,7 +464,7 @@ func (a *app) restore(w io.Writer) {
 // childSize is the emulator/PTY size for a terminal of w×h cells.
 func (a *app) childSize(w, h int) (int, int) {
 	if a.panel.Load() {
-		return w - panelWidth(w, a.opt.PanelPercent), h
+		return w - panelWidth(w, a.opt.PanelPercent()), h
 	}
 	return w, h
 }
@@ -615,15 +621,22 @@ var panelBorder = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
 
 func (m *model) panelView(w int) string {
 	s := m.app.opt.Tracker.Snapshot()
-	body := lipgloss.JoinVertical(lipgloss.Left,
+	leader, panel := m.app.opt.Ctrl.Keys()
+	lines := []string{
 		lipgloss.NewStyle().Bold(true).Render("Prompt diff (FR-5 stub)"),
 		"",
-		fmt.Sprintf("%s then %s hides this panel.", m.app.opt.Ctrl.Leader, m.app.opt.Ctrl.PanelKey),
+		fmt.Sprintf("%s then %s hides this panel.", leader, panel),
 		"",
-		"buffer:     "+quote(s.Text),
-		"synced:     "+boolStr(s.Synced),
-		"suggestion: "+quote(m.app.opt.Ctrl.Visible()),
-	)
+		"buffer:     " + quote(s.Text),
+		"synced:     " + boolStr(s.Synced),
+		"suggestion: " + quote(m.app.opt.Ctrl.Visible()),
+	}
+	if m.app.opt.Status != nil {
+		lines = append(lines, "", lipgloss.NewStyle().Bold(true).Render("Session"))
+		lines = append(lines, m.app.opt.Status()...)
+	}
+	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	// Wrap long lines (e.g. a config path) rather than cutting them off.
 	return panelBorder.Width(w).Height(m.h).MaxWidth(w).Render(body)
 }
 

@@ -17,7 +17,7 @@ import (
 
 func newTestModel(w, h int) *model {
 	tr := input.NewTracker()
-	a := newApp(w, h, Options{Ctrl: &ghost.Controller{Tracker: tr}, Tracker: tr, PanelPercent: 40})
+	a := newApp(w, h, Options{Ctrl: &ghost.Controller{Tracker: tr}, Tracker: tr, PanelPercent: func() int { return 40 }})
 	return &model{app: a, w: w, h: h}
 }
 
@@ -259,5 +259,21 @@ func TestPromptText(t *testing.T) {
 				t.Fatalf("promptText = (%q, %d, %v), want (%q, %d, %v)", text, cursor, ok, tc.text, tc.cursor, tc.ok)
 			}
 		})
+	}
+}
+
+func TestPanelShowsStatus(t *testing.T) {
+	m := newTestModel(100, 14)
+	path := "/private/tmp/some/long/directory/structure/pe-live.yaml"
+	m.app.opt.Status = func() []string {
+		return []string{"config:      " + path, "suggestions: fake (fixed word list)"}
+	}
+	m.app.panel.Store(true)
+	m.app.resizeChild(100, 14)
+	screen := strings.Join(screenLines(m), "\n")
+	for _, want := range []string{"Session", "suggestions: fake", "pe-live.yaml"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("panel is missing %q:\n%s", want, screen)
+		}
 	}
 }
