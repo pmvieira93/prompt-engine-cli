@@ -495,3 +495,48 @@ func TestResizeRunInOneRead(t *testing.T) {
 		t.Fatalf("deltas = %v", deltas)
 	}
 }
+
+func TestKeyHookAndSubmit(t *testing.T) {
+	c, out, _ := expandController(t)
+	var submitted []string
+	c.BeforeSubmit = func(s input.State) []byte {
+		submitted = append(submitted, s.Text)
+		return []byte("<rules>")
+	}
+	var held input.State
+	c.KeyHook = func(k input.Key, s input.State) bool {
+		if k.Type == input.KeyEnter {
+			held = s // hold back Enter, as auto expansion does
+			return true
+		}
+		return false
+	}
+
+	if got := string(c.Filter([]byte("fix it\r"))); got != "fix it" {
+		t.Fatalf("child got %q: Enter wasn't held back", got)
+	}
+	if held.Text != "fix it" || len(submitted) != 0 {
+		t.Fatalf("held %+v, submitted %q", held, submitted)
+	}
+
+	// Later: send it. A stale revision is refused.
+	if err := c.Submit(held.Rev+1, "fix it"); !errors.Is(err, ErrStale) {
+		t.Fatalf("stale Submit: %v", err)
+	}
+	if err := c.Submit(held.Rev, "fix it"); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "<rules>\r" || strings.Join(submitted, "|") != "fix it" {
+		t.Fatalf("wrote %q, submitted %q", out.String(), submitted)
+	}
+	if s := c.Tracker.Snapshot(); s.Text != "" {
+		t.Fatalf("prompt not reset after Submit: %+v", s)
+	}
+
+	// The leader still works with a hook installed, and leader+Enter
+	// bypasses it.
+	c.Filter([]byte("again\x1d\r"))
+	if held.Text != "fix it" {
+		t.Fatalf("leader+Enter reached the hook: %+v", held)
+	}
+}

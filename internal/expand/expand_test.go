@@ -147,3 +147,27 @@ func TestExpandOnlyContext(t *testing.T) {
 		t.Fatalf("got %q, want an error", got)
 	}
 }
+
+func TestExpandWithEarlierPrompts(t *testing.T) {
+	e, req := fakeChat(t, `{"message":{"content":"Add tests for the retry logic."}}`)
+	e.Earlier = func() []string { return []string{"add a retry to the client", "make it exponential"} }
+	if _, err := e.Expand(context.Background(), "now add tests for it"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(req.Messages[0].Content, EarlierRule) {
+		t.Errorf("system prompt lacks the rule for earlier requests: %q", req.Messages[0].Content)
+	}
+	want := "Earlier requests in this session (oldest first):\n- add a retry to the client\n- make it exponential\n\nRequest: now add tests for it"
+	if req.Messages[1].Content != want {
+		t.Errorf("request = %q\nwant      %q", req.Messages[1].Content, want)
+	}
+
+	// No earlier prompts: the request is sent as before, without the rule.
+	e.Earlier = func() []string { return nil }
+	if _, err := e.Expand(context.Background(), "x"); err != nil {
+		t.Fatal(err)
+	}
+	if req.Messages[1].Content != "Request: x" || strings.Contains(req.Messages[0].Content, "Earlier requests") {
+		t.Errorf("without earlier prompts: %+v", req.Messages)
+	}
+}

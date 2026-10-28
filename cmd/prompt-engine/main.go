@@ -206,6 +206,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			if next.Panel.Side != prev.Panel.Side || next.Panel.Width != prev.Panel.Width {
 				applied = append(applied, "panel")
 			}
+			if next.Expand != prev.Expand {
+				applied = append(applied, "expand") // read on each expansion and Enter
+			}
 			if next.History != prev.History {
 				applied = append(applied, "history") // read on each submit
 			}
@@ -230,10 +233,30 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 
 	// Prompt expansion: leader, then keys.expand, rewrites the prompt in
 	// place for the user to review; keys.undo puts the original back.
+	// The prompts sent in this session, as sent without the rules, for the
+	// expansion model's context (expand.context: prompts).
+	var recent struct {
+		sync.Mutex
+		prompts []string
+	}
+	earlierPrompts := func() []string {
+		ec := live.Load().Expand
+		if ec.Context != "prompts" {
+			return nil
+		}
+		recent.Lock()
+		defer recent.Unlock()
+		return slices.Clone(recent.prompts[max(0, len(recent.prompts)-ec.ContextPrompts):])
+	}
+
 	var expansion struct {
 		sync.Mutex
 		running            bool
 		original, expanded string
+	}
+	var autoExpand func(context.Context, context.CancelFunc, config.Config, input.State)
+	if cfg.Expand.OnEnter == "auto" {
+		go warmExpander(ctx, cfg, logf) // so the first Enter isn't slowed by loading it
 	}
 	ctrl.OnExpand = func(s input.State) {
 		if !s.Synced || strings.TrimSpace(s.Text) == "" {
@@ -250,20 +273,29 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		expansion.Unlock()
 
 		go func() {
+			var after string // a notice to show briefly once done
 			defer func() {
 				expansion.Lock()
 				expansion.running = false
 				expansion.Unlock()
 				ctrl.SetNotice("")
+				if after != "" {
+					flashNotice(ctrl, after)
+				}
 			}()
 			cfg := live.Load()
 			ctrl.SetNotice("⟳ expanding…")
 			ectx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout)
 			defer cancel()
 			start := time.Now()
-			out, err := expandPrompt(ectx, *cfg, s.Text)
+			out, err := expandPrompt(ectx, *cfg, s.Text, earlierPrompts())
 			if err != nil {
 				logf("expand: failed: %v", err)
+				return
+			}
+			if lost := append(expand.LostNames(s.Text, out), expand.LostQuotes(s.Text, out)...); len(lost) > 0 {
+				logf("expand: not applied: the rewrite %q dropped or changed %s", out, strings.Join(lost, ", "))
+				after = "kept your text: the rewrite changed " + strings.Join(lost, ", ")
 				return
 			}
 			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
@@ -291,17 +323,128 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		logf("expand: undone, back to %q", original)
 	}
 
+	// Automatic expansion on Enter (expand.on_enter: auto, PRD Appendix 1,
+	// FR-7): the hook holds back Enter on a real prompt, a goroutine
+	// expands it, and the rewrite is sent if the guard rails pass, or the
+	// prompt as typed if not. Esc meanwhile sends it as typed; typing
+	// cancels the send. The hook runs with the controller locked, so only
+	// the goroutine calls the controller.
+	var auto struct {
+		sync.Mutex
+		pending, escaped bool
+		cancel           context.CancelFunc
+		// For the record of the next prompt sent.
+		ran     bool
+		stopped string
+	}
+	ctrl.KeyHook = func(k input.Key, s input.State) bool {
+		auto.Lock()
+		defer auto.Unlock()
+		if auto.pending {
+			if k.Type == input.KeyEscape {
+				auto.escaped = true
+				auto.cancel()
+				return true
+			}
+			auto.pending = false
+			auto.cancel()
+			logf("expand: auto expansion cancelled (you kept typing)")
+			return false
+		}
+		cfg := live.Load()
+		if k.Type != input.KeyEnter || cfg.Expand.OnEnter != "auto" ||
+			rules.SkipReason(s) != "" || len(strings.Fields(s.Text)) < cfg.Expand.MinWords {
+			return false
+		}
+		if pastedOrLong(s.Text) {
+			// Rewriting pasted logs or code could "fix" the very text the
+			// user wants the CLI to see.
+			logf("expand: not auto-expanded (long, or contains pasted or code text)")
+			return false
+		}
+		expansion.Lock()
+		already := expansion.expanded != "" && s.Text == expansion.expanded
+		expansion.Unlock()
+		if already {
+			return false // expanded with the shortcut and reviewed: send it
+		}
+		actx, cancel := context.WithTimeout(ctx, cfg.Expand.AutoTimeout)
+		auto.pending, auto.escaped, auto.cancel = true, false, cancel
+		logf("expand: Enter held while expanding %q (Esc sends it as typed)", s.Text)
+		go autoExpand(actx, cancel, *cfg, s)
+		return true
+	}
+	autoExpand = func(actx context.Context, cancel context.CancelFunc, cfg config.Config, s input.State) {
+		defer cancel()
+		ctrl.SetNotice("⟳ expanding…")
+		start := time.Now()
+		earlier := earlierPrompts()
+		out, err := expandPrompt(actx, cfg, s.Text, earlier)
+		ctrl.SetNotice("")
+
+		auto.Lock()
+		if !auto.pending {
+			auto.Unlock()
+			return // cancelled by typing: nothing to send
+		}
+		escaped := auto.escaped
+		auto.pending, auto.escaped = false, false
+		auto.Unlock()
+
+		var reason string
+		switch {
+		case escaped:
+			reason = "you pressed Esc"
+		case err != nil:
+			reason = "expansion failed: " + err.Error()
+		default:
+			reason = expand.Guard(s.Text, out, earlier...)
+		}
+		if reason == "" {
+			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
+				reason = "couldn't replace the prompt: " + err.Error()
+			} else {
+				expansion.Lock()
+				expansion.original, expansion.expanded = s.Text, out
+				expansion.Unlock()
+				auto.Lock()
+				auto.ran, auto.stopped = true, ""
+				auto.Unlock()
+				if err := ctrl.Submit(tracker.Snapshot().Rev, out); err != nil {
+					logf("expand: auto expansion not sent: %v", err)
+					return
+				}
+				logf("expand: auto expanded and sent %q (%s)", out, time.Since(start).Round(time.Millisecond))
+				return
+			}
+		}
+		logf("expand: auto rewrite %q not used (%s); sending as typed", out, reason)
+		auto.Lock()
+		auto.ran, auto.stopped = true, reason
+		auto.Unlock()
+		if err := ctrl.Submit(s.Rev, s.Text); err != nil {
+			logf("expand: not sent: %v", err)
+		}
+	}
+
 	// On each prompt sent: append the rules, and record what was typed
 	// against what was sent, for the panel and the history (FR-5).
 	var lastSent atomic.Pointer[history.Submission]
+	var record func(s input.State, appended string)
 	ctrl.BeforeSubmit = func(s input.State) []byte {
 		var insert []byte
 		var appended string
 		if injector != nil {
 			insert, appended = injector.Prepare(s)
 		}
+		record(s, appended)
+		return insert
+	}
+	// Leader then Enter sends the prompt as typed: no rules, but recorded.
+	ctrl.OnSubmitAsTyped = func(s input.State) { record(s, "") }
+	record = func(s input.State, appended string) {
 		if rules.SkipReason(s) != "" {
-			return insert // not a message to the model
+			return // not a message to the model
 		}
 		sub := history.Submission{Time: time.Now(), Raw: s.Text, Sent: s.Text, Rules: appended != ""}
 		expansion.Lock()
@@ -310,17 +453,26 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		}
 		expansion.original, expansion.expanded = "", ""
 		expansion.Unlock()
+		auto.Lock()
+		sub.Auto, sub.Stopped = auto.ran, auto.stopped
+		auto.ran, auto.stopped = false, ""
+		auto.Unlock()
 		if appended != "" {
 			sub.Sent += rules.Separator + appended
 		}
 		lastSent.Store(&sub)
+		recent.Lock()
+		recent.prompts = append(recent.prompts, expand.StripContext(s.Text))
+		if len(recent.prompts) > 20 { // the most expand.context_prompts allows
+			recent.prompts = recent.prompts[1:]
+		}
+		recent.Unlock()
 		added, removed := diff.Counts(sub.Diff())
 		logf("submit: %d words typed, %d sent (+%d −%d); expanded=%v rules=%v",
 			len(strings.Fields(sub.Raw)), len(strings.Fields(sub.Sent)), added, removed, sub.Expanded, sub.Rules)
 		if h := live.Load().History; h.Enabled {
 			go recordHistory(h, sub, logf)
 		}
-		return insert
 	}
 	panelDiff := func() *tui.Diff {
 		// An expansion waiting to be sent: preview it, with the rules.
@@ -347,13 +499,20 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		ops := sub.Diff()
 		added, removed := diff.Counts(ops)
 		note := fmt.Sprintf("%s · +%d −%d words", sub.Time.Format("15:04:05"), added, removed)
-		if sub.Expanded {
+		switch {
+		case sub.Auto && sub.Expanded:
+			note += " · auto-expanded"
+		case sub.Expanded:
 			note += " · expanded"
 		}
 		if sub.Rules {
 			note += " · rules added"
 		}
-		return &tui.Diff{Title: "Last prompt sent", Ops: ops, Notes: []string{note}}
+		notes := []string{note}
+		if sub.Stopped != "" {
+			notes = append(notes, "Sent as typed: the automatic rewrite wasn't used ("+sub.Stopped+").")
+		}
+		return &tui.Diff{Title: "Last prompt sent", Ops: ops, Notes: notes}
 	}
 
 	var rawOutput io.Writer
@@ -435,6 +594,38 @@ func recordHistory(h config.HistoryConfig, sub history.Submission, logf func(str
 	}
 }
 
+// pastedOrLong reports a prompt auto mode leaves alone: long, several
+// lines, or with a code block, as pasted logs and code usually are.
+func pastedOrLong(text string) bool {
+	return len([]rune(text)) > 400 || strings.Count(text, "\n") >= 6 || strings.Contains(text, "```")
+}
+
+// flashNotice shows msg at the cursor for a few seconds.
+func flashNotice(ctrl *ghost.Controller, msg string) {
+	ctrl.SetNotice(msg)
+	time.AfterFunc(4*time.Second, func() {
+		if ctrl.Notice() == msg {
+			ctrl.SetNotice("")
+		}
+	})
+}
+
+// warmExpander loads the expansion model in the background.
+func warmExpander(ctx context.Context, cfg config.Config, logf func(string, ...any)) {
+	if cfg.LLM.Provider != "ollama" || os.Getenv(envSuggester) == "fake" {
+		return
+	}
+	wctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	start := time.Now()
+	e := &expand.Expander{Endpoint: cfg.LLM.Endpoint, Model: cfg.LLM.ExpandModel, KeepAlive: "30m"}
+	if err := e.Warm(wctx); err != nil {
+		logf("expand: can't load %s: %v", cfg.LLM.ExpandModel, err)
+		return
+	}
+	logf("expand: %s loaded in %s", cfg.LLM.ExpandModel, time.Since(start).Round(time.Millisecond))
+}
+
 // bindings parses validated key settings.
 func bindings(k config.KeysConfig) ghost.Keys {
 	parse := func(s string) input.Binding { b, _ := input.ParseBinding(s); return b }
@@ -448,7 +639,7 @@ func bindings(k config.KeysConfig) ghost.Keys {
 // expandPrompt rewrites text with the configured model and appends git
 // context for the working directory. With the fake provider it uses a
 // fixed, offline rewrite, so tests are repeatable.
-func expandPrompt(ctx context.Context, cfg config.Config, text string) (string, error) {
+func expandPrompt(ctx context.Context, cfg config.Config, text string, earlier []string) (string, error) {
 	dir, _ := os.Getwd()
 	provider := cfg.LLM.Provider
 	if p := os.Getenv(envSuggester); p != "" {
@@ -461,10 +652,14 @@ func expandPrompt(ctx context.Context, cfg config.Config, text string) (string, 
 		KeepAlive:    "30m",
 		TemplatesDir: templates,
 		Context:      expand.GitContext(dir),
+		Earlier:      func() []string { return earlier },
 	}
 	if provider == "fake" {
 		lines := e.Context(ctx)
 		out := "Please " + expand.StripContext(text) + "."
+		if len(earlier) > 0 {
+			out += " (Following: " + earlier[len(earlier)-1] + ")"
+		}
 		if len(lines) > 0 {
 			out += "\n\nContext:\n- " + strings.Join(lines, "\n- ")
 		}

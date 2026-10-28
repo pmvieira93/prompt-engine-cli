@@ -76,6 +76,9 @@ func TestLoadFileErrorsFallBackToDefaults(t *testing.T) {
 		"bad provider": "llm:\n  provider: openai\n",
 		"no model":     "llm:\n  model: \"\"\n",
 		"max tokens":   "llm:\n  max_tokens: 0\n",
+		"bad context":  "expand:\n  context: everything\n",
+		"bad on_enter": "expand:\n  on_enter: always\n",
+		"no prompts":   "expand:\n  context_prompts: 0\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

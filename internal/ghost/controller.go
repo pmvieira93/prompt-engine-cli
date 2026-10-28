@@ -66,10 +66,20 @@ type Controller struct {
 	// is in its prompt, not a dialog.
 	CanInsert func() bool
 
+	// KeyHook, if set before use, sees each key that isn't a shortcut or a
+	// terminal report, with the prompt as it stands, and returns true to
+	// swallow it: e.g. to hold back an Enter while the prompt is expanded,
+	// then send it with Submit. It runs with the controller locked, so it
+	// must not call the controller; start work and return.
+	KeyHook func(k input.Key, s input.State) bool
+
 	// BeforeSubmit, if set before use, is called on each Enter with the
 	// prompt as it stands, and returns input to send just before that
 	// Enter (e.g. rules to append), or nil. Leader then Enter skips it.
 	BeforeSubmit func(s input.State) []byte
+	// OnSubmitAsTyped, if set before use, is called on Leader then Enter,
+	// which sends the prompt without BeforeSubmit: e.g. to still record it.
+	OnSubmitAsTyped func(s input.State)
 
 	mu       sync.Mutex
 	output   io.Writer // to the child, for Replace
@@ -158,6 +168,27 @@ func (c *Controller) Notice() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.notice
+}
+
+// Submit sends Enter for the prompt, as if the user had pressed it, if the
+// prompt is still text at revision rev. BeforeSubmit runs as for a typed
+// Enter, so rules are added and the submission recorded.
+func (c *Controller) Submit(rev uint64, text string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s := c.Tracker.Snapshot()
+	switch {
+	case c.output == nil:
+		return errors.New("no output to the child")
+	case s.Rev != rev || s.Text != text:
+		return ErrStale
+	}
+	var b []byte
+	if c.BeforeSubmit != nil {
+		b = c.BeforeSubmit(s)
+	}
+	_, err := c.output.Write(c.Tracker.Filter(append(b, '\r')))
+	return err
 }
 
 // ErrStale reports a Replace for a prompt that has changed since.
@@ -300,6 +331,15 @@ func (c *Controller) Filter(p []byte) []byte {
 	var res []byte       // input already fed to the tracker
 	out := make([]byte, 0, len(p))
 	for _, k := range c.dec.Decode(p) {
+		if c.KeyHook != nil && !c.armed && k.Type != input.KeyReport && !c.Keys.Leader.Matches(k) {
+			// Bring the tracker up to this key, so the hook sees text typed
+			// in the same read.
+			res = append(res, c.Tracker.Filter(out)...)
+			out = out[:0]
+			if c.KeyHook(k, c.Tracker.Snapshot()) {
+				continue
+			}
+		}
 		resize := c.Keys.Wider.Matches(k) || c.Keys.Narrower.Matches(k)
 		if !c.repeat.IsZero() && (!resize || time.Now().After(c.repeat)) && k.Type != input.KeyReport {
 			c.repeat = time.Time{} // any other key, or a pause, ends repeating
@@ -342,6 +382,11 @@ func (c *Controller) Filter(p []byte) []byte {
 				out = append(out, k.Raw...)
 			case k.Type == input.KeyEnter:
 				c.logf("leader: submit as typed")
+				if c.OnSubmitAsTyped != nil {
+					res = append(res, c.Tracker.Filter(out)...)
+					out = out[:0]
+					c.OnSubmitAsTyped(c.Tracker.Snapshot())
+				}
 				out = append(out, k.Raw...)
 			case k.Type == input.KeyEscape:
 				c.logf("leader: cancelled")

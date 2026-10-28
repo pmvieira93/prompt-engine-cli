@@ -23,6 +23,8 @@ type Submission struct {
 	Sent     string // what the CLI received
 	Expanded bool   // Raw was rewritten by expansion
 	Rules    bool   // rules were appended
+	Auto     bool   // expansion ran automatically on Enter
+	Stopped  string // why an automatic rewrite wasn't used, if it wasn't
 }
 
 // Diff compares what was typed with what was sent.
@@ -40,6 +42,8 @@ type record struct {
 	WordsRemoved int       `json:"words_removed"`
 	Expanded     bool      `json:"expanded"`
 	Rules        bool      `json:"rules"`
+	Auto         bool      `json:"auto,omitempty"`
+	Stopped      string    `json:"stopped,omitempty"`
 	Raw          string    `json:"raw,omitempty"`
 	Sent         string    `json:"sent,omitempty"`
 }
@@ -79,6 +83,8 @@ func (l *Log) Append(s Submission) error {
 		WordsRemoved: removed,
 		Expanded:     s.Expanded,
 		Rules:        s.Rules,
+		Auto:         s.Auto,
+		Stopped:      s.Stopped,
 	}
 	if l.IncludeText {
 		r.Raw, r.Sent = s.Raw, s.Sent
