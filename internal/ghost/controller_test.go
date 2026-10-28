@@ -3,6 +3,7 @@ package ghost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -450,5 +451,47 @@ func TestFilterShiftsMouse(t *testing.T) {
 	c := &Controller{Tracker: input.NewTracker(), MouseOffset: func() int { return 30 }}
 	if out := string(c.Filter([]byte("\x1b[<0;10;5M\x1b[<0;35;5Mhi"))); out != "\x1b[<0;5;5Mhi" {
 		t.Fatalf("child got %q", out)
+	}
+}
+
+func TestResizeRepeats(t *testing.T) {
+	toggles := 0
+	c := leaderController(&toggles)
+	c.Keys.Wider, _ = input.ParseBinding("+")
+	c.Keys.Narrower, _ = input.ParseBinding("-")
+	var deltas []int
+	c.OnResizePanel = func(d int) { deltas = append(deltas, d) }
+
+	// Leader once, then repeats: none of the keys reach the child.
+	if out := string(c.Filter([]byte("\x1d-"))); out != "" {
+		t.Fatalf("child got %q", out)
+	}
+	if out := string(c.Filter([]byte("-"))); out != "" {
+		t.Fatalf("repeat reached the child: %q", out)
+	}
+	if out := string(c.Filter([]byte("+"))); out != "" {
+		t.Fatalf("repeat reached the child: %q", out)
+	}
+	// Any other key ends repeating and goes to the child; a later - is text.
+	if out := string(c.Filter([]byte("x-"))); out != "x-" {
+		t.Fatalf("after repeating: child got %q", out)
+	}
+	if fmt.Sprint(deltas) != "[-1 -1 1]" {
+		t.Fatalf("deltas = %v", deltas)
+	}
+}
+
+func TestResizeRunInOneRead(t *testing.T) {
+	toggles := 0
+	c := leaderController(&toggles)
+	c.Keys.Wider, _ = input.ParseBinding("+")
+	c.Keys.Narrower, _ = input.ParseBinding("-")
+	var deltas []int
+	c.OnResizePanel = func(d int) { deltas = append(deltas, d) }
+	if out := string(c.Filter([]byte("\x1d--+ok"))); out != "ok" {
+		t.Fatalf("child got %q", out)
+	}
+	if fmt.Sprint(deltas) != "[-1 -1 1]" {
+		t.Fatalf("deltas = %v", deltas)
 	}
 }

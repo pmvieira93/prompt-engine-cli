@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rivo/uniseg"
 
@@ -22,6 +23,9 @@ import (
 // sent to the child as typed text instead of the key), Esc dismisses it, and
 // any other key hides it and passes through. With no suggestion visible,
 // input passes through unchanged.
+//
+// After Leader then Wider or Narrower, more presses of those keys within
+// RepeatTime keep resizing without Leader, like tmux's repeatable keys.
 //
 // prompt-engine's own shortcuts are leader-prefixed, like tmux: Leader then
 // PanelKey toggles the panel, Leader then Enter submits without
@@ -74,7 +78,8 @@ type Controller struct {
 	dec      input.Decoder
 	sug      string
 	disabled bool
-	armed    bool // Leader was pressed; the next key is a command
+	armed    bool      // Leader was pressed; the next key is a command
+	repeat   time.Time // until when Wider/Narrower work without Leader
 }
 
 // Disable hides any suggestion and turns interception off for good, e.g.
@@ -107,6 +112,10 @@ func (c *Controller) ScreenPrompt() (text string, cursor int, ok bool) {
 	}
 	return f()
 }
+
+// RepeatTime is how long after a resize another Wider or Narrower press
+// still resizes without Leader.
+const RepeatTime = time.Second
 
 // Keys are prompt-engine's shortcuts: Leader, then one of the others.
 type Keys struct {
@@ -184,6 +193,44 @@ func (c *Controller) Replace(rev uint64, from, to string) error {
 	return err
 }
 
+// resize queues an OnResizePanel call for each Wider or Narrower press
+// at the start of k (several can arrive in one read, e.g. "--"), starts
+// the repeat window, and returns the rest of k for the child.
+func (c *Controller) resize(k input.Key, actions *[]func(), how string) []byte {
+	var steps []int
+	var rest []byte
+	if k.Type == input.KeyRunes {
+		for i, r := range k.Runes {
+			one := input.Key{Type: input.KeyRunes, Runes: []rune{r}}
+			switch {
+			case c.Keys.Wider.Matches(one):
+				steps = append(steps, 1)
+			case c.Keys.Narrower.Matches(one):
+				steps = append(steps, -1)
+			default:
+				rest = []byte(string(k.Runes[i:]))
+			}
+			if rest != nil {
+				break
+			}
+		}
+	} else if c.Keys.Wider.Matches(k) {
+		steps = []int{1}
+	} else {
+		steps = []int{-1}
+	}
+
+	if how != "" {
+		how = " (" + how + ")"
+	}
+	for _, delta := range steps {
+		c.logf("leader: resize panel %+d%s", delta, how)
+		*actions = append(*actions, func() { c.OnResizePanel(delta) })
+	}
+	c.repeat = time.Now().Add(RepeatTime)
+	return rest
+}
+
 // shiftMouse moves an SGR mouse report (ESC [ < b ; x ; y M|m) dx columns
 // left, so its column is relative to the child's screen. It reports false
 // for a position left of that screen, over the panel.
@@ -253,7 +300,13 @@ func (c *Controller) Filter(p []byte) []byte {
 	var res []byte       // input already fed to the tracker
 	out := make([]byte, 0, len(p))
 	for _, k := range c.dec.Decode(p) {
+		resize := c.Keys.Wider.Matches(k) || c.Keys.Narrower.Matches(k)
+		if !c.repeat.IsZero() && (!resize || time.Now().After(c.repeat)) && k.Type != input.KeyReport {
+			c.repeat = time.Time{} // any other key, or a pause, ends repeating
+		}
 		switch {
+		case !c.repeat.IsZero() && resize && c.OnResizePanel != nil:
+			out = append(out, c.resize(k, &actions, "repeat")...)
 		case c.armed && k.Type == input.KeyReport:
 			out = append(out, k.Raw...)
 		case c.armed:
@@ -263,13 +316,8 @@ func (c *Controller) Filter(p []byte) []byte {
 				c.logf("leader: toggle panel")
 				toggles++
 				out = append(out, c.Keys.Panel.Rest(k)...)
-			case c.Keys.Wider.Matches(k) && c.OnResizePanel != nil, c.Keys.Narrower.Matches(k) && c.OnResizePanel != nil:
-				delta := 1
-				if c.Keys.Narrower.Matches(k) {
-					delta = -1
-				}
-				c.logf("leader: resize panel %+d", delta)
-				actions = append(actions, func() { c.OnResizePanel(delta) })
+			case resize && c.OnResizePanel != nil:
+				out = append(out, c.resize(k, &actions, "")...)
 			case c.Keys.Expand.MatchesHeld(k) && c.OnExpand != nil, c.Keys.Undo.MatchesHeld(k) && c.OnUndo != nil:
 				expand := c.Keys.Expand.MatchesHeld(k)
 				// Bring the tracker up to this key, so the action sees the
