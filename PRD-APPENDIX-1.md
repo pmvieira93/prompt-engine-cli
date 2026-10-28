@@ -1,7 +1,7 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.1.0  
+**Appendix Version:** 1.2.0  
 **Date:** 2026-10-28  
 **Status:** Proposed, planned as Phase 4.5
 
@@ -79,9 +79,11 @@ A setting for when expansion runs:
 * **FR-7.4:** Guard rails against bad rewrites (a stopped rewrite sends the prompt as typed, see 3.4). In Phase 4 testing the model produced "the RFCator tracker" (from the typo "rfcator"), "the ghost.txt file" and "[insert specific technology or method here]". In `auto`, a rewrite is **not** used when:
   * it replaces most of the words (the threshold is to be tuned on real prompts), or
   * it contains placeholder brackets, or
+  * it drops or changes a name the developer typed: an agent, a skill, a command, a mention, a file, a path, or an issue, MR or PR number (any word with a hyphen, slash, dot, `@`, `#`, `!` or digits), or
   * the model errors or times out.
 
   The panel and the log say why.
+* **FR-7.4b:** The name check also applies to expansion by shortcut: a rewrite that loses a name is not applied, the typed text is kept, and a notice says which name. Seen in Phase 4.5 testing: "now using code-reviewer look into MR !110" became "Can you review the code in merge request !110?". The expansion instructions also tell the model to keep such names; with that, every test rewrite kept them.
 * **FR-7.5:** The history log (FR-5.4) records whether a prompt was auto-expanded, and whether a guard rail stopped it.
 * **FR-7.6 (later, optional):** `preview` mode, if `auto` turns out too blunt.
 
