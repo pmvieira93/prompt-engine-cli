@@ -31,6 +31,7 @@ const SystemFile = "system.txt"
 const DefaultSystem = `You rewrite a developer's short, rough request to an AI coding assistant (Claude Code) into a clear prompt.
 Rules:
 - Keep the developer's intent exactly. Never add goals, components, files, or steps they didn't mention.
+- Keep names exactly as written: agents, skills, commands, @mentions, files, paths, branches, and issue, MR or PR numbers. A word with a hyphen, slash, dot, @, #, ! or digits is a name: never split, translate or drop it.
 - If the request is vague, keep it vague: do not guess what "it" refers to.
 - Fix typos and spell out abbreviations.
 - For requests with several parts, use a short bullet list, one bullet per part they mentioned.

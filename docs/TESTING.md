@@ -612,6 +612,7 @@ In Terminal B: `printf 'expand:\n  on_enter: auto\n' > /tmp/pe-auto.yaml`
 | K6 | Type `tell me a joke abuot cats`, press **Enter**, then **Esc** at once, while `⟳ expanding…` shows | Sent as typed (`abuot` uncorrected). The panel says `Sent as typed: the automatic rewrite wasn't used (you pressed Esc).` |
 | K7 | Type `say bye in thre words`, then **Ctrl+Q**, **Enter** | Sent as typed, with no `⟳ expanding…`. The panel shows it with nothing changed |
 | K8 | Type `say hi in thre words`, press **Enter**, then **at once** type `x` | Nothing is sent: typing cancels the automatic send, and the prompt reads `say hi in thre wordsx`. Log: `auto expansion cancelled`. Ctrl+C to clear |
+| K8b | Turn auto off again (`printf 'expand:\n  on_enter: off\n' > /tmp/pe-auto.yaml`), Ctrl+C, type `now using code-reviewer look into MR !110`, **Ctrl+Q**, **e** (don't send) | `code-reviewer` and `!110` are kept exactly, e.g. `Have the code-reviewer look into MR !110.` If a rewrite ever drops a name like that, your text is kept instead, with a notice saying which name it changed. Turn auto back on for K9: `printf 'expand:\n  on_enter: auto\n' > /tmp/pe-auto.yaml` |
 | K9 | Type `/help` and **Enter** | Help opens at once, with no `⟳ expanding…` (slash commands are never expanded). Esc to close |
 | K10 | Quit with `/exit`, then `tail -4 ~/.local/state/prompt-engine/history.jsonl` | K4's line has `"expanded":true,"auto":true`; K6's has `"auto":true,"stopped":"you pressed Esc"`; no prompt text |
 

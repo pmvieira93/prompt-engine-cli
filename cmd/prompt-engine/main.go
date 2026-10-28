@@ -273,11 +273,15 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		expansion.Unlock()
 
 		go func() {
+			var after string // a notice to show briefly once done
 			defer func() {
 				expansion.Lock()
 				expansion.running = false
 				expansion.Unlock()
 				ctrl.SetNotice("")
+				if after != "" {
+					flashNotice(ctrl, after)
+				}
 			}()
 			cfg := live.Load()
 			ctrl.SetNotice("⟳ expanding…")
@@ -287,6 +291,11 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			out, err := expandPrompt(ectx, *cfg, s.Text, earlierPrompts())
 			if err != nil {
 				logf("expand: failed: %v", err)
+				return
+			}
+			if lost := expand.LostNames(s.Text, out); len(lost) > 0 {
+				logf("expand: not applied: the rewrite %q dropped or changed %s", out, strings.Join(lost, ", "))
+				after = "kept your text: the rewrite changed " + strings.Join(lost, ", ")
 				return
 			}
 			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
@@ -576,6 +585,16 @@ func recordHistory(h config.HistoryConfig, sub history.Submission, logf func(str
 	if err := (&history.Log{Path: path, IncludeText: h.IncludeText}).Append(sub); err != nil {
 		logf("history: %v", err)
 	}
+}
+
+// flashNotice shows msg at the cursor for a few seconds.
+func flashNotice(ctrl *ghost.Controller, msg string) {
+	ctrl.SetNotice(msg)
+	time.AfterFunc(4*time.Second, func() {
+		if ctrl.Notice() == msg {
+			ctrl.SetNotice("")
+		}
+	})
 }
 
 // warmExpander loads the expansion model in the background.
