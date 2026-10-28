@@ -355,6 +355,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		}
 		actx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout)
 		auto.pending, auto.escaped, auto.cancel = true, false, cancel
+		logf("expand: Enter held while expanding %q (Esc sends it as typed)", s.Text)
 		go autoExpand(actx, cancel, *cfg, s)
 		return true
 	}
