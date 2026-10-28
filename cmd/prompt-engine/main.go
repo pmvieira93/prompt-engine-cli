@@ -206,6 +206,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			if next.Panel.Side != prev.Panel.Side || next.Panel.Width != prev.Panel.Width {
 				applied = append(applied, "panel")
 			}
+			if next.Expand != prev.Expand {
+				applied = append(applied, "expand") // read on each expansion and Enter
+			}
 			if next.History != prev.History {
 				applied = append(applied, "history") // read on each submit
 			}
