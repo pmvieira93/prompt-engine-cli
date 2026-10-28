@@ -555,7 +555,8 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
 | J1 | Press **Ctrl+Q**, then **p** | The **Prompt diff** panel opens on the right, with a key hint line and `Nothing sent yet.` |
 | J2 | Type `say helo in thre words`, then **Ctrl+Q**, **e** | Under **Ready to send (not sent yet)**: the typos (`helo`, `thre`) struck through in red, the corrections and the context in green, and the rule (`- End your reply with the word MANGO.`) in green at the end |
 | J3 | Press **Enter** | `claude` replies with a short greeting ending in MANGO. The panel title becomes **Last prompt sent**, with the same diff and a line like `13:12:52 · +12 −2 words · expanded · rules added`. Log: `submit: …; expanded=true rules=true` |
-| J4 | **Ctrl+Q**, **-** twice, then **Ctrl+Q**, **+** once | The panel narrows twice and widens once, by about 5% of the window each time; `claude` redraws to fit |
+| J4 | **Ctrl+Q**, then **-** **-** (one leader, two dashes), then **+** within a second | The panel narrows twice and widens once, about 5% of the window each time; `claude` redraws to fit. After a resize, more `-`/`+` presses within a second keep resizing without Ctrl+Q; a pause or any other key ends that. Nothing is typed into `claude` |
+| J4b | Press **Ctrl+Q**, then **Ctrl+P** (Ctrl still held) | The panel toggles, the same as Ctrl+Q then p |
 | J5 | Type `say ok in two words` and **Enter** (no expansion) | **Last prompt sent** shows your text unchanged and only the rule in green; the line says `rules added`, not `expanded` |
 | J6 | Quit with `/exit`, then `tail -2 ~/.local/state/prompt-engine/history.jsonl` | Two lines with counts like `"raw_words":4,"sent_words":…,"expanded":true,"rules":true`, and **no prompt text** |
 
