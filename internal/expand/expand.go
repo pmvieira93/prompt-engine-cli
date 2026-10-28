@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -43,6 +44,23 @@ Rules:
 const EarlierRule = `
 Earlier requests in this session are given only so you can tell what words like "it", "there", "that" or "same" refer to. Never add goals, steps, or details from them that the current request doesn't ask for. If the current request doesn't refer back, ignore them.`
 
+// TypoSystem replaces the instructions for text typed around a paste,
+// which is already worded around it, and for long prompts, which
+// rewording would cut short (PRD Appendix 1, FR-7.4e).
+const TypoSystem = `You fix typos in a developer's message to an AI coding assistant (Claude Code).
+Rules:
+- Only fix spelling, missing letters and obvious grammar slips. Keep every other word, the word order and the meaning.
+- Keep names exactly as written: agents, skills, commands, @mentions, files, paths, branches, and issue, MR or PR numbers.
+- Output only the corrected message.`
+
+// MarkerRule is added to the instructions when the text has markers for
+// kept parts (see Marker).
+const MarkerRule = `
+The text contains markers like <<PASTE_1>> that stand for text the developer pasted. Copy each marker exactly, once, in the same place. Never write what it might contain.`
+
+// echoedLabel matches the request's label when the model copies it.
+var echoedLabel = regexp.MustCompile(`^\s*(Request|Message)( \([^)]*\))?:\s*`)
+
 // Expander rewrites prompts with an Ollama chat model.
 type Expander struct {
 	Endpoint     string
@@ -56,7 +74,9 @@ type Expander struct {
 	// first, for the model to resolve references with ("add tests for
 	// it"). Nil or empty means none.
 	Earlier func() []string
-	Client  *http.Client
+	// TypoOnly uses TypoSystem: corrections, no rewording (Plan.TypoOnly).
+	TypoOnly bool
+	Client   *http.Client
 }
 
 // Expand returns text rewritten, with any context appended.
@@ -68,11 +88,23 @@ func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	request := "Request: " + text
+	if e.TypoOnly {
+		system = TypoSystem
+	}
+	if markerPattern.MatchString(text) {
+		system += "\n" + MarkerRule
+	}
+	// In typo mode the model copied a "Request:" label into its answer,
+	// but not "Message:".
+	label := "Request"
+	if e.TypoOnly {
+		label = "Message"
+	}
+	request := label + ": " + text
 	if lang := Language(text); lang != "" {
 		// Named only for other languages: naming one in the instructions
 		// made the model translate English requests into it.
-		request = "Request (in " + lang + "; write the rewrite in " + lang + "): " + text
+		request = label + " (in " + lang + "; write the rewrite in " + lang + "): " + text
 	}
 	if e.Earlier != nil {
 		if earlier := e.Earlier(); len(earlier) > 0 {
@@ -81,11 +113,13 @@ func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
 				strings.Join(earlier, "\n- ") + "\n\n" + request
 		}
 	}
-	rewritten, err := e.chat(ctx, system, request)
+	// Room for a corrected long prompt: about 1.5 tokens a word.
+	tokens := max(200, 2*len(strings.Fields(text)))
+	rewritten, err := e.chat(ctx, system, request, tokens)
 	if err != nil {
 		return "", err
 	}
-	rewritten = strings.TrimSpace(rewritten)
+	rewritten = strings.TrimSpace(echoedLabel.ReplaceAllString(rewritten, ""))
 	if !strings.Contains(rewritten, "\n") {
 		// A one-item list ("- Add tests") is just the item.
 		rewritten = strings.TrimPrefix(rewritten, "- ")
@@ -121,7 +155,7 @@ func StripContext(text string) string {
 
 // Warm loads the model, so the first expansion isn't slowed by it.
 func (e *Expander) Warm(ctx context.Context) error {
-	_, err := e.chat(ctx, "Reply with OK.", "OK")
+	_, err := e.chat(ctx, "Reply with OK.", "OK", 200)
 	return err
 }
 
@@ -160,7 +194,7 @@ type chatResponse struct {
 	Error   string      `json:"error"`
 }
 
-func (e *Expander) chat(ctx context.Context, system, request string) (string, error) {
+func (e *Expander) chat(ctx context.Context, system, request string, tokens int) (string, error) {
 	body, err := json.Marshal(chatRequest{
 		Model: e.Model,
 		Messages: []chatMessage{
@@ -168,7 +202,7 @@ func (e *Expander) chat(ctx context.Context, system, request string) (string, er
 			{Role: "user", Content: request},
 		},
 		KeepAlive: e.KeepAlive,
-		Options:   map[string]any{"temperature": 0.2, "num_predict": 200},
+		Options:   map[string]any{"temperature": 0.2, "num_predict": tokens},
 	})
 	if err != nil {
 		return "", err

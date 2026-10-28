@@ -1,12 +1,18 @@
 package input
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 // State is a snapshot of the tracked prompt.
 type State struct {
 	Text   string
 	Cursor int // in runes
 	Synced bool
+	// Pastes is what was pasted into the prompt since it was last
+	// cleared, oldest first; edits since may have changed it.
+	Pastes []string
 	// Rev identifies this state: it changes whenever text, cursor, or sync
 	// state does, so a result computed for one State can be checked for
 	// staleness later.
@@ -87,7 +93,8 @@ func notify(subs []chan struct{}) {
 func (t *Tracker) Snapshot() State {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return State{Text: t.buf.Text(), Cursor: t.buf.Cursor(), Synced: t.buf.Synced(), Rev: t.buf.Rev()}
+	return State{Text: t.buf.Text(), Cursor: t.buf.Cursor(), Synced: t.buf.Synced(), Rev: t.buf.Rev(),
+		Pastes: slices.Clone(t.buf.Pastes())}
 }
 
 // Changed receives after the state changes. Notifications coalesce: a slow

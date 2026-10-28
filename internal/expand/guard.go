@@ -125,8 +125,14 @@ func isQuestion(typed string) bool {
 	if strings.HasSuffix(t, "?") {
 		return true
 	}
-	ws := words(strings.ToLower(t))
-	for i, w := range ws {
+	// The question may also end the prompt, without its "?": "the
+	// error is … when I run make, can you fix it".
+	last := t[strings.LastIndexAny(t, ".,;:\n")+1:]
+	return startsQuestion(t) || startsQuestion(last)
+}
+
+func startsQuestion(text string) bool {
+	for i, w := range words(strings.ToLower(text)) {
 		if i > 1 { // "and what about…": the question word comes first or second
 			break
 		}

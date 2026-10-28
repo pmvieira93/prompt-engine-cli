@@ -171,3 +171,19 @@ func TestExpandWithEarlierPrompts(t *testing.T) {
 		t.Errorf("without earlier prompts: %+v", req.Messages)
 	}
 }
+
+func TestExpandTypoOnlyWithMarkers(t *testing.T) {
+	// The 7B model copied the "Request:" label in typo mode; it's dropped.
+	e, req := fakeChat(t, `{"message":{"content":"Message: What does this do: <<PASTE_1>>"}}`)
+	e.TypoOnly = true
+	got, err := e.Expand(context.Background(), "waht does thsi do: <<PASTE_1>>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "What does this do: <<PASTE_1>>" {
+		t.Errorf("got %q", got)
+	}
+	if req.Messages[0].Content != TypoSystem+"\n"+MarkerRule || req.Messages[1].Content != "Message: waht does thsi do: <<PASTE_1>>" {
+		t.Errorf("request = %+v", req.Messages)
+	}
+}
