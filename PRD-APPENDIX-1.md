@@ -1,9 +1,9 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.5.0  
+**Appendix Version:** 1.6.0  
 **Date:** 2026-10-28  
-**Status:** Proposed, planned as Phase 4.5
+**Status:** Built in Phase 4.5 (FR-6.1, FR-7.1 to FR-7.6); FR-6.2 and FR-6.3 are later candidates
 
 ---
 
@@ -69,7 +69,7 @@ A setting for when expansion runs:
 |---|---|
 | `off` (default) | Phase 4 behaviour: expansion only on the shortcut, reviewed before sending |
 | `auto` | Enter expands the prompt, then sends it. The panel (on either side) shows the diff afterwards |
-| `preview` (later, optional) | The rewrite is prepared in the background while the developer pauses, the panel shows it, and a key accepts it; Enter alone sends the prompt as typed |
+| `preview` | The rewrite is prepared in the background while the developer pauses, the panel shows it, and a key accepts it; Enter alone sends the prompt as typed |
 
 * **FR-7.1:** `off` and `auto` modes.
 * **FR-7.2:** In `auto`, the same exceptions as rules injection apply (slash commands, bash mode, memory notes, dialogs, unknown prompt text). Very short prompts ("yes", "continue", "1") are also sent as typed.
@@ -117,7 +117,12 @@ A setting for when expansion runs:
   * Typo fixes kept the markers in every test, and fixed 7 of 8 prompts; one (`what does this, just answr:`) came back as `just ansr:` every time. Like the RFCator case, no word-based check can catch it.
   * Not handled: a paste edited afterwards counts as typed; a long paste that `claude` shows as `[Pasted text #1 +N lines]` is not rewritten if the prompt text came from the screen.
 * **FR-7.5:** The history log (FR-5.4) records whether a prompt was auto-expanded, and whether a guard rail stopped it.
-* **FR-7.6 (later, optional):** `preview` mode, if `auto` turns out too blunt.
+* **FR-7.6:** `preview` mode, for when `auto` is too blunt. As built:
+  * After a pause in typing (`expand.preview_pause`, default 1 s), the rewrite is prepared in the background; typing again cancels it.
+  * The panel shows it as "Suggested rewrite (not used yet)", or "No rewrite suggested" with the reason. With the panel closed, a notice at the cursor says a rewrite is ready.
+  * The expand shortcut (Ctrl+Q, then e) applies a ready suggestion at once, so no new key is needed; without one it expands as before. Enter always sends what was typed.
+  * Suggestions pass the same guard rails as `auto` (FR-7.4 to FR-7.4e), so what is offered is what `auto` would send.
+  * Cost: the expansion model runs after every pause, about 1 s each with `qwen2.5:7b`.
 
 ### 3.3 Risks
 
@@ -142,4 +147,4 @@ In order:
 2. **Automatic enhancement** (`expand.on_enter: auto`, FR-7.1 to FR-7.5), with the guard rails, the escape hatches, and short-prompt skipping.
 3. A manual test round (the next part of `docs/TESTING.md`) before merging.
 
-Built after the Phase 4.5 merge: rewriting typed text around pastes (FR-7.4e). Later candidates: L2/L3 context (FR-6.3), ghost text with session context (FR-6.2), and `preview` mode (FR-7.6).
+Built after the Phase 4.5 merge: rewriting typed text around pastes (FR-7.4e), then `preview` mode (FR-7.6). Later candidates: L2/L3 context (FR-6.3) and ghost text with session context (FR-6.2). Next: rewrite styles ([PRD Appendix 2](PRD-APPENDIX-2.md)).
