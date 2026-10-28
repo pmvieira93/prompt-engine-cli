@@ -69,6 +69,11 @@ func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
 		return "", err
 	}
 	request := "Request: " + text
+	if lang := Language(text); lang != "" {
+		// Named only for other languages: naming one in the instructions
+		// made the model translate English requests into it.
+		request = "Request (in " + lang + "; write the rewrite in " + lang + "): " + text
+	}
 	if e.Earlier != nil {
 		if earlier := e.Earlier(); len(earlier) > 0 {
 			system += "\n" + EarlierRule
@@ -81,6 +86,10 @@ func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
 		return "", err
 	}
 	rewritten = strings.TrimSpace(rewritten)
+	if !strings.Contains(rewritten, "\n") {
+		// A one-item list ("- Add tests") is just the item.
+		rewritten = strings.TrimPrefix(rewritten, "- ")
+	}
 	if rewritten == "" {
 		return "", errors.New("the model returned nothing")
 	}

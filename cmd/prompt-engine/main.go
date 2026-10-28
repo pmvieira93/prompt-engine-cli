@@ -293,7 +293,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				logf("expand: failed: %v", err)
 				return
 			}
-			if lost := expand.LostNames(s.Text, out); len(lost) > 0 {
+			if lost := append(expand.LostNames(s.Text, out), expand.LostQuotes(s.Text, out)...); len(lost) > 0 {
 				logf("expand: not applied: the rewrite %q dropped or changed %s", out, strings.Join(lost, ", "))
 				after = "kept your text: the rewrite changed " + strings.Join(lost, ", ")
 				return
@@ -356,13 +356,19 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			rules.SkipReason(s) != "" || len(strings.Fields(s.Text)) < cfg.Expand.MinWords {
 			return false
 		}
+		if pastedOrLong(s.Text) {
+			// Rewriting pasted logs or code could "fix" the very text the
+			// user wants the CLI to see.
+			logf("expand: not auto-expanded (long, or contains pasted or code text)")
+			return false
+		}
 		expansion.Lock()
 		already := expansion.expanded != "" && s.Text == expansion.expanded
 		expansion.Unlock()
 		if already {
 			return false // expanded with the shortcut and reviewed: send it
 		}
-		actx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout)
+		actx, cancel := context.WithTimeout(ctx, cfg.Expand.AutoTimeout)
 		auto.pending, auto.escaped, auto.cancel = true, false, cancel
 		logf("expand: Enter held while expanding %q (Esc sends it as typed)", s.Text)
 		go autoExpand(actx, cancel, *cfg, s)
@@ -372,7 +378,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		defer cancel()
 		ctrl.SetNotice("⟳ expanding…")
 		start := time.Now()
-		out, err := expandPrompt(actx, cfg, s.Text, earlierPrompts())
+		earlier := earlierPrompts()
+		out, err := expandPrompt(actx, cfg, s.Text, earlier)
 		ctrl.SetNotice("")
 
 		auto.Lock()
@@ -391,7 +398,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		case err != nil:
 			reason = "expansion failed: " + err.Error()
 		default:
-			reason = expand.Guard(s.Text, out)
+			reason = expand.Guard(s.Text, out, earlier...)
 		}
 		if reason == "" {
 			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
@@ -411,7 +418,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				return
 			}
 		}
-		logf("expand: auto rewrite not used (%s); sending as typed", reason)
+		logf("expand: auto rewrite %q not used (%s); sending as typed", out, reason)
 		auto.Lock()
 		auto.ran, auto.stopped = true, reason
 		auto.Unlock()
@@ -585,6 +592,12 @@ func recordHistory(h config.HistoryConfig, sub history.Submission, logf func(str
 	if err := (&history.Log{Path: path, IncludeText: h.IncludeText}).Append(sub); err != nil {
 		logf("history: %v", err)
 	}
+}
+
+// pastedOrLong reports a prompt auto mode leaves alone: long, several
+// lines, or with a code block, as pasted logs and code usually are.
+func pastedOrLong(text string) bool {
+	return len([]rune(text)) > 400 || strings.Count(text, "\n") >= 6 || strings.Contains(text, "```")
 }
 
 // flashNotice shows msg at the cursor for a few seconds.

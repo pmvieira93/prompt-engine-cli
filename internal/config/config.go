@@ -95,6 +95,10 @@ type ExpandConfig struct {
 	// MinWords: in auto mode, shorter prompts ("yes", "continue") are sent
 	// as typed.
 	MinWords int `yaml:"min_words"`
+	// AutoTimeout bounds how long auto mode holds back Enter; after it the
+	// prompt is sent as typed. Shorter than llm.expand_timeout, which
+	// applies when the developer chose to wait.
+	AutoTimeout time.Duration `yaml:"auto_timeout"`
 }
 
 // HistoryConfig controls the log of sent prompts (one JSON line each).
@@ -148,7 +152,7 @@ func Default() Config {
 		History: HistoryConfig{Enabled: true},
 		// Recent prompts resolved every follow-up tested ("add tests for
 		// it") without adding requirements to unrelated ones.
-		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", MinWords: 3},
+		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", MinWords: 3, AutoTimeout: 5 * time.Second},
 	}
 }
 
@@ -239,6 +243,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("expand.context must be \"none\" or \"prompts\", got %q", c.Expand.Context)
 	case c.Expand.OnEnter != "off" && c.Expand.OnEnter != "auto":
 		return fmt.Errorf("expand.on_enter must be \"off\" or \"auto\", got %q", c.Expand.OnEnter)
+	case c.Expand.AutoTimeout <= 0:
+		return errors.New("expand.auto_timeout must be positive")
 	case c.Expand.MinWords < 1:
 		return fmt.Errorf("expand.min_words must be at least 1, got %d", c.Expand.MinWords)
 	case c.Expand.ContextPrompts < 1 || c.Expand.ContextPrompts > 20:
