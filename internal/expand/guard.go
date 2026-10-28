@@ -157,7 +157,9 @@ func LostNames(typed, rewritten string) []string {
 	}
 	have := norm(rewritten)
 	var lost []string
-	for _, w := range strings.Fields(StripContext(typed)) {
+	// Quoted spans are checked whole by LostQuotes. Splitting them into
+	// words here misread "`…:11434`in" (no space after the quote) as a name.
+	for _, w := range strings.Fields(quoted.ReplaceAllString(StripContext(typed), " ")) {
 		w = strings.TrimRight(strings.TrimLeft(w, "\"'(["), "\"')],.;:?")
 		if !strings.ContainsAny(w, nameChars) || strings.Trim(w, "0123456789") == "" {
 			continue // an ordinary word, or a plain number ("3" may become "three")

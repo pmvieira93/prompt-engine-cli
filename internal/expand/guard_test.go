@@ -50,6 +50,7 @@ func TestLostNames(t *testing.T) {
 		{"fix the multi-line bug", "Fix the multiline bug.", ""},
 		{"review (#110), then merge", "Review #110, then merge.", ""},
 		{"run it 3 times", "Run it three times.", ""},
+		{"fix the error `dial tcp [::1]:11434`in the client", "Fix the error `dial tcp [::1]:11434` in the client.", ""},
 	}
 	for _, tc := range cases {
 		if got := strings.Join(LostNames(tc.typed, tc.rewritten), " "); got != tc.lost {
