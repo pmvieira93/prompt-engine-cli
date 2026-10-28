@@ -3,7 +3,9 @@
 ## Project Name: `prompt-engine-cli` (Working Title)
 **Target Execution Language:** Go (Golang)  
 **Primary Integration (MVP):** Claude Code CLI  
-**Document Version:** 1.0.0  
+**Document Version:** 1.1.0  
+**Last Updated:** 2026-10-28  
+**Appendices:** [Appendix 1: Session Context and Automatic Enhancement](PRD-APPENDIX-1.md) (proposed, Phase 4.5)  
 
 ---
 
@@ -133,6 +135,9 @@ The primary goal is to lower developer friction and improve the quality of AI in
 
 ### Phase 4: Prompt Enhancement Shortcuts
 * Add `Ctrl+E` trigger to transform shorthand inputs into rich prompts using template system prompts and git heuristics, and render the split UI pane with the Prompt Diff Panel.
+
+### Phase 4.5: Session Context & Automatic Enhancement
+* Give the local model session context, and optionally apply enhancement automatically on Enter. See [PRD Appendix 1](PRD-APPENDIX-1.md).
 
 ### Phase 5 (Post-MVP): Multi-Tool Support
 * Abstract integration layers to add support for Gemini CLI, GitHub Copilot CLI, and Aider.
