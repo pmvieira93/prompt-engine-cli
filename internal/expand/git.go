@@ -15,16 +15,30 @@ const maxStaged = 10
 // git isn't installed, it returns no lines.
 func GitContext(dir string) func(ctx context.Context) []string {
 	return func(ctx context.Context) []string {
-		branch, err := git(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD")
-		if err != nil {
-			return nil
+		if _, err := git(ctx, dir, "rev-parse", "--git-dir"); err != nil {
+			return nil // not a repository
 		}
-		lines := []string{"Branch: " + branch}
+		var lines []string
+		if branch := currentBranch(ctx, dir); branch != "" {
+			lines = append(lines, "Branch: "+branch)
+		}
 		if staged := stagedSummary(ctx, dir); staged != "" {
 			lines = append(lines, "Staged changes: "+staged)
 		}
 		return lines
 	}
+}
+
+// currentBranch names the checked-out branch, including one with no
+// commits yet (where "rev-parse HEAD" fails), or the commit when detached.
+func currentBranch(ctx context.Context, dir string) string {
+	if b, err := git(ctx, dir, "symbolic-ref", "--short", "-q", "HEAD"); err == nil && b != "" {
+		return b
+	}
+	if c, err := git(ctx, dir, "rev-parse", "--short", "HEAD"); err == nil && c != "" {
+		return "detached at " + c
+	}
+	return ""
 }
 
 // stagedSummary lists staged files with their added and removed line

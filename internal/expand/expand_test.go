@@ -93,17 +93,23 @@ func TestGitContext(t *testing.T) {
 	}
 
 	run("init", "-q", "-b", "feature/x")
-	run("commit", "-q", "--allow-empty", "-m", "start")
-	if lines := GitContext(dir)(ctx); strings.Join(lines, "|") != "Branch: feature/x" {
-		t.Fatalf("clean repo: %q", lines)
-	}
-
+	// No commits yet, as in a fresh repository: still a branch and staged files.
 	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("one\ntwo\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	run("add", "a.go")
 	if lines := GitContext(dir)(ctx); strings.Join(lines, "|") != "Branch: feature/x|Staged changes: a.go (+2 −0)" {
-		t.Fatalf("staged: %q", lines)
+		t.Fatalf("before the first commit: %q", lines)
+	}
+
+	run("commit", "-q", "-m", "start")
+	if lines := GitContext(dir)(ctx); strings.Join(lines, "|") != "Branch: feature/x" {
+		t.Fatalf("clean repo: %q", lines)
+	}
+
+	run("checkout", "-q", "--detach")
+	if lines := GitContext(dir)(ctx); len(lines) != 1 || !strings.HasPrefix(lines[0], "Branch: detached at ") {
+		t.Fatalf("detached: %q", lines)
 	}
 }
 
