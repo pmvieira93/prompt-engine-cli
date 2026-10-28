@@ -38,6 +38,7 @@ type Config struct {
 	Templates TemplatesConfig `yaml:"templates"`
 	Keys      KeysConfig      `yaml:"keys"`
 	History   HistoryConfig   `yaml:"history"`
+	Expand    ExpandConfig    `yaml:"expand"`
 
 	// path is the file this config was loaded from ("" if defaults only).
 	path string
@@ -78,6 +79,15 @@ type KeysConfig struct {
 	Undo     string `yaml:"undo"`   // put back the prompt from before the last expansion
 	Wider    string `yaml:"panel_wider"`
 	Narrower string `yaml:"panel_narrower"`
+}
+
+// ExpandConfig controls prompt expansion beyond its model (llm.expand_model).
+type ExpandConfig struct {
+	// Context is what the expansion model is told about the session:
+	// "none", or "prompts" for the last ContextPrompts prompts sent (PRD
+	// Appendix 1, FR-6.1), so it can tell what "it" or "same" refer to.
+	Context        string `yaml:"context"`
+	ContextPrompts int    `yaml:"context_prompts"`
 }
 
 // HistoryConfig controls the log of sent prompts (one JSON line each).
@@ -129,6 +139,9 @@ func Default() Config {
 			Narrower: "-",
 		},
 		History: HistoryConfig{Enabled: true},
+		// Recent prompts resolved every follow-up tested ("add tests for
+		// it") without adding requirements to unrelated ones.
+		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3},
 	}
 }
 
@@ -215,6 +228,10 @@ func (c Config) Validate() error {
 		return errors.New("llm.debounce must not be negative")
 	case c.LLM.Timeout <= 0:
 		return errors.New("llm.timeout must be positive")
+	case c.Expand.Context != "none" && c.Expand.Context != "prompts":
+		return fmt.Errorf("expand.context must be \"none\" or \"prompts\", got %q", c.Expand.Context)
+	case c.Expand.ContextPrompts < 1 || c.Expand.ContextPrompts > 20:
+		return fmt.Errorf("expand.context_prompts must be between 1 and 20, got %d", c.Expand.ContextPrompts)
 	case c.Panel.Side != "left" && c.Panel.Side != "right":
 		return fmt.Errorf("panel.side must be \"left\" or \"right\", got %q", c.Panel.Side)
 	case c.Panel.Width < 10 || c.Panel.Width > 90:

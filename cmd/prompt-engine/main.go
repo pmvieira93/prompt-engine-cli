@@ -230,6 +230,22 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 
 	// Prompt expansion: leader, then keys.expand, rewrites the prompt in
 	// place for the user to review; keys.undo puts the original back.
+	// The prompts sent in this session, as sent without the rules, for the
+	// expansion model's context (expand.context: prompts).
+	var recent struct {
+		sync.Mutex
+		prompts []string
+	}
+	earlierPrompts := func() []string {
+		ec := live.Load().Expand
+		if ec.Context != "prompts" {
+			return nil
+		}
+		recent.Lock()
+		defer recent.Unlock()
+		return slices.Clone(recent.prompts[max(0, len(recent.prompts)-ec.ContextPrompts):])
+	}
+
 	var expansion struct {
 		sync.Mutex
 		running            bool
@@ -261,7 +277,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			ectx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout)
 			defer cancel()
 			start := time.Now()
-			out, err := expandPrompt(ectx, *cfg, s.Text)
+			out, err := expandPrompt(ectx, *cfg, s.Text, earlierPrompts())
 			if err != nil {
 				logf("expand: failed: %v", err)
 				return
@@ -314,6 +330,12 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			sub.Sent += rules.Separator + appended
 		}
 		lastSent.Store(&sub)
+		recent.Lock()
+		recent.prompts = append(recent.prompts, expand.StripContext(s.Text))
+		if len(recent.prompts) > 20 { // the most expand.context_prompts allows
+			recent.prompts = recent.prompts[1:]
+		}
+		recent.Unlock()
 		added, removed := diff.Counts(sub.Diff())
 		logf("submit: %d words typed, %d sent (+%d −%d); expanded=%v rules=%v",
 			len(strings.Fields(sub.Raw)), len(strings.Fields(sub.Sent)), added, removed, sub.Expanded, sub.Rules)
@@ -448,7 +470,7 @@ func bindings(k config.KeysConfig) ghost.Keys {
 // expandPrompt rewrites text with the configured model and appends git
 // context for the working directory. With the fake provider it uses a
 // fixed, offline rewrite, so tests are repeatable.
-func expandPrompt(ctx context.Context, cfg config.Config, text string) (string, error) {
+func expandPrompt(ctx context.Context, cfg config.Config, text string, earlier []string) (string, error) {
 	dir, _ := os.Getwd()
 	provider := cfg.LLM.Provider
 	if p := os.Getenv(envSuggester); p != "" {
@@ -461,10 +483,14 @@ func expandPrompt(ctx context.Context, cfg config.Config, text string) (string, 
 		KeepAlive:    "30m",
 		TemplatesDir: templates,
 		Context:      expand.GitContext(dir),
+		Earlier:      func() []string { return earlier },
 	}
 	if provider == "fake" {
 		lines := e.Context(ctx)
 		out := "Please " + expand.StripContext(text) + "."
+		if len(earlier) > 0 {
+			out += " (Following: " + earlier[len(earlier)-1] + ")"
+		}
 		if len(lines) > 0 {
 			out += "\n\nContext:\n- " + strings.Join(lines, "\n- ")
 		}
