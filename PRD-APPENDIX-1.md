@@ -1,7 +1,7 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.0.0  
+**Appendix Version:** 1.1.0  
 **Date:** 2026-10-28  
 **Status:** Proposed, planned as Phase 4.5
 
@@ -76,7 +76,7 @@ A setting for when expansion runs:
 * **FR-7.3:** Escape hatches in `auto`:
   * Esc while "⟳ expanding…" is showing sends the prompt as typed;
   * the leader then Enter (already "submit as typed") skips expansion for one prompt.
-* **FR-7.4:** Guard rails against bad rewrites. In Phase 4 testing the model produced "the RFCator tracker" (from the typo "rfcator"), "the ghost.txt file" and "[insert specific technology or method here]". In `auto`, a rewrite is **not** used when:
+* **FR-7.4:** Guard rails against bad rewrites (a stopped rewrite sends the prompt as typed, see 3.4). In Phase 4 testing the model produced "the RFCator tracker" (from the typo "rfcator"), "the ghost.txt file" and "[insert specific technology or method here]". In `auto`, a rewrite is **not** used when:
   * it replaces most of the words (the threshold is to be tuned on real prompts), or
   * it contains placeholder brackets, or
   * the model errors or times out.
@@ -90,12 +90,11 @@ A setting for when expansion runs:
 * **Nothing is reviewed before the CLI acts on it.** In Claude Code's auto mode, a misread request is executed immediately. This was observed in Phase 4 testing, when a test prompt ("fix the bug in the config") made Claude Code edit the repository. This is why `auto` is opt-in and the guard rails come first.
 * **Latency on every Enter:** about 0.5–1.5 s with the 7B model once loaded, and about 3 s for the first prompt while it loads. Short prompts skip expansion (FR-7.2); the model can be warmed at startup when `auto` is on.
 
-### 3.4 Open decision
+### 3.4 Decision: a stopped rewrite sends the prompt as typed
 
-When a guard rail stops a rewrite in `auto` mode, should `prompt-engine`:
+When a guard rail stops a rewrite in `auto` mode, `prompt-engine` **sends the prompt as typed**, and the panel and log say why. The developer is never blocked.
 
-* **(a) send the prompt as typed** (recommended: the developer is never blocked, and the panel explains what happened), or
-* **(b) stop, keep the prompt in the input box, and let the developer choose?**
+*Decided 2026-10-28. The alternative, stopping and keeping the prompt in the input box for the developer to choose, was rejected.*
 
 ---
 
