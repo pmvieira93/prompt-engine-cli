@@ -4,8 +4,11 @@
 package ghost
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -37,9 +40,18 @@ type Controller struct {
 	// by checking that the child's cursor is in its prompt, not a dialog.
 	Gate func() bool
 
-	// Leader, PanelKey, ExpandKey, and UndoKey are the configured shortcut
-	// keys (see SetKeys). A zero Leader turns shortcuts off.
-	Leader, PanelKey, ExpandKey, UndoKey input.Binding
+	// Keys are the shortcut keys, set before use or with SetKeys. A zero
+	// Leader turns shortcuts off.
+	Keys Keys
+
+	// MouseOffset, if set, returns how many columns right of the terminal's
+	// first column the child's screen starts (a panel on its left). Mouse
+	// reports are shifted by it, and ones over the panel dropped.
+	MouseOffset func() int
+
+	// OnResizePanel, if set, is called with +1 after Leader then
+	// Keys.Wider, and -1 after Leader then Keys.Narrower. It must not block.
+	OnResizePanel func(delta int)
 
 	// OnExpand and OnUndo, if set before use, are called after Leader then
 	// ExpandKey or UndoKey, with the prompt as it stands. They must not
@@ -96,11 +108,16 @@ func (c *Controller) ScreenPrompt() (text string, cursor int, ok bool) {
 	return f()
 }
 
+// Keys are prompt-engine's shortcuts: Leader, then one of the others.
+type Keys struct {
+	Leader, Panel, Expand, Undo, Wider, Narrower input.Binding
+}
+
 // SetKeys replaces the shortcut keys, e.g. after the config is edited. It
 // may be called while input is being filtered.
-func (c *Controller) SetKeys(leader, panel, expand, undo input.Binding) {
+func (c *Controller) SetKeys(k Keys) {
 	c.mu.Lock()
-	c.Leader, c.PanelKey, c.ExpandKey, c.UndoKey = leader, panel, expand, undo
+	c.Keys = k
 	c.armed = false
 	c.mu.Unlock()
 }
@@ -167,6 +184,28 @@ func (c *Controller) Replace(rev uint64, from, to string) error {
 	return err
 }
 
+// shiftMouse moves an SGR mouse report (ESC [ < b ; x ; y M|m) dx columns
+// left, so its column is relative to the child's screen. It reports false
+// for a position left of that screen, over the panel.
+func shiftMouse(raw []byte, dx int) ([]byte, bool) {
+	if dx == 0 {
+		return raw, true
+	}
+	body, final := raw[3:len(raw)-1], raw[len(raw)-1]
+	parts := strings.Split(string(body), ";")
+	if len(parts) != 3 {
+		return raw, true
+	}
+	x, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return raw, true
+	}
+	if x -= dx; x < 1 {
+		return nil, false
+	}
+	return fmt.Appendf(nil, "\x1b[<%s;%d;%s%c", parts[0], x, parts[2], final), true
+}
+
 // typed encodes text as keystrokes: line breaks as Alt+Enter (a new line
 // in claude's prompt), tabs as spaces (Tab would autocomplete), and other
 // control characters dropped.
@@ -187,11 +226,11 @@ func typed(text string) string {
 	return b.String()
 }
 
-// Keys returns the current shortcut keys.
-func (c *Controller) Keys() (leader, panel, expand, undo input.Binding) {
+// CurrentKeys returns the current shortcut keys.
+func (c *Controller) CurrentKeys() Keys {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.Leader, c.PanelKey, c.ExpandKey, c.UndoKey
+	return c.Keys
 }
 
 // Disabled reports whether Disable was called.
@@ -220,12 +259,19 @@ func (c *Controller) Filter(p []byte) []byte {
 		case c.armed:
 			c.armed = false
 			switch {
-			case c.PanelKey.Matches(k):
+			case c.Keys.Panel.Matches(k):
 				c.logf("leader: toggle panel")
 				toggles++
-				out = append(out, c.PanelKey.Rest(k)...)
-			case c.ExpandKey.Matches(k) && c.OnExpand != nil, c.UndoKey.Matches(k) && c.OnUndo != nil:
-				expand := c.ExpandKey.Matches(k)
+				out = append(out, c.Keys.Panel.Rest(k)...)
+			case c.Keys.Wider.Matches(k) && c.OnResizePanel != nil, c.Keys.Narrower.Matches(k) && c.OnResizePanel != nil:
+				delta := 1
+				if c.Keys.Narrower.Matches(k) {
+					delta = -1
+				}
+				c.logf("leader: resize panel %+d", delta)
+				actions = append(actions, func() { c.OnResizePanel(delta) })
+			case c.Keys.Expand.Matches(k) && c.OnExpand != nil, c.Keys.Undo.Matches(k) && c.OnUndo != nil:
+				expand := c.Keys.Expand.Matches(k)
 				// Bring the tracker up to this key, so the action sees the
 				// prompt as it is now.
 				res = append(res, c.Tracker.Filter(out)...)
@@ -238,13 +284,13 @@ func (c *Controller) Filter(p []byte) []byte {
 					c.logf("leader: undo expansion")
 				}
 				actions = append(actions, func() { fn(s) })
-				rest := c.UndoKey.Rest(k)
+				rest := c.Keys.Undo.Rest(k)
 				if expand {
-					rest = c.ExpandKey.Rest(k)
+					rest = c.Keys.Expand.Rest(k)
 				}
 				out = append(out, rest...)
-			case c.Leader.Matches(k):
-				c.logf("leader: sent %s to child", c.Leader)
+			case c.Keys.Leader.Matches(k):
+				c.logf("leader: sent %s to child", c.Keys.Leader)
 				out = append(out, k.Raw...)
 			case k.Type == input.KeyEnter:
 				c.logf("leader: submit as typed")
@@ -257,7 +303,7 @@ func (c *Controller) Filter(p []byte) []byte {
 					out = append(out, string(k.Runes[1:])...) // only the first character was the command
 				}
 			}
-		case !c.Leader.IsZero() && c.Leader.Matches(k):
+		case !c.Keys.Leader.IsZero() && c.Keys.Leader.Matches(k):
 			c.armed = true
 			c.logf("leader: waiting for a shortcut key")
 		case c.sug != "" && (k.Type == input.KeyTab || k.Type == input.KeyRight):
@@ -277,6 +323,10 @@ func (c *Controller) Filter(p []byte) []byte {
 			res = append(res, c.Tracker.Filter(out)...)
 			out = append(out[:0], c.BeforeSubmit(c.Tracker.Snapshot())...)
 			out = append(out, k.Raw...)
+		case k.Type == input.KeyReport && c.MouseOffset != nil && bytes.HasPrefix(k.Raw, []byte("\x1b[<")):
+			if raw, ok := shiftMouse(k.Raw, c.MouseOffset()); ok {
+				out = append(out, raw...)
+			}
 		default:
 			if c.sug != "" && k.Type != input.KeyReport {
 				c.logf("suggestion dismissed (typing) %q", c.sug)

@@ -23,8 +23,10 @@ import (
 	"golang.org/x/term"
 
 	"github.com/pmvieira93/prompt-engine-cli/internal/config"
+	"github.com/pmvieira93/prompt-engine-cli/internal/diff"
 	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
+	"github.com/pmvieira93/prompt-engine-cli/internal/history"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
 	"github.com/pmvieira93/prompt-engine-cli/internal/rules"
@@ -137,7 +139,6 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		logf("rules: off: %v", err)
 	} else {
 		injector = &rules.Injector{Dir: dir, Logf: logf}
-		ctrl.BeforeSubmit = injector.BeforeSubmit
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -271,6 +272,71 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		logf("expand: undone, back to %q", original)
 	}
 
+	// On each prompt sent: append the rules, and record what was typed
+	// against what was sent, for the panel and the history (FR-5).
+	var lastSent atomic.Pointer[history.Submission]
+	ctrl.BeforeSubmit = func(s input.State) []byte {
+		var insert []byte
+		var appended string
+		if injector != nil {
+			insert, appended = injector.Prepare(s)
+		}
+		if rules.SkipReason(s) != "" {
+			return insert // not a message to the model
+		}
+		sub := history.Submission{Time: time.Now(), Raw: s.Text, Sent: s.Text, Rules: appended != ""}
+		expansion.Lock()
+		if expansion.expanded != "" && s.Text == expansion.expanded {
+			sub.Raw, sub.Expanded = expansion.original, true
+		}
+		expansion.original, expansion.expanded = "", ""
+		expansion.Unlock()
+		if appended != "" {
+			sub.Sent += rules.Separator + appended
+		}
+		lastSent.Store(&sub)
+		added, removed := diff.Counts(sub.Diff())
+		logf("submit: %d words typed, %d sent (+%d −%d); expanded=%v rules=%v",
+			len(strings.Fields(sub.Raw)), len(strings.Fields(sub.Sent)), added, removed, sub.Expanded, sub.Rules)
+		if h := live.Load().History; h.Enabled {
+			go recordHistory(h, sub, logf)
+		}
+		return insert
+	}
+	panelDiff := func() *tui.Diff {
+		// An expansion waiting to be sent: preview it, with the rules.
+		expansion.Lock()
+		original, expanded := expansion.original, expansion.expanded
+		expansion.Unlock()
+		if s := tracker.Snapshot(); expanded != "" && s.Synced && s.Text == expanded {
+			preview := expanded
+			if injector != nil {
+				if r := injector.Text(); r != "" {
+					preview += rules.Separator + r
+				}
+			}
+			return &tui.Diff{
+				Title: "Ready to send (not sent yet)",
+				Ops:   diff.Words(original, preview),
+				Notes: []string{"Enter sends it; the undo key puts your text back."},
+			}
+		}
+		sub := lastSent.Load()
+		if sub == nil {
+			return nil
+		}
+		ops := sub.Diff()
+		added, removed := diff.Counts(ops)
+		note := fmt.Sprintf("%s · +%d −%d words", sub.Time.Format("15:04:05"), added, removed)
+		if sub.Expanded {
+			note += " · expanded"
+		}
+		if sub.Rules {
+			note += " · rules added"
+		}
+		return &tui.Diff{Title: "Last prompt sent", Ops: ops, Notes: []string{note}}
+	}
+
 	var rawOutput io.Writer
 	if path := os.Getenv(envDebugOutput); path != "" {
 		f, err := os.Create(path)
@@ -287,6 +353,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		Tracker:       tracker,
 		PanelPercent:  func() int { return live.Load().Panel.Width },
 		Status:        func() []string { return *status.Load() },
+		Diff:          panelDiff,
+		PanelLeft:     func() bool { return live.Load().Panel.Side == "left" },
+		PanelOpen:     cfg.Panel.Visible,
 		OnFilterError: onFilterError,
 		Logf:          logf,
 		Rules:         injector,
@@ -332,13 +401,29 @@ func describeConfig(cfg config.Config, cfgErr error) (src, llm string) {
 	return src, llm
 }
 
+// recordHistory appends sub to the history file h names.
+func recordHistory(h config.HistoryConfig, sub history.Submission, logf func(string, ...any)) {
+	path := h.Path
+	if path == "" {
+		var err error
+		if path, err = history.DefaultPath(); err != nil {
+			logf("history: %v", err)
+			return
+		}
+	}
+	if err := (&history.Log{Path: path, IncludeText: h.IncludeText}).Append(sub); err != nil {
+		logf("history: %v", err)
+	}
+}
+
 // bindings parses validated key settings.
-func bindings(k config.KeysConfig) (leader, panel, expand, undo input.Binding) {
-	leader, _ = input.ParseBinding(k.Leader)
-	panel, _ = input.ParseBinding(k.Panel)
-	expand, _ = input.ParseBinding(k.Expand)
-	undo, _ = input.ParseBinding(k.Undo)
-	return leader, panel, expand, undo
+func bindings(k config.KeysConfig) ghost.Keys {
+	parse := func(s string) input.Binding { b, _ := input.ParseBinding(s); return b }
+	return ghost.Keys{
+		Leader: parse(k.Leader), Panel: parse(k.Panel),
+		Expand: parse(k.Expand), Undo: parse(k.Undo),
+		Wider: parse(k.Wider), Narrower: parse(k.Narrower),
+	}
 }
 
 // expandPrompt rewrites text with the configured model and appends git

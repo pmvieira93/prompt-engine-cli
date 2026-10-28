@@ -115,8 +115,7 @@ func leaderController(toggles *int) *Controller {
 	panel, _ := input.ParseBinding("p")
 	return &Controller{
 		Tracker:       input.NewTracker(),
-		Leader:        leader,
-		PanelKey:      panel,
+		Keys:          Keys{Leader: leader, Panel: panel},
 		OnTogglePanel: func() { *toggles++ },
 	}
 }
@@ -330,7 +329,7 @@ func TestSetKeys(t *testing.T) {
 	c.Filter([]byte("\x1d"))        // arm the old leader
 	g, _ := input.ParseBinding("ctrl+g")
 	x, _ := input.ParseBinding("x")
-	c.SetKeys(g, x, input.Binding{}, input.Binding{})
+	c.SetKeys(Keys{Leader: g, Panel: x})
 	if out := string(c.Filter([]byte("p"))); out != "p" {
 		t.Fatalf("SetKeys should disarm a pending leader; child got %q", out)
 	}
@@ -346,8 +345,8 @@ func expandController(t *testing.T) (*Controller, *recorder, *[]string) {
 	t.Helper()
 	toggles := 0
 	c := leaderController(&toggles) // leader ctrl+]
-	c.ExpandKey, _ = input.ParseBinding("e")
-	c.UndoKey, _ = input.ParseBinding("u")
+	c.Keys.Expand, _ = input.ParseBinding("e")
+	c.Keys.Undo, _ = input.ParseBinding("u")
 	var got []string
 	c.OnExpand = func(s input.State) { got = append(got, "expand:"+s.Text) }
 	c.OnUndo = func(s input.State) { got = append(got, "undo:"+s.Text) }
@@ -422,5 +421,32 @@ func TestNoticeBlocksSuggestions(t *testing.T) {
 	c.SetNotice("")
 	if !c.Show("ctor", rev) {
 		t.Fatal("suggestions didn't resume after the notice")
+	}
+}
+
+func TestShiftMouse(t *testing.T) {
+	cases := []struct {
+		in   string
+		dx   int
+		want string
+		ok   bool
+	}{
+		{"\x1b[<0;50;10M", 0, "\x1b[<0;50;10M", true},
+		{"\x1b[<0;50;10M", 40, "\x1b[<0;10;10M", true},
+		{"\x1b[<35;41;3m", 40, "\x1b[<35;1;3m", true},
+		{"\x1b[<0;40;10M", 40, "", false}, // over the panel
+	}
+	for _, tc := range cases {
+		got, ok := shiftMouse([]byte(tc.in), tc.dx)
+		if string(got) != tc.want || ok != tc.ok {
+			t.Errorf("shiftMouse(%q, %d) = %q, %v; want %q, %v", tc.in, tc.dx, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestFilterShiftsMouse(t *testing.T) {
+	c := &Controller{Tracker: input.NewTracker(), MouseOffset: func() int { return 30 }}
+	if out := string(c.Filter([]byte("\x1b[<0;10;5M\x1b[<0;35;5Mhi"))); out != "\x1b[<0;5;5Mhi" {
+		t.Fatalf("child got %q", out)
 	}
 }

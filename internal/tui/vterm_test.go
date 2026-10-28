@@ -11,6 +11,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/pmvieira93/prompt-engine-cli/internal/diff"
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 )
@@ -99,7 +100,7 @@ func TestDrawEmulatorMatchesDraw(t *testing.T) {
 	want := lipgloss.NewCanvas(60, 8)
 	m.app.emu.Draw(want, uv.Rect(0, 0, 60, 8))
 	got := lipgloss.NewCanvas(60, 8)
-	drawEmulator(got, m.app.emu, 60, 8)
+	drawEmulator(got, m.app.emu, 0, 60, 8)
 
 	if g, w := got.Render(), want.Render(); g != w {
 		t.Fatalf("drawEmulator differs from Draw:\ngot  %q\nwant %q", g, w)
@@ -296,5 +297,71 @@ func TestCursorInMultiLinePrompt(t *testing.T) {
 				t.Fatalf("cursorInPrompt = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestLeftPanelLayout(t *testing.T) {
+	m := newTestModel(80, 6)
+	m.app.opt.PanelLeft = func() bool { return true }
+	m.app.panel.Store(true)
+	m.app.resizeChild(80, 6)
+	m.app.emu.Write([]byte("hello"))
+	lines := screenLines(m)
+	pw := 80 - m.app.emu.Width()
+	if !strings.HasPrefix(lines[0], "╭") {
+		t.Fatalf("panel not on the left: %q", lines[0])
+	}
+	if got := []rune(lines[0]); len(got) < pw+5 || string(got[pw:pw+5]) != "hello" {
+		t.Fatalf("child not drawn right of the panel (width %d): %q", pw, lines[0])
+	}
+	if off := m.app.mouseOffset(); off != pw {
+		t.Fatalf("mouseOffset = %d, want %d", off, pw)
+	}
+}
+
+func TestResizePanelSteps(t *testing.T) {
+	m := newTestModel(100, 6)
+	if p := m.app.panelPercent(); p != 40 {
+		t.Fatalf("start = %d", p)
+	}
+	m.app.ResizePanel(1)
+	m.app.ResizePanel(1)
+	if p := m.app.panelPercent(); p != 50 {
+		t.Fatalf("after two steps wider = %d, want 50", p)
+	}
+	for range 20 {
+		m.app.ResizePanel(-1)
+	}
+	if p := m.app.panelPercent(); p != 10 {
+		t.Fatalf("narrowest = %d, want 10", p)
+	}
+	m.app.ResizePanel(1) // one step back from the limit, not twenty
+	if p := m.app.panelPercent(); p != 15 {
+		t.Fatalf("after the limit = %d, want 15", p)
+	}
+}
+
+func TestRenderDiff(t *testing.T) {
+	got := renderDiff([]diff.Op{{Kind: diff.Equal, Text: "fix "}, {Kind: diff.Delete, Text: "teh"}, {Kind: diff.Insert, Text: "the\nbug"}})
+	if ansi.Strip(got) != "fix tehthe\nbug" {
+		t.Fatalf("text = %q", ansi.Strip(got))
+	}
+	if !strings.Contains(got, "\x1b[") || strings.Count(got, "\n") != 1 {
+		t.Fatalf("styling = %q", got)
+	}
+}
+
+func TestPanelShowsDiff(t *testing.T) {
+	m := newTestModel(100, 14)
+	m.app.opt.Diff = func() *Diff {
+		return &Diff{Title: "Last prompt sent", Ops: diff.Words("fix teh bug", "fix the bug\n\n- End with MANGO."), Notes: []string{"+4 −1 words"}}
+	}
+	m.app.panel.Store(true)
+	m.app.resizeChild(100, 14)
+	screen := strings.Join(screenLines(m), "\n")
+	for _, want := range []string{"Prompt diff", "Last prompt sent", "MANGO", "+4 −1 words"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("panel is missing %q:\n%s", want, screen)
+		}
 	}
 }
