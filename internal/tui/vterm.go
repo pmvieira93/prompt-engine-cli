@@ -108,7 +108,13 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	opt.Ctrl.CanInsert = a.canInsert
 	opt.Ctrl.OnResizePanel = a.ResizePanel
 	opt.Ctrl.MouseOffset = a.mouseOffset
+	// Start the child at the size it will have: narrower if the panel opens
+	// right away. Shrinking it just after it first draws left claude's
+	// screen garbled until the next resize.
 	a.panel.Store(opt.PanelOpen)
+	a.termWidth.Store(int32(cols))
+	startCols, startRows := a.childSize(cols, rows)
+	a.emu.Resize(startCols, startRows)
 	if opt.Rules != nil {
 		opt.Rules.Ready = a.canInsert
 	}
@@ -140,6 +146,7 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 		Filter:        opt.Ctrl,
 		OnFilterError: opt.OnFilterError,
 		ManualSize:    true,
+		StartSize:     func() (int, int) { return startCols, startRows },
 		OnStart:       a.attach,
 		// Bubble Tea assumes LF→CRLF mapping when it has no input tty.
 		KeepOutputProcessing: true,
