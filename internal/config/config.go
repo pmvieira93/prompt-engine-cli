@@ -37,6 +37,7 @@ type Config struct {
 	Panel     PanelConfig     `yaml:"panel"`
 	Templates TemplatesConfig `yaml:"templates"`
 	Keys      KeysConfig      `yaml:"keys"`
+	History   HistoryConfig   `yaml:"history"`
 
 	// path is the file this config was loaded from ("" if defaults only).
 	path string
@@ -71,10 +72,20 @@ type PanelConfig struct {
 // like tmux: press Leader, then the action key. This leaves every plain
 // Ctrl+<key> to the wrapped CLI. Pressing Leader twice sends it to the CLI.
 type KeysConfig struct {
-	Leader string `yaml:"leader"`
-	Panel  string `yaml:"panel"`
-	Expand string `yaml:"expand"` // rewrite the prompt with llm.expand_model
-	Undo   string `yaml:"undo"`   // put back the prompt from before the last expansion
+	Leader   string `yaml:"leader"`
+	Panel    string `yaml:"panel"`
+	Expand   string `yaml:"expand"` // rewrite the prompt with llm.expand_model
+	Undo     string `yaml:"undo"`   // put back the prompt from before the last expansion
+	Wider    string `yaml:"panel_wider"`
+	Narrower string `yaml:"panel_narrower"`
+}
+
+// HistoryConfig controls the log of sent prompts (one JSON line each).
+type HistoryConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// IncludeText stores the prompts themselves, not only their metrics.
+	IncludeText bool   `yaml:"include_text"`
+	Path        string `yaml:"path"` // "" for $XDG_STATE_HOME/prompt-engine/history.jsonl
 }
 
 // TemplatesConfig locates prompt templates. Relative paths resolve against
@@ -110,11 +121,14 @@ func Default() Config {
 			Dir: "templates",
 		},
 		Keys: KeysConfig{
-			Leader: "ctrl+q", // a letter, so it types the same on every layout
-			Panel:  "p",
-			Expand: "e",
-			Undo:   "u",
+			Leader:   "ctrl+q", // a letter, so it types the same on every layout
+			Panel:    "p",
+			Expand:   "e",
+			Undo:     "u",
+			Wider:    "+",
+			Narrower: "-",
 		},
+		History: HistoryConfig{Enabled: true},
 	}
 }
 
@@ -210,6 +224,7 @@ func (c Config) Validate() error {
 	for _, k := range []struct{ name, value string }{
 		{"keys.leader", c.Keys.Leader}, {"keys.panel", c.Keys.Panel},
 		{"keys.expand", c.Keys.Expand}, {"keys.undo", c.Keys.Undo},
+		{"keys.panel_wider", c.Keys.Wider}, {"keys.panel_narrower", c.Keys.Narrower},
 	} {
 		b, err := input.ParseBinding(k.value)
 		if err != nil {

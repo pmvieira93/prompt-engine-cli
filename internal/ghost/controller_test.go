@@ -3,6 +3,7 @@ package ghost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -115,8 +116,7 @@ func leaderController(toggles *int) *Controller {
 	panel, _ := input.ParseBinding("p")
 	return &Controller{
 		Tracker:       input.NewTracker(),
-		Leader:        leader,
-		PanelKey:      panel,
+		Keys:          Keys{Leader: leader, Panel: panel},
 		OnTogglePanel: func() { *toggles++ },
 	}
 }
@@ -134,6 +134,8 @@ func TestLeaderShortcuts(t *testing.T) {
 		{"esc cancels", "\x1d|\x1b|p", "p", 0},
 		{"unbound key is swallowed", "\x1dxq", "q", 0},
 		{"rest of a typed run passes", "\x1dpxy", "xy", 1},
+		{"Ctrl still held: Ctrl+P", "\x1d\x10", "", 1},
+		{"Ctrl still held, kitty encoding", "\x1d\x1b[112;5u", "", 1},
 		{"Ctrl+P reaches the child", "\x10\x1b[112;5u", "\x10\x1b[112;5u", 0},
 	}
 	for _, tc := range cases {
@@ -330,7 +332,7 @@ func TestSetKeys(t *testing.T) {
 	c.Filter([]byte("\x1d"))        // arm the old leader
 	g, _ := input.ParseBinding("ctrl+g")
 	x, _ := input.ParseBinding("x")
-	c.SetKeys(g, x, input.Binding{}, input.Binding{})
+	c.SetKeys(Keys{Leader: g, Panel: x})
 	if out := string(c.Filter([]byte("p"))); out != "p" {
 		t.Fatalf("SetKeys should disarm a pending leader; child got %q", out)
 	}
@@ -346,8 +348,8 @@ func expandController(t *testing.T) (*Controller, *recorder, *[]string) {
 	t.Helper()
 	toggles := 0
 	c := leaderController(&toggles) // leader ctrl+]
-	c.ExpandKey, _ = input.ParseBinding("e")
-	c.UndoKey, _ = input.ParseBinding("u")
+	c.Keys.Expand, _ = input.ParseBinding("e")
+	c.Keys.Undo, _ = input.ParseBinding("u")
 	var got []string
 	c.OnExpand = func(s input.State) { got = append(got, "expand:"+s.Text) }
 	c.OnUndo = func(s input.State) { got = append(got, "undo:"+s.Text) }
@@ -422,5 +424,74 @@ func TestNoticeBlocksSuggestions(t *testing.T) {
 	c.SetNotice("")
 	if !c.Show("ctor", rev) {
 		t.Fatal("suggestions didn't resume after the notice")
+	}
+}
+
+func TestShiftMouse(t *testing.T) {
+	cases := []struct {
+		in   string
+		dx   int
+		want string
+		ok   bool
+	}{
+		{"\x1b[<0;50;10M", 0, "\x1b[<0;50;10M", true},
+		{"\x1b[<0;50;10M", 40, "\x1b[<0;10;10M", true},
+		{"\x1b[<35;41;3m", 40, "\x1b[<35;1;3m", true},
+		{"\x1b[<0;40;10M", 40, "", false}, // over the panel
+	}
+	for _, tc := range cases {
+		got, ok := shiftMouse([]byte(tc.in), tc.dx)
+		if string(got) != tc.want || ok != tc.ok {
+			t.Errorf("shiftMouse(%q, %d) = %q, %v; want %q, %v", tc.in, tc.dx, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestFilterShiftsMouse(t *testing.T) {
+	c := &Controller{Tracker: input.NewTracker(), MouseOffset: func() int { return 30 }}
+	if out := string(c.Filter([]byte("\x1b[<0;10;5M\x1b[<0;35;5Mhi"))); out != "\x1b[<0;5;5Mhi" {
+		t.Fatalf("child got %q", out)
+	}
+}
+
+func TestResizeRepeats(t *testing.T) {
+	toggles := 0
+	c := leaderController(&toggles)
+	c.Keys.Wider, _ = input.ParseBinding("+")
+	c.Keys.Narrower, _ = input.ParseBinding("-")
+	var deltas []int
+	c.OnResizePanel = func(d int) { deltas = append(deltas, d) }
+
+	// Leader once, then repeats: none of the keys reach the child.
+	if out := string(c.Filter([]byte("\x1d-"))); out != "" {
+		t.Fatalf("child got %q", out)
+	}
+	if out := string(c.Filter([]byte("-"))); out != "" {
+		t.Fatalf("repeat reached the child: %q", out)
+	}
+	if out := string(c.Filter([]byte("+"))); out != "" {
+		t.Fatalf("repeat reached the child: %q", out)
+	}
+	// Any other key ends repeating and goes to the child; a later - is text.
+	if out := string(c.Filter([]byte("x-"))); out != "x-" {
+		t.Fatalf("after repeating: child got %q", out)
+	}
+	if fmt.Sprint(deltas) != "[-1 -1 1]" {
+		t.Fatalf("deltas = %v", deltas)
+	}
+}
+
+func TestResizeRunInOneRead(t *testing.T) {
+	toggles := 0
+	c := leaderController(&toggles)
+	c.Keys.Wider, _ = input.ParseBinding("+")
+	c.Keys.Narrower, _ = input.ParseBinding("-")
+	var deltas []int
+	c.OnResizePanel = func(d int) { deltas = append(deltas, d) }
+	if out := string(c.Filter([]byte("\x1d--+ok"))); out != "ok" {
+		t.Fatalf("child got %q", out)
+	}
+	if fmt.Sprint(deltas) != "[-1 -1 1]" {
+		t.Fatalf("deltas = %v", deltas)
 	}
 }

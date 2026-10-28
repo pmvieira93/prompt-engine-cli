@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/rivo/uniseg"
 
@@ -31,27 +33,38 @@ type Injector struct {
 	// paste, so the rules' newlines don't submit early. Nil means ready.
 	Ready func() bool
 	Logf  func(format string, a ...any)
+
+	mu       sync.Mutex
+	cached   string
+	cachedAt time.Time
 }
 
 // BeforeSubmit returns the input to send just before the Enter that
-// submits s, or nil to submit it unchanged. The template is read on every
-// call, so edits apply to the next prompt without a restart.
+// submits s, or nil to submit it unchanged.
 func (in *Injector) BeforeSubmit(s input.State) []byte {
+	insert, _ := in.Prepare(s)
+	return insert
+}
+
+// Prepare is BeforeSubmit that also returns the rules text being appended
+// ("" if none). The template is read on every call, so edits apply to the
+// next prompt without a restart.
+func (in *Injector) Prepare(s input.State) (insert []byte, appended string) {
 	text, err := in.read()
 	switch {
 	case err != nil:
 		in.logf("rules: not added: %v", err)
-		return nil
+		return nil, ""
 	case text == "":
-		return nil
+		return nil, ""
 	}
-	if reason := skipReason(s); reason != "" {
+	if reason := SkipReason(s); reason != "" {
 		in.logf("rules: not added (%s)", reason)
-		return nil
+		return nil, ""
 	}
 	if in.Ready != nil && !in.Ready() {
 		in.logf("rules: not added (cursor not in the prompt, or no bracketed paste)")
-		return nil
+		return nil, ""
 	}
 
 	var b strings.Builder
@@ -60,7 +73,7 @@ func (in *Injector) BeforeSubmit(s input.State) []byte {
 	for range uniseg.GraphemeClusterCount(string([]rune(s.Text)[s.Cursor:])) {
 		b.WriteString("\x1b[C")
 	}
-	b.WriteString("\x1b[200~\n\n")
+	b.WriteString("\x1b[200~" + Separator)
 	b.WriteString(text)
 	b.WriteString("\x1b[201~")
 	unit, lines := "lines", strings.Count(text, "\n")+1
@@ -68,12 +81,28 @@ func (in *Injector) BeforeSubmit(s input.State) []byte {
 		unit = "line"
 	}
 	in.logf("rules: appended %s (%d %s)", AppendFile, lines, unit)
-	return []byte(b.String())
+	return []byte(b.String()), text
 }
 
-// skipReason says why s must be submitted without rules, or "" if it can
-// take them: Enter on these doesn't send a message to the model.
-func skipReason(s input.State) string {
+// Text returns the rules that would be appended now, for previews. It
+// reads the template at most once a second, since a preview is redrawn
+// far more often than that.
+func (in *Injector) Text() string {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if time.Since(in.cachedAt) > time.Second {
+		in.cached, _ = in.read()
+		in.cachedAt = time.Now()
+	}
+	return in.cached
+}
+
+// Separator goes between a prompt and the rules appended to it.
+const Separator = "\n\n"
+
+// SkipReason says why Enter on s doesn't send a message to the model (so
+// it gets no rules), or "" if it does.
+func SkipReason(s input.State) string {
 	trimmed := strings.TrimSpace(s.Text)
 	switch {
 	case !s.Synced:

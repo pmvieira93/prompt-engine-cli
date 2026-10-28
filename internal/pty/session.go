@@ -57,6 +57,9 @@ type Session struct {
 	// ManualSize stops Run from mirroring the terminal size to the PTY on
 	// SIGWINCH; the caller resizes the PTY itself (see OnStart).
 	ManualSize bool
+	// StartSize, if set, gives the PTY's size at start instead of the
+	// terminal's: e.g. narrower, when a side panel is open from the start.
+	StartSize func() (cols, rows int)
 	// KeepOutputProcessing leaves OPOST|ONLCR on in raw mode, for callers
 	// that render to the terminal themselves and write bare LFs (Bubble Tea
 	// does when it doesn't own the input tty).
@@ -83,7 +86,11 @@ func (s *Session) Run(cmd *exec.Cmd) (int, error) {
 	}
 
 	var size *cpty.Winsize
-	if tty != nil {
+	switch {
+	case s.StartSize != nil:
+		cols, rows := s.StartSize()
+		size = &cpty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}
+	case tty != nil:
 		size, _ = cpty.GetsizeFull(tty)
 	}
 	ptmx, err := cpty.StartWithSize(cmd, size)

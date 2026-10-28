@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -78,7 +78,7 @@ Claude Code switches the terminal into an enhanced keyboard mode, so many keys a
 
 None is needed for testing; without a file, the built-in defaults are used. Part D creates its own throwaway config files.
 
-For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`, or wherever `PROMPT_ENGINE_CONFIG` points). These are all its settings, with their defaults:
+For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`). `bin/prompt-engine --pe-config <file>` uses another file instead; the flag is removed before the rest of the arguments go to `claude`. `PROMPT_ENGINE_CONFIG=<file>` works too; the flag wins if both are set. These are all its settings, with their defaults:
 
 ```yaml
 command: claude
@@ -94,10 +94,10 @@ llm:
   expand_timeout: 30s
   debounce: 150ms    # pause in typing before asking
   timeout: 2s
-panel:          # not used until Phase 4
-  visible: false
-  side: right
-  width: 40
+panel:
+  visible: false  # open the side panel at startup
+  side: right     # or left
+  width: 40       # percent of the terminal (10-90)
 templates:
   dir: templates
 keys:           # leader-prefixed shortcuts, like tmux
@@ -105,6 +105,12 @@ keys:           # leader-prefixed shortcuts, like tmux
   panel: p        # leader, then this key, toggles the side panel
   expand: e       # leader, then this key, rewrites the prompt in place
   undo: u         # leader, then this key, puts back the prompt from before the last expansion
+  panel_wider: "+"     # leader, then this key, widens the panel by 5%
+  panel_narrower: "-"  # leader, then this key, narrows it
+history:
+  enabled: true       # one line of metrics per prompt sent
+  include_text: false # also store the prompts themselves
+  path: ""            # default: ~/.local/state/prompt-engine/history.jsonl
 ```
 
 ---
@@ -179,13 +185,13 @@ Start it as in Part B and keep Terminal B visible. **Don't press Enter** unless 
 Checks how `prompt-engine` reads its config file. Each test creates a small config file, runs one command, and compares the output.
 
 - Run everything in Terminal A, from the repository root. No `claude` session or debug log is needed.
-- D1–D5 use throwaway files in `/tmp`. `PROMPT_ENGINE_CONFIG` tells `prompt-engine` which file to read, so your real config is never touched.
+- D1–D5 use throwaway files in `/tmp`. `--pe-config <file>` tells `prompt-engine` which file to read, so your real config is never touched. (`PROMPT_ENGINE_CONFIG=<file>` does the same, but is easy to lose from a command.)
 - The version number shown below (`2.1.308`) will match whatever `claude --version` prints for you.
 
 ### D1: No config file → runs on defaults
 
 ```sh
-PROMPT_ENGINE_CONFIG=/tmp/pe-none.yaml bin/prompt-engine --version
+bin/prompt-engine --pe-config /tmp/pe-none.yaml --version
 ```
 
 **Expected:** just the version, no warning:
@@ -200,7 +206,7 @@ This config tells `prompt-engine` to run `printenv PE_TEST` instead of `claude`,
 
 ```sh
 printf 'command: printenv\nargs: [PE_TEST]\nenv:\n  PE_TEST: hello\n' > /tmp/pe-env.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-env.yaml bin/prompt-engine
+bin/prompt-engine --pe-config /tmp/pe-env.yaml
 ```
 
 **Expected:**
@@ -213,7 +219,7 @@ hello
 
 ```sh
 printf 'comand: claude\n' > /tmp/pe-typo.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-typo.yaml bin/prompt-engine --version
+bin/prompt-engine --pe-config /tmp/pe-typo.yaml --version
 ```
 
 **Expected:** a warning naming the bad key, then the version anyway:
@@ -228,7 +234,7 @@ prompt-engine: parse /tmp/pe-typo.yaml: yaml: unmarshal errors:
 
 ```sh
 printf 'panel:\n  side: top\n' > /tmp/pe-invalid.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-invalid.yaml bin/prompt-engine --version
+bin/prompt-engine --pe-config /tmp/pe-invalid.yaml --version
 ```
 
 **Expected:**
@@ -242,7 +248,7 @@ prompt-engine: invalid /tmp/pe-invalid.yaml: panel.side must be "left" or "right
 
 ```sh
 printf 'command: does-not-exist\n' > /tmp/pe-missing.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-missing.yaml bin/prompt-engine; echo "exit=$?"
+bin/prompt-engine --pe-config /tmp/pe-missing.yaml; echo "exit=$?"
 ```
 
 **Expected:**
@@ -254,7 +260,7 @@ exit=127
 
 ### D6: The default location is found
 
-The only test that uses the real location, `~/.config/prompt-engine/config.yaml`, with no `PROMPT_ENGINE_CONFIG`. Same trick as D2.
+The only test that uses the real location, `~/.config/prompt-engine/config.yaml`, with no `--pe-config`. Same trick as D2.
 
 > **If you already have a config there**, back it up first: `mv ~/.config/prompt-engine/config.yaml ~/.config/prompt-engine/config.yaml.bak`, and restore it afterwards.
 
@@ -306,8 +312,8 @@ Between tests, press **Ctrl+U** to clear the prompt.
 | E8 | Ctrl+U, type `@`, then **Tab** | `claude`'s own file autocomplete works (Tab is only taken while ghost text is showing) |
 | E8b | Ctrl+U, type `@`, browse the menu with Up/Down **without choosing**, Backspace the `@`, then type `refa` and wait | Ghost text `ctor` appears. Log: `synced=false` while browsing, then `buffer resynced from screen`, then `suggestion shown` for `refa` |
 | E9 | Type a few words, then press **Ctrl+P** | `claude` handles it (moves up / history); prompt-engine doesn't take it |
-| E10 | Press **Ctrl+Q**, then **p** | `claude` shrinks to about 60% width; a bordered panel on the right shows the prompt text and the current suggestion. Log: `leader: waiting for a shortcut key`, then `leader: toggle panel` |
-| E11 | With the panel open, type `refa` | The panel updates live with the text and the suggestion |
+| E10 | Press **Ctrl+Q**, then **p** | `claude` shrinks to about 60% width; a bordered **Prompt diff** panel appears on the right (Part J covers what it shows). Log: `leader: waiting for a shortcut key`, then `leader: toggle panel` |
+| E11 | With the panel open, type `refa` | Ghost text still works next to the panel |
 | E12 | With the panel open, resize the window narrower, then wider (drag the window edge or the split-pane divider) | Both sides redraw to fit, no overlapping text |
 | E13 | Press **Ctrl+Q**, then **p** again | Back to full width, no leftover border |
 | E14 | Press **Ctrl+Q**, then **Esc** | Nothing happens. Log: `leader: cancelled` |
@@ -397,7 +403,7 @@ Then, **without restarting** `prompt-engine`, run `brew services start ollama` i
 ```sh
 ollama pull qwen2.5:1.5b    # skip if already downloaded
 printf 'llm:\n  model: qwen2.5:1.5b\n' > /tmp/pe-nofim.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-nofim.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-nofim.yaml
 ```
 
 Type `refa` and stop.
@@ -412,12 +418,12 @@ Run these three lines one by one. The first empties the log, so lines from earli
 ```sh
 : > /tmp/pe.log
 printf 'llm:\n  enabled: false\n' > /tmp/pe-off.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-off.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-off.yaml
 ```
 
 **Expected:** the log starts with `session start: config /tmp/pe-off.yaml; suggestions off (llm.enabled: false)`, and has no `llm:` or `suggestion` lines after it. The panel (Ctrl+Q, then p) still works.
 
-If the first line names a different config, or says `defaults`, the setting didn't reach `prompt-engine`: check that `PROMPT_ENGINE_CONFIG=…` is on the same line as `bin/prompt-engine`.
+If the first line names a different config, or says `defaults`, the setting didn't reach `prompt-engine`: check that `--pe-config …` is part of the command.
 
 **Cleanup:** `rm -f /tmp/pe-nofim.yaml /tmp/pe-off.yaml`, and `brew services start ollama` if you left it stopped.
 
@@ -460,14 +466,14 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 
 ```sh
 printf 'llm:\n  provider: fake\n' > /tmp/pe-live.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-live.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-live.yaml
 ```
 
 Edit the file from **Terminal B** with the commands below; you can stop `tail -f` with Ctrl+C and restart it after. After each edit, the log shows `config: reloaded /tmp/pe-live.yaml; applied: …; needs a restart: …` within about a second. In Terminal A, press Ctrl+U between steps.
 
 | # | Edit in Terminal B | Then in Terminal A | Expected |
 |---|---|---|---|
-| H0 | (none) | Press **Ctrl+Q**, then **p** | The panel's **Session** section shows `config: /tmp/pe-live.yaml` and `suggestions: fake (fixed word list)`. If it says `defaults`, `PROMPT_ENGINE_CONFIG` didn't reach `prompt-engine`: restart it. Close the panel again |
+| H0 | (none) | Press **Ctrl+Q**, then **p** | The panel's **Session** section shows `config: /tmp/pe-live.yaml` and `suggestions: fake (fixed word list)`. If it says `defaults`, the config didn't reach `prompt-engine`: check the `--pe-config` part of the command and restart it. Close the panel again |
 | H1 | (none) | Type `refa` and stop | Ghost text `ctor` |
 | H2 | `printf 'llm:\n  provider: fake\n  enabled: false\n' > /tmp/pe-live.yaml` | Type `refa` and stop | **No** ghost text. Log: `applied: llm` |
 | H3 | `printf 'llm:\n  provider: fake\n  debounce: 1s\n' > /tmp/pe-live.yaml` | Type `refa` and stop | Ghost text comes back, but only about **1 second** after you stop typing |
@@ -529,7 +535,45 @@ Without restarting, type `set up the project and run the tests`, Ctrl+Q, e.
 
 ---
 
-## 11. Known limitations (expected, not bugs)
+## 11. Part J: Prompt diff panel
+
+The side panel compares what you typed with what `claude` received: additions in **green**, removals in **red, struck through**. While an expansion waits for you to press Enter, it previews it instead.
+
+> ⚠️ **J3 and J5 send real prompts** (short, harmless ones). The rest don't. Only send the prompts given here: `claude` acts on what it receives, and in auto mode a request like "fix the bug" will make it edit your files.
+
+**Setup:** put a rule in place so there's something to see added, remove any custom expansion instructions left from I10, and start it:
+
+```sh
+mkdir -p ~/.config/prompt-engine/templates
+printf -- '- End your reply with the word MANGO.\n' > ~/.config/prompt-engine/templates/append.txt
+rm -f ~/.config/prompt-engine/templates/system.txt
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+| # | Do this | Expected |
+|---|---|---|
+| J1 | Press **Ctrl+Q**, then **p** | The **Prompt diff** panel opens on the right, with a key hint line and `Nothing sent yet.` |
+| J2 | Type `say helo in thre words`, then **Ctrl+Q**, **e** | Under **Ready to send (not sent yet)**: the typos (`helo`, `thre`) struck through in red, the corrections and the context in green, and the rule (`- End your reply with the word MANGO.`) in green at the end |
+| J3 | Press **Enter** | `claude` replies with a short greeting ending in MANGO. The panel title becomes **Last prompt sent**, with the same diff and a line like `13:12:52 · +12 −2 words · expanded · rules added`. Log: `submit: …; expanded=true rules=true` |
+| J4 | **Ctrl+Q**, then **-** **-** (one leader, two dashes), then **+** within a second | The panel narrows twice and widens once, about 5% of the window each time; `claude` redraws to fit. After a resize, more `-`/`+` presses within a second keep resizing without Ctrl+Q; a pause or any other key ends that. Nothing is typed into `claude` |
+| J4b | Press **Ctrl+Q**, then **Ctrl+P** (Ctrl still held) | The panel toggles, the same as Ctrl+Q then p |
+| J5 | Type `say ok in two words` and **Enter** (no expansion) | **Last prompt sent** shows your text unchanged and only the rule in green; the line says `rules added`, not `expanded` |
+| J6 | Quit with `/exit`, then `tail -2 ~/.local/state/prompt-engine/history.jsonl` | Two lines with counts like `"raw_words":4,"sent_words":…,"expanded":true,"rules":true`, and **no prompt text** |
+
+### J7: Panel on the left, open at startup
+
+```sh
+printf 'panel:\n  side: left\n  visible: true\n' > /tmp/pe-left.yaml
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-left.yaml
+```
+
+**Expected:** the panel is already open, on the **left**, with `claude` to its right. Typing, ghost text and the cursor all appear in `claude`'s part. If you scroll or click with the mouse inside `claude`'s part, it behaves normally; clicks on the panel do nothing.
+
+**Cleanup:** `rm -f /tmp/pe-left.yaml`, and `rm ~/.config/prompt-engine/templates/append.txt` unless you want to keep the MANGO rule.
+
+---
+
+## 12. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -542,17 +586,18 @@ Without restarting, type `set up the project and run the tests`, Ctrl+Q, e.
 | Editing `command`, `args`, `env` or `templates.dir` while running has no effect until a restart | `claude` is already running with them. The log says `needs a restart: …` |
 | A new `panel.width` applies the next time the panel opens or the window resizes | The panel isn't re-laid out mid-display |
 | Expansion only uses git context (branch, staged files), not the contents of files or recent commits | Small models given more context invented requirements from it. The context is added by `prompt-engine`, not by the model, so it's always accurate |
+| If you edit an expanded prompt before sending it, the panel shows your edited text as "typed" | The panel only knows the original once the prompt still matches the expansion exactly |
 | Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
 | Rules aren't added when the prompt text is unknown (`synced=false`, e.g. a multi-line prompt after history) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---
 
-## 12. Reporting a problem
+## 13. Reporting a problem
 
 Include:
 
-1. The test number (e.g. C9, E5, F2, G1, H3 or I1)
+1. The test number (e.g. C9, E5, F2, G1, H3, I1 or J2)
 2. What `claude` showed
 3. The matching lines from `/tmp/pe.log`
 4. Your terminal app (iTerm2, Terminal.app, Ghostty, …)

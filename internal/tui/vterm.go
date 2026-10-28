@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -37,6 +38,7 @@ import (
 	"github.com/rivo/uniseg"
 	"golang.org/x/term"
 
+	"github.com/pmvieira93/prompt-engine-cli/internal/diff"
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
@@ -58,6 +60,14 @@ type Options struct {
 	// Status, if set, returns lines describing the session (e.g. which
 	// config is in use) for the side panel. It's called at every redraw.
 	Status func() []string
+	// Diff, if set, returns the prompt comparison the side panel shows
+	// (PRD FR-5), or nil when there is none yet. Called at every redraw.
+	Diff func() *Diff
+	// PanelLeft reports whether the panel goes left of the child rather
+	// than right. It's read at every layout. Nil means right.
+	PanelLeft func() bool
+	// PanelOpen opens the panel at startup.
+	PanelOpen bool
 	// RawOutput, if set, receives a copy of everything the child writes,
 	// for debugging how it draws. Writes happen on the output goroutine.
 	RawOutput io.Writer
@@ -65,6 +75,14 @@ type Options struct {
 	// PanicOnGhost makes the renderer panic when it first draws ghost text,
 	// to exercise the pass-through fallback. Testing only.
 	PanicOnGhost bool
+}
+
+// Diff is what the side panel compares: what was typed against what was,
+// or will be, sent.
+type Diff struct {
+	Title string // e.g. "Last prompt sent"
+	Ops   []diff.Op
+	Notes []string // e.g. "+6 −3 words · expanded · rules"
 }
 
 // Run executes cmd inside the emulator-backed UI and returns its exit code.
@@ -88,6 +106,15 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	opt.Ctrl.Gate = a.cursorInPrompt
 	opt.Ctrl.SetScreen(a.promptText)
 	opt.Ctrl.CanInsert = a.canInsert
+	opt.Ctrl.OnResizePanel = a.ResizePanel
+	opt.Ctrl.MouseOffset = a.mouseOffset
+	// Start the child at the size it will have: narrower if the panel opens
+	// right away. Shrinking it just after it first draws left claude's
+	// screen garbled until the next resize.
+	a.panel.Store(opt.PanelOpen)
+	a.termWidth.Store(int32(cols))
+	startCols, startRows := a.childSize(cols, rows)
+	a.emu.Resize(startCols, startRows)
 	if opt.Rules != nil {
 		opt.Rules.Ready = a.canInsert
 	}
@@ -119,6 +146,7 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 		Filter:        opt.Ctrl,
 		OnFilterError: opt.OnFilterError,
 		ManualSize:    true,
+		StartSize:     func() (int, int) { return startCols, startRows },
 		OnStart:       a.attach,
 		// Bubble Tea assumes LF→CRLF mapping when it has no input tty.
 		KeepOutputProcessing: true,
@@ -151,6 +179,8 @@ type app struct {
 	title    string
 
 	panel         atomic.Bool
+	panelSteps    atomic.Int32 // ResizePanel steps on top of the configured width
+	termWidth     atomic.Int32 // the real terminal's width, for mouseOffset
 	resizePending atomic.Bool
 	osc           oscFilter // only touched by Write, on the output goroutine
 	fallback      atomic.Bool
@@ -399,6 +429,44 @@ func (a *app) TogglePanel() {
 	a.Wake()
 }
 
+// panelStep is how much ResizePanel changes the panel's width, in percent.
+const panelStep = 5
+
+// ResizePanel widens (delta > 0) or narrows (delta < 0) the panel by
+// panelStep percent per step, within 10–90%. It's kept on top of the
+// configured panel.width.
+func (a *app) ResizePanel(delta int) {
+	a.panelSteps.Add(int32(delta))
+	if a.panel.Load() {
+		a.resizePending.Store(true)
+	}
+	a.Wake()
+}
+
+// panelPercent is the panel's current width as a percentage.
+func (a *app) panelPercent() int {
+	p := a.opt.PanelPercent() + int(a.panelSteps.Load())*panelStep
+	clamped := min(max(p, 10), 90)
+	if clamped != p { // don't let steps pile up past the limit
+		a.panelSteps.Store(int32((clamped - a.opt.PanelPercent()) / panelStep))
+	}
+	return clamped
+}
+
+// leftPanel reports whether the panel is open on the left of the child.
+func (a *app) leftPanel() bool {
+	return a.panel.Load() && a.opt.PanelLeft != nil && a.opt.PanelLeft()
+}
+
+// mouseOffset is how far right of the terminal's column 1 the child's
+// screen starts: the panel's width when it's on the left.
+func (a *app) mouseOffset() int {
+	if !a.leftPanel() {
+		return 0
+	}
+	return int(a.termWidth.Load()) - a.emu.Width()
+}
+
 func (a *app) locked(f func()) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -487,7 +555,7 @@ func (a *app) restore(w io.Writer) {
 // childSize is the emulator/PTY size for a terminal of w×h cells.
 func (a *app) childSize(w, h int) (int, int) {
 	if a.panel.Load() {
-		return w - panelWidth(w, a.opt.PanelPercent()), h
+		return w - panelWidth(w, a.panelPercent()), h
 	}
 	return w, h
 }
@@ -497,6 +565,7 @@ func panelWidth(w, percent int) int {
 }
 
 func (a *app) resizeChild(w, h int) {
+	a.termWidth.Store(int32(w))
 	cw, ch := a.childSize(w, h)
 	if cw < 1 || ch < 1 {
 		return
@@ -545,7 +614,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // reused cell is enough. Unlike Draw, it doesn't substitute default colors
 // set by the child with OSC 10/11: cells without a color keep the real
 // terminal's defaults.
-func drawEmulator(scr uv.Screen, emu *vt.SafeEmulator, w, h int) {
+func drawEmulator(scr uv.Screen, emu *vt.SafeEmulator, ox, w, h int) {
 	var c uv.Cell
 	for y := range h {
 		for x := 0; x < w; {
@@ -555,7 +624,7 @@ func drawEmulator(scr uv.Screen, emu *vt.SafeEmulator, w, h int) {
 				continue
 			}
 			c = *src
-			scr.SetCell(x, y, &c)
+			scr.SetCell(ox+x, y, &c)
 			x += max(c.Width, 1)
 		}
 	}
@@ -588,20 +657,28 @@ func (m *model) view() tea.View {
 
 	emu := m.app.emu
 	ew, eh := emu.Width(), emu.Height()
-	drawEmulator(m.canvas, emu, ew, eh)
+	ox := 0 // where the child's screen starts: right of a left panel
+	if m.app.leftPanel() && ew < m.w {
+		ox = m.w - ew
+	}
+	drawEmulator(m.canvas, emu, ox, ew, eh)
 	pos := emu.CursorPosition()
 	if sug := m.app.opt.Ctrl.Visible(); sug != "" {
 		if m.app.opt.PanicOnGhost {
 			panic("PanicOnGhost: simulated renderer failure")
 		}
-		drawGhost(m.canvas, pos.X, pos.Y, ew, sug)
+		drawGhost(m.canvas, ox+pos.X, pos.Y, ox+ew, sug)
 	} else if note := m.app.opt.Ctrl.Notice(); note != "" {
-		drawGhost(m.canvas, pos.X, pos.Y, ew, "  "+note)
+		drawGhost(m.canvas, ox+pos.X, pos.Y, ox+ew, "  "+note)
 	}
 	if m.app.panel.Load() && ew < m.w {
 		// lipgloss Layer.Draw ignores X/Y and repaints its whole area, so
 		// draw the panel into its own rectangle directly.
-		uv.NewStyledString(m.panelView(m.w-ew)).Draw(m.canvas, uv.Rect(ew, 0, m.w-ew, m.h))
+		px := ew
+		if ox > 0 {
+			px = 0
+		}
+		uv.NewStyledString(m.panelView(m.w-ew)).Draw(m.canvas, uv.Rect(px, 0, m.w-ew, m.h))
 	}
 
 	v := tea.NewView(m.canvas.Render())
@@ -619,7 +696,7 @@ func (m *model) view() tea.View {
 	m.app.mu.Unlock()
 
 	if !emu.CursorHidden() {
-		c := tea.NewCursor(pos.X, pos.Y)
+		c := tea.NewCursor(ox+pos.X, pos.Y)
 		style, blink := emu.CursorStyle()
 		c.Shape, c.Blink = cursorShape(style), blink
 		v.Cursor = c
@@ -644,25 +721,70 @@ func drawGhost(scr uv.Screen, x, y, maxX int, s string) {
 var panelBorder = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
 	BorderForeground(lipgloss.Color("8")).Padding(0, 1)
 
+var (
+	panelTitle = lipgloss.NewStyle().Bold(true)
+	panelDim   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	diffInsert = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	diffDelete = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Strikethrough(true)
+)
+
 func (m *model) panelView(w int) string {
-	s := m.app.opt.Tracker.Snapshot()
-	leader, panel, _, _ := m.app.opt.Ctrl.Keys()
+	keys := m.app.opt.Ctrl.CurrentKeys()
 	lines := []string{
-		lipgloss.NewStyle().Bold(true).Render("Prompt diff (FR-5 stub)"),
+		panelTitle.Render("Prompt diff"),
+		panelDim.Render(fmt.Sprintf("%s then %s: hide · %s/%s: width · %s: expand · %s: undo",
+			keys.Leader, keys.Panel, keys.Wider, keys.Narrower, keys.Expand, keys.Undo)),
 		"",
-		fmt.Sprintf("%s then %s hides this panel.", leader, panel),
-		"",
-		"buffer:     " + quote(s.Text),
-		"synced:     " + boolStr(s.Synced),
-		"suggestion: " + quote(m.app.opt.Ctrl.Visible()),
+	}
+	var d *Diff
+	if m.app.opt.Diff != nil {
+		d = m.app.opt.Diff()
+	}
+	if d == nil {
+		lines = append(lines, panelDim.Render("Nothing sent yet. Prompts you send appear here, with what prompt-engine added in green."))
+	} else {
+		lines = append(lines, panelTitle.Render(d.Title), renderDiff(d.Ops))
+		for _, n := range d.Notes {
+			lines = append(lines, panelDim.Render(n))
+		}
 	}
 	if m.app.opt.Status != nil {
-		lines = append(lines, "", lipgloss.NewStyle().Bold(true).Render("Session"))
+		lines = append(lines, "", panelTitle.Render("Session"))
 		lines = append(lines, m.app.opt.Status()...)
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	// Wrap long lines (e.g. a config path) rather than cutting them off.
+	// Width wraps long lines (a long prompt, a config path) rather than
+	// cutting them off.
 	return panelBorder.Width(w).Height(m.h).MaxWidth(w).Render(body)
+}
+
+// renderDiff shows ops inline: unchanged text as is, additions in green,
+// removals in red and struck through.
+func renderDiff(ops []diff.Op) string {
+	var b strings.Builder
+	for _, op := range ops {
+		switch op.Kind {
+		case diff.Insert:
+			b.WriteString(styleLines(diffInsert, op.Text))
+		case diff.Delete:
+			b.WriteString(styleLines(diffDelete, op.Text))
+		default:
+			b.WriteString(op.Text)
+		}
+	}
+	return b.String()
+}
+
+// styleLines styles each line of text separately, so line breaks inside a
+// change don't carry the style onto the next line.
+func styleLines(st lipgloss.Style, text string) string {
+	parts := strings.Split(text, "\n")
+	for i, p := range parts {
+		if p != "" {
+			parts[i] = st.Render(p)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func cursorShape(s vt.CursorStyle) tea.CursorShape {
@@ -673,13 +795,4 @@ func cursorShape(s vt.CursorStyle) tea.CursorShape {
 		return tea.CursorBar
 	}
 	return tea.CursorBlock
-}
-
-func quote(s string) string { return "\"" + s + "\"" }
-
-func boolStr(b bool) string {
-	if b {
-		return "yes"
-	}
-	return "no"
 }

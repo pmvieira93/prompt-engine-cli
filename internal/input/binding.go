@@ -3,6 +3,7 @@ package input
 import (
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -44,6 +45,16 @@ func (b Binding) Matches(k Key) bool {
 		return k.Type == KeyRunes && len(k.Runes) > 0 && k.Runes[0] == b.r
 	}
 	return false
+}
+
+// MatchesHeld is Matches, but a letter binding also matches Ctrl+that
+// letter, for a shortcut typed after a Ctrl leader without releasing Ctrl.
+func (b Binding) MatchesHeld(k Key) bool {
+	if b.Matches(k) {
+		return true
+	}
+	lower := unicode.ToLower(b.r)
+	return k.Type == KeyCtrl && lower >= 'a' && lower <= 'z' && rune(k.Ctrl) == lower
 }
 
 // Rest returns the input left over after a matching character binding, for
