@@ -539,24 +539,25 @@ Without restarting, type `set up the project and run the tests`, Ctrl+Q, e.
 
 The side panel compares what you typed with what `claude` received: additions in **green**, removals in **red, struck through**. While an expansion waits for you to press Enter, it previews it instead.
 
-> ⚠️ **J3 and J5 send real prompts** (short ones). The rest don't.
+> ⚠️ **J3 and J5 send real prompts** (short, harmless ones). The rest don't. Only send the prompts given here: `claude` acts on what it receives, and in auto mode a request like "fix the bug" will make it edit your files.
 
-**Setup:** put a rule in place so there's something to see added, and start it:
+**Setup:** put a rule in place so there's something to see added, remove any custom expansion instructions left from I10, and start it:
 
 ```sh
 mkdir -p ~/.config/prompt-engine/templates
 printf -- '- End your reply with the word MANGO.\n' > ~/.config/prompt-engine/templates/append.txt
+rm -f ~/.config/prompt-engine/templates/system.txt
 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
 ```
 
 | # | Do this | Expected |
 |---|---|---|
 | J1 | Press **Ctrl+Q**, then **p** | The **Prompt diff** panel opens on the right, with a key hint line and `Nothing sent yet.` |
-| J2 | Type `fix teh bug in confg`, then **Ctrl+Q**, **e** | Under **Ready to send (not sent yet)**: your typos struck through in red, the corrections and the context in green, and the rule (`- End your reply with the word MANGO.`) in green at the end |
-| J3 | Press **Enter** | The title becomes **Last prompt sent**, with the same diff and a line like `13:12:52 · +12 −3 words · expanded · rules added`. Log: `submit: …; expanded=true rules=true` |
+| J2 | Type `say helo in thre words`, then **Ctrl+Q**, **e** | Under **Ready to send (not sent yet)**: the typos (`helo`, `thre`) struck through in red, the corrections and the context in green, and the rule (`- End your reply with the word MANGO.`) in green at the end |
+| J3 | Press **Enter** | `claude` replies with a short greeting ending in MANGO. The panel title becomes **Last prompt sent**, with the same diff and a line like `13:12:52 · +12 −2 words · expanded · rules added`. Log: `submit: …; expanded=true rules=true` |
 | J4 | **Ctrl+Q**, **-** twice, then **Ctrl+Q**, **+** once | The panel narrows twice and widens once, by about 5% of the window each time; `claude` redraws to fit |
 | J5 | Type `say ok in two words` and **Enter** (no expansion) | **Last prompt sent** shows your text unchanged and only the rule in green; the line says `rules added`, not `expanded` |
-| J6 | Quit with `/exit`, then `tail -2 ~/.local/state/prompt-engine/history.jsonl` | Two lines with counts like `"raw_words":5,"sent_words":…,"expanded":true,"rules":true`, and **no prompt text** |
+| J6 | Quit with `/exit`, then `tail -2 ~/.local/state/prompt-engine/history.jsonl` | Two lines with counts like `"raw_words":4,"sent_words":…,"expanded":true,"rules":true`, and **no prompt text** |
 
 ### J7: Panel on the left, open at startup
 
