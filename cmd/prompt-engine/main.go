@@ -2,7 +2,10 @@
 // that user input can be intercepted and enhanced before it reaches the tool.
 //
 // All command-line arguments are forwarded to the wrapped binary, so
-// prompt-engine is a drop-in replacement: `alias claude=prompt-engine`.
+// prompt-engine is a drop-in replacement: `alias claude=prompt-engine`. The
+// one exception is --pe-config <file> (or --pe-config=<file>), which picks
+// the config file and is removed; the --pe- prefix keeps it clear of the
+// wrapped CLI's own flags. A "--" ends this, passing what follows as is.
 package main
 
 import (
@@ -66,6 +69,16 @@ func main() {
 }
 
 func run() int {
+	cliArgs, cfgPath, err := ownFlags(os.Args[1:])
+	if err != nil {
+		warn("%v", err)
+		return 2
+	}
+	if cfgPath != "" {
+		// The flag wins over the environment. Setting the variable keeps
+		// every reader of the config path (the reload watcher too) in step.
+		os.Setenv(config.EnvConfigPath, cfgPath)
+	}
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {
 		warn("%v; using defaults", cfgErr)
@@ -76,7 +89,7 @@ func run() int {
 		warn("%v", err)
 		return 127
 	}
-	args := append(slices.Clone(cfg.Args), os.Args[1:]...)
+	args := append(slices.Clone(cfg.Args), cliArgs...)
 	env := os.Environ()
 	for k, v := range cfg.Env {
 		env = append(env, k+"="+v)
@@ -536,6 +549,32 @@ func logStates(path string, t *input.Tracker) (logf func(string, ...any), err er
 		}
 	}()
 	return logf, nil
+}
+
+// ownFlags takes prompt-engine's own --pe-config flag out of args and
+// returns the rest, for the wrapped CLI, unchanged and in order.
+func ownFlags(args []string) (rest []string, cfgPath string, err error) {
+	const flag = "--pe-config"
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return append(rest, args[i:]...), cfgPath, nil
+		case a == flag:
+			if i+1 >= len(args) || args[i+1] == "" {
+				return nil, "", fmt.Errorf("%s needs a file: %s <file>", flag, flag)
+			}
+			cfgPath = args[i+1]
+			i++
+		case strings.HasPrefix(a, flag+"="):
+			if cfgPath = strings.TrimPrefix(a, flag+"="); cfgPath == "" {
+				return nil, "", fmt.Errorf("%s needs a file: %s=<file>", flag, flag)
+			}
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return rest, cfgPath, nil
 }
 
 func warn(format string, a ...any) {

@@ -78,7 +78,7 @@ Claude Code switches the terminal into an enhanced keyboard mode, so many keys a
 
 None is needed for testing; without a file, the built-in defaults are used. Part D creates its own throwaway config files.
 
-For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`, or wherever `PROMPT_ENGINE_CONFIG` points). These are all its settings, with their defaults:
+For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`). `bin/prompt-engine --pe-config <file>` uses another file instead; the flag is removed before the rest of the arguments go to `claude`. `PROMPT_ENGINE_CONFIG=<file>` works too; the flag wins if both are set. These are all its settings, with their defaults:
 
 ```yaml
 command: claude
@@ -185,13 +185,13 @@ Start it as in Part B and keep Terminal B visible. **Don't press Enter** unless 
 Checks how `prompt-engine` reads its config file. Each test creates a small config file, runs one command, and compares the output.
 
 - Run everything in Terminal A, from the repository root. No `claude` session or debug log is needed.
-- D1–D5 use throwaway files in `/tmp`. `PROMPT_ENGINE_CONFIG` tells `prompt-engine` which file to read, so your real config is never touched.
+- D1–D5 use throwaway files in `/tmp`. `--pe-config <file>` tells `prompt-engine` which file to read, so your real config is never touched. (`PROMPT_ENGINE_CONFIG=<file>` does the same, but is easy to lose from a command.)
 - The version number shown below (`2.1.308`) will match whatever `claude --version` prints for you.
 
 ### D1: No config file → runs on defaults
 
 ```sh
-PROMPT_ENGINE_CONFIG=/tmp/pe-none.yaml bin/prompt-engine --version
+bin/prompt-engine --pe-config /tmp/pe-none.yaml --version
 ```
 
 **Expected:** just the version, no warning:
@@ -206,7 +206,7 @@ This config tells `prompt-engine` to run `printenv PE_TEST` instead of `claude`,
 
 ```sh
 printf 'command: printenv\nargs: [PE_TEST]\nenv:\n  PE_TEST: hello\n' > /tmp/pe-env.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-env.yaml bin/prompt-engine
+bin/prompt-engine --pe-config /tmp/pe-env.yaml
 ```
 
 **Expected:**
@@ -219,7 +219,7 @@ hello
 
 ```sh
 printf 'comand: claude\n' > /tmp/pe-typo.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-typo.yaml bin/prompt-engine --version
+bin/prompt-engine --pe-config /tmp/pe-typo.yaml --version
 ```
 
 **Expected:** a warning naming the bad key, then the version anyway:
@@ -234,7 +234,7 @@ prompt-engine: parse /tmp/pe-typo.yaml: yaml: unmarshal errors:
 
 ```sh
 printf 'panel:\n  side: top\n' > /tmp/pe-invalid.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-invalid.yaml bin/prompt-engine --version
+bin/prompt-engine --pe-config /tmp/pe-invalid.yaml --version
 ```
 
 **Expected:**
@@ -248,7 +248,7 @@ prompt-engine: invalid /tmp/pe-invalid.yaml: panel.side must be "left" or "right
 
 ```sh
 printf 'command: does-not-exist\n' > /tmp/pe-missing.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-missing.yaml bin/prompt-engine; echo "exit=$?"
+bin/prompt-engine --pe-config /tmp/pe-missing.yaml; echo "exit=$?"
 ```
 
 **Expected:**
@@ -260,7 +260,7 @@ exit=127
 
 ### D6: The default location is found
 
-The only test that uses the real location, `~/.config/prompt-engine/config.yaml`, with no `PROMPT_ENGINE_CONFIG`. Same trick as D2.
+The only test that uses the real location, `~/.config/prompt-engine/config.yaml`, with no `--pe-config`. Same trick as D2.
 
 > **If you already have a config there**, back it up first: `mv ~/.config/prompt-engine/config.yaml ~/.config/prompt-engine/config.yaml.bak`, and restore it afterwards.
 
@@ -403,7 +403,7 @@ Then, **without restarting** `prompt-engine`, run `brew services start ollama` i
 ```sh
 ollama pull qwen2.5:1.5b    # skip if already downloaded
 printf 'llm:\n  model: qwen2.5:1.5b\n' > /tmp/pe-nofim.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-nofim.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-nofim.yaml
 ```
 
 Type `refa` and stop.
@@ -418,12 +418,12 @@ Run these three lines one by one. The first empties the log, so lines from earli
 ```sh
 : > /tmp/pe.log
 printf 'llm:\n  enabled: false\n' > /tmp/pe-off.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-off.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-off.yaml
 ```
 
 **Expected:** the log starts with `session start: config /tmp/pe-off.yaml; suggestions off (llm.enabled: false)`, and has no `llm:` or `suggestion` lines after it. The panel (Ctrl+Q, then p) still works.
 
-If the first line names a different config, or says `defaults`, the setting didn't reach `prompt-engine`: check that `PROMPT_ENGINE_CONFIG=…` is on the same line as `bin/prompt-engine`.
+If the first line names a different config, or says `defaults`, the setting didn't reach `prompt-engine`: check that `--pe-config …` is part of the command.
 
 **Cleanup:** `rm -f /tmp/pe-nofim.yaml /tmp/pe-off.yaml`, and `brew services start ollama` if you left it stopped.
 
@@ -466,14 +466,14 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 
 ```sh
 printf 'llm:\n  provider: fake\n' > /tmp/pe-live.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-live.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-live.yaml
 ```
 
 Edit the file from **Terminal B** with the commands below; you can stop `tail -f` with Ctrl+C and restart it after. After each edit, the log shows `config: reloaded /tmp/pe-live.yaml; applied: …; needs a restart: …` within about a second. In Terminal A, press Ctrl+U between steps.
 
 | # | Edit in Terminal B | Then in Terminal A | Expected |
 |---|---|---|---|
-| H0 | (none) | Press **Ctrl+Q**, then **p** | The panel's **Session** section shows `config: /tmp/pe-live.yaml` and `suggestions: fake (fixed word list)`. If it says `defaults`, `PROMPT_ENGINE_CONFIG` didn't reach `prompt-engine`: restart it. Close the panel again |
+| H0 | (none) | Press **Ctrl+Q**, then **p** | The panel's **Session** section shows `config: /tmp/pe-live.yaml` and `suggestions: fake (fixed word list)`. If it says `defaults`, the config didn't reach `prompt-engine`: check the `--pe-config` part of the command and restart it. Close the panel again |
 | H1 | (none) | Type `refa` and stop | Ghost text `ctor` |
 | H2 | `printf 'llm:\n  provider: fake\n  enabled: false\n' > /tmp/pe-live.yaml` | Type `refa` and stop | **No** ghost text. Log: `applied: llm` |
 | H3 | `printf 'llm:\n  provider: fake\n  debounce: 1s\n' > /tmp/pe-live.yaml` | Type `refa` and stop | Ghost text comes back, but only about **1 second** after you stop typing |
@@ -564,7 +564,7 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
 
 ```sh
 printf 'panel:\n  side: left\n  visible: true\n' > /tmp/pe-left.yaml
-PROMPT_ENGINE_CONFIG=/tmp/pe-left.yaml PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-left.yaml
 ```
 
 **Expected:** the panel is already open, on the **left**, with `claude` to its right. Typing, ghost text and the cursor all appear in `claude`'s part. If you scroll or click with the mouse inside `claude`'s part, it behaves normally; clicks on the panel do nothing.
