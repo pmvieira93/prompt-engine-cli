@@ -259,7 +259,7 @@ func (c *Controller) Filter(p []byte) []byte {
 		case c.armed:
 			c.armed = false
 			switch {
-			case c.Keys.Panel.Matches(k):
+			case c.Keys.Panel.MatchesHeld(k):
 				c.logf("leader: toggle panel")
 				toggles++
 				out = append(out, c.Keys.Panel.Rest(k)...)
@@ -270,8 +270,8 @@ func (c *Controller) Filter(p []byte) []byte {
 				}
 				c.logf("leader: resize panel %+d", delta)
 				actions = append(actions, func() { c.OnResizePanel(delta) })
-			case c.Keys.Expand.Matches(k) && c.OnExpand != nil, c.Keys.Undo.Matches(k) && c.OnUndo != nil:
-				expand := c.Keys.Expand.Matches(k)
+			case c.Keys.Expand.MatchesHeld(k) && c.OnExpand != nil, c.Keys.Undo.MatchesHeld(k) && c.OnUndo != nil:
+				expand := c.Keys.Expand.MatchesHeld(k)
 				// Bring the tracker up to this key, so the action sees the
 				// prompt as it is now.
 				res = append(res, c.Tracker.Filter(out)...)

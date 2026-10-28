@@ -133,6 +133,8 @@ func TestLeaderShortcuts(t *testing.T) {
 		{"esc cancels", "\x1d|\x1b|p", "p", 0},
 		{"unbound key is swallowed", "\x1dxq", "q", 0},
 		{"rest of a typed run passes", "\x1dpxy", "xy", 1},
+		{"Ctrl still held: Ctrl+P", "\x1d\x10", "", 1},
+		{"Ctrl still held, kitty encoding", "\x1d\x1b[112;5u", "", 1},
 		{"Ctrl+P reaches the child", "\x10\x1b[112;5u", "\x10\x1b[112;5u", 0},
 	}
 	for _, tc := range cases {
