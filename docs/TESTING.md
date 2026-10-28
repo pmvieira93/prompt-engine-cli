@@ -490,18 +490,19 @@ Edit the file from **Terminal B** with the commands below; you can stop `tail -f
 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
 ```
 
-The model's wording varies, so judge whether it kept your meaning rather than matching exactly.
+The model's wording varies, so judge whether it kept your meaning rather than matching exactly. To clear the prompt between steps, press **Ctrl+C once**: Ctrl+U only clears the current line, and an expanded prompt has several.
 
 | # | Do this | Expected |
 |---|---|---|
 | I1 | Type `fix teh failing tst in config`, then **Ctrl+Q**, **e** | `⟳ expanding…` appears after the text (no ghost text). Within about a second (several seconds the very first time, while the model loads), the input box shows a corrected prompt, e.g. `Fix the failing test in the config.`, then a blank line, `Context:` and `- Branch: …`. Log: `expand: replaced … (…ms)` |
 | I2 | **Ctrl+Q**, **u** | The original `fix teh failing tst in config` is back. Log: `expand: undone` |
 | I3 | **Ctrl+Q**, **u** again | Nothing changes. Log: `expand: nothing to undo` |
-| I4 | Ctrl+U to clear, then **Ctrl+Q**, **e** on the empty prompt | Nothing happens. Log: `expand: nothing to expand` |
+| I4 | Ctrl+C to clear, then **Ctrl+Q**, **e** on the empty prompt | Nothing happens. Log: `expand: nothing to expand` |
 | I5 | Type `add tests for ollama client + handle timeouts + log errs`, **Ctrl+Q**, **e** | All three parts are kept, and nothing is added that you didn't ask for |
-| I6 | Ctrl+U, type `refactor tracker to use chans`, **Ctrl+Q**, **e**, then **immediately** type `x` | The expansion is discarded, because you typed meanwhile: your text stays as typed (`…chansx`). Log: `expand: not applied: the prompt changed meanwhile` |
-| I7 | Ctrl+U, then type a two-line prompt: `line one`, **Option+Enter**, `line two`. Press **Ctrl+Q**, **e** | Expanded in place, both lines' content kept |
-| I8 | Ctrl+U, quit with `/exit` | — |
+| I6 | Ctrl+C, type `refactor tracker to use chans`, **Ctrl+Q**, **e**, then **immediately** type `x` | The expansion is discarded, because you typed meanwhile: your text stays as typed (`…chansx`). Log: `expand: not applied: the prompt changed meanwhile` |
+| I7 | Ctrl+C, then type a two-line prompt: `line one`, **Option+Enter**, `line two`. Press **Ctrl+Q**, **e** | Expanded in place, both lines' content kept |
+| I8 | Expand a prompt, then press **Ctrl+Q**, **e** again on the result | It's rewritten again with a single, fresh `Context:` block, not a second one or the old one mixed into the request |
+| I8b | Ctrl+C, quit with `/exit` | — |
 
 ### I9: Staged changes appear in the context
 

@@ -360,7 +360,7 @@ func expandPrompt(ctx context.Context, cfg config.Config, text string) (string, 
 	}
 	if provider == "fake" {
 		lines := e.Context(ctx)
-		out := "Please " + strings.TrimSpace(text) + "."
+		out := "Please " + expand.StripContext(text) + "."
 		if len(lines) > 0 {
 			out += "\n\nContext:\n- " + strings.Join(lines, "\n- ")
 		}

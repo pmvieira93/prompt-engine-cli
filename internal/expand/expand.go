@@ -50,6 +50,7 @@ type Expander struct {
 
 // Expand returns text rewritten, with any context appended.
 func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
+	text = StripContext(text)
 	system, err := e.system()
 	if err != nil {
 		return "", err
@@ -70,6 +71,22 @@ func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
 		return rewritten, nil
 	}
 	return rewritten + "\n\nContext:\n- " + strings.Join(lines, "\n- "), nil
+}
+
+// StripContext removes the context lines Expand appends ("Context:",
+// "- Branch: …", "- Staged changes: …"), so expanding an already expanded
+// prompt doesn't send stale context to the model as part of the request.
+// Fresh context is appended after the rewrite.
+func StripContext(text string) string {
+	var kept []string
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "Context:" || strings.HasPrefix(t, "- Branch: ") || strings.HasPrefix(t, "- Staged changes: ") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
 func (e *Expander) system() (string, error) {

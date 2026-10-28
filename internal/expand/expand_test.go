@@ -106,3 +106,31 @@ func TestGitContext(t *testing.T) {
 		t.Fatalf("staged: %q", lines)
 	}
 }
+
+func TestStripContext(t *testing.T) {
+	cases := map[string]string{
+		"Fix it.\n\nContext:\n- Branch: main\n- Staged changes: a.go (+1 −0)": "Fix it.",
+		// I5's expansion with I6's request typed under its header.
+		"Add tests.\n\nContext:\nrefactor tracker to use chans": "Add tests.\n\nrefactor tracker to use chans",
+		"no context here":    "no context here",
+		"- Branch: alone":    "",
+		"keep - Branch: mid": "keep - Branch: mid",
+	}
+	for in, want := range cases {
+		if got := StripContext(in); got != want {
+			t.Errorf("StripContext(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestExpandStripsOldContext(t *testing.T) {
+	e, req := fakeChat(t, `{"message":{"content":"Fix it."}}`)
+	e.Context = func(context.Context) []string { return []string{"Branch: new"} }
+	got, err := e.Expand(context.Background(), "fix it\n\nContext:\n- Branch: old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Messages[1].Content != "Request: fix it" || got != "Fix it.\n\nContext:\n- Branch: new" {
+		t.Fatalf("sent %q, got %q", req.Messages[1].Content, got)
+	}
+}
