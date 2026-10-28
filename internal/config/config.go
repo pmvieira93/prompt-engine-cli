@@ -88,6 +88,13 @@ type ExpandConfig struct {
 	// Appendix 1, FR-6.1), so it can tell what "it" or "same" refer to.
 	Context        string `yaml:"context"`
 	ContextPrompts int    `yaml:"context_prompts"`
+	// OnEnter is "off" (expand only on the shortcut, reviewed before
+	// sending) or "auto": Enter expands the prompt, then sends it, unless
+	// a guard rail stops the rewrite (PRD Appendix 1, FR-7).
+	OnEnter string `yaml:"on_enter"`
+	// MinWords: in auto mode, shorter prompts ("yes", "continue") are sent
+	// as typed.
+	MinWords int `yaml:"min_words"`
 }
 
 // HistoryConfig controls the log of sent prompts (one JSON line each).
@@ -141,7 +148,7 @@ func Default() Config {
 		History: HistoryConfig{Enabled: true},
 		// Recent prompts resolved every follow-up tested ("add tests for
 		// it") without adding requirements to unrelated ones.
-		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3},
+		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", MinWords: 3},
 	}
 }
 
@@ -230,6 +237,10 @@ func (c Config) Validate() error {
 		return errors.New("llm.timeout must be positive")
 	case c.Expand.Context != "none" && c.Expand.Context != "prompts":
 		return fmt.Errorf("expand.context must be \"none\" or \"prompts\", got %q", c.Expand.Context)
+	case c.Expand.OnEnter != "off" && c.Expand.OnEnter != "auto":
+		return fmt.Errorf("expand.on_enter must be \"off\" or \"auto\", got %q", c.Expand.OnEnter)
+	case c.Expand.MinWords < 1:
+		return fmt.Errorf("expand.min_words must be at least 1, got %d", c.Expand.MinWords)
 	case c.Expand.ContextPrompts < 1 || c.Expand.ContextPrompts > 20:
 		return fmt.Errorf("expand.context_prompts must be between 1 and 20, got %d", c.Expand.ContextPrompts)
 	case c.Panel.Side != "left" && c.Panel.Side != "right":

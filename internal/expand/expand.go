@@ -109,6 +109,12 @@ func StripContext(text string) string {
 	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
+// Warm loads the model, so the first expansion isn't slowed by it.
+func (e *Expander) Warm(ctx context.Context) error {
+	_, err := e.chat(ctx, "Reply with OK.", "OK")
+	return err
+}
+
 func (e *Expander) system() (string, error) {
 	if e.TemplatesDir == "" {
 		return DefaultSystem, nil
