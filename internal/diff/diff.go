@@ -75,6 +75,31 @@ func Words(old, new string) []Op {
 	return merge(ops)
 }
 
+// ContextMark starts the block that expansion appends to a prompt
+// ("\n\nContext:\n- Branch: …"); rules, when added, come after it.
+const ContextMark = "\n\nContext:\n"
+
+// Prompt is Words for prompts: a block from ContextMark on is compared
+// whole, after the words before it. Seen in testing: compared word by
+// word, a sentence the rewrite dropped lined up with the added context
+// ("~~second~~Branch: ~~row~~screen/wrapped").
+func Prompt(old, new string) []Op {
+	oldText, oldBlock := cutBlock(old)
+	newText, newBlock := cutBlock(new)
+	ops := Words(oldText, newText)
+	if oldBlock == newBlock {
+		return merge(append(ops, Op{Equal, oldBlock}))
+	}
+	return merge(append(ops, Op{Delete, oldBlock}, Op{Insert, newBlock}))
+}
+
+func cutBlock(s string) (text, block string) {
+	if i := strings.Index(s, ContextMark); i >= 0 {
+		return s[:i], s[i:]
+	}
+	return s, ""
+}
+
 // Counts returns how many words were added and removed.
 func Counts(ops []Op) (added, removed int) {
 	for _, op := range ops {

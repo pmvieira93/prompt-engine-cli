@@ -3,6 +3,7 @@ package ghost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -64,8 +65,12 @@ func (w *Worker) Run(ctx context.Context) {
 				// Replayed keys lost track of the prompt (history, a menu,
 				// autocomplete). Take it from the screen instead; the
 				// resync notifies subscribers, which re-arms this timer.
-				if text, cur, ok := w.Ctrl.ScreenPrompt(); ok && w.Tracker.Resync(s.Rev, text, cur) {
-					w.logf("buffer resynced from screen rev=%d %q", s.Rev, text)
+				if text, cur, slack, ok := w.Ctrl.ScreenPrompt(); ok && w.Tracker.Resync(s.Rev, text, cur, slack) {
+					rows := ""
+					if slack > 0 {
+						rows = fmt.Sprintf(" (read from %d rows; may lack a space at each break)", slack+1)
+					}
+					w.logf("buffer resynced from screen rev=%d %q%s", s.Rev, text, rows)
 					continue
 				}
 			}

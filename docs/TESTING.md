@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -748,13 +748,41 @@ A `templates/system.txt` replaces every style; the history then says `"style":"c
 
 ---
 
-## 16. Known limitations (expected, not bugs)
+## 16. Part O: Recalled and wrapped prompts
+
+When `claude` changes the prompt in a way the input buffer can't replay (↑ history, a menu), `prompt-engine` reads the prompt from the screen, now also when it spans several rows: a long prompt that wraps, or one with line breaks, such as an expanded prompt with its `Context:` lines. The screen doesn't show every space (a space before a line break, two spaces where a row wraps), so such a prompt may be read with a space less; a rewrite deletes enough to cover that.
+
+**Setup:**
+
+```sh
+printf 'expand:\n  on_enter: preview\n' > /tmp/pe-auto.yaml
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-auto.yaml
+```
+
+Open the panel (Ctrl+Q, then p), so the prompt box is narrower and long prompts wrap.
+
+| # | Do this | Expected |
+|---|---|---|
+| O1 | Type `say hello in three words, and keep the answer short; this prompt is just long enough to wrap onto a second row` and **Enter** (sends a harmless prompt) | Sent as typed. It wraps in `claude`'s box (if not, make the window narrower) |
+| O2 | Press **↑** | `claude` shows O1's prompt again, over two or more rows. Log: `buffer resynced from screen … (read from 2 rows; may lack a space at each break)` |
+| O3 | Wait | The panel shows `Suggested rewrite (not used yet)` for the recalled prompt |
+| O4 | **Ctrl+Q**, **e** | The rewrite replaces the whole prompt: nothing of the old text is left at its start. Don't send; **Ctrl+C** |
+| O5 | Type `explain the input box`, **Ctrl+Q**, **e**, **Enter** (sends a harmless prompt, with its `Context:` lines) | Sent expanded |
+| O6 | Press **↑** | Log: `buffer resynced from screen "…\n\nContext:\n- Branch: …" (read from … rows; …)`, the line breaks included |
+| O7 | **Ctrl+Q**, **e** | Rewritten with nothing left over (the old `Context:` lines are replaced, not added to). **Ctrl+C** |
+| O8 | Ctrl+C, send a short prompt such as `say hi` (harmless), then type `fix` and press ↑ | `claude` replaces `fix` with `say hi`, and the log shows it without `read from … rows`: a one-row prompt is read exactly, as before |
+
+**Cleanup:** `rm -f /tmp/pe-auto.yaml`.
+
+---
+
+## 17. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
-| Keys typed in permission dialogs or menus (e.g. `1`, arrows) briefly show up in the log as prompt text or `synced=false` | The input buffer replays keys. When it loses track, it resyncs from `claude`'s screen within ~150ms (`buffer resynced from screen`), but only for a prompt that fits on one line. Ghost text is kept out of dialogs (E17). |
+| Keys typed in permission dialogs or menus (e.g. `1`, arrows) briefly show up in the log as prompt text or `synced=false` | The input buffer replays keys. When it loses track, it resyncs from `claude`'s screen within ~150ms (`buffer resynced from screen`). Ghost text is kept out of dialogs (E17). |
 | **Backslash + Enter** (`claude`'s way to add a new line) resets the log to `""`, while `claude` keeps the text | The buffer treats every Enter as "send". Use Option+Enter for multi-line text while testing. |
-| After history, autocomplete or a slash command, a **multi-line or wrapped** prompt stays `synced=false` until Enter or Ctrl+C | Resync from the screen only reads single-line prompts, so a half-read prompt is never trusted. |
+| A prompt read from several rows of the screen (after ↑ history) can have a space less than `claude`'s: before a line break, or where a row wraps after two spaces | The screen doesn't show those spaces (`claude` moves the cursor past them). The log says `read from N rows; may lack a space at each break`, and a rewrite deletes one more character per break to cover them; ghost text and the panel may just show a space less |
 | A key pressed in the first few milliseconds after launch is sometimes missing from the log | `claude` still receives it; the terminal just isn't fully switched over yet. |
 | iTerm2's own scrollback doesn't show earlier conversation | The emulator draws in the alternate screen. Scroll inside `claude` instead. |
 | Suggestions sometimes misspell a half-typed word (e.g. `refa` → `refact`) or drift into code-like text | The 1.5B model has little context about your project yet. Better context (recent prompts, repository details) is planned. |
@@ -771,12 +799,12 @@ A `templates/system.txt` replaces every style; the history then says `"style":"c
 | A typo the model misreads as a name can get through in auto mode (e.g. `rfcator tracker` → `the RFCator tracker`) | The rewrite keeps nearly all your words, so no word-based check can tell it from a good typo fix. Use the shortcut and review when a prompt has heavy typos |
 | Session context only includes your prompts, not `claude`'s replies | Level L1 of PRD Appendix 1. Replies (L2) and session summaries (L3) are later candidates |
 | Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
-| Rules aren't added when the prompt text is unknown (`synced=false`, e.g. a multi-line prompt after history) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
+| Rules aren't added when the prompt text is unknown (`synced=false`, e.g. while a menu is open) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---
 
-## 17. Reporting a problem
+## 18. Reporting a problem
 
 Include:
 

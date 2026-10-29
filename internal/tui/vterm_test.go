@@ -255,9 +255,9 @@ func TestPromptText(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTestModel(40, 4)
 			m.app.emu.Write([]byte(tc.screen))
-			text, cursor, ok := m.app.promptText()
-			if text != tc.text || cursor != tc.cursor || ok != tc.ok {
-				t.Fatalf("promptText = (%q, %d, %v), want (%q, %d, %v)", text, cursor, ok, tc.text, tc.cursor, tc.ok)
+			text, cursor, slack, ok := m.app.promptText()
+			if text != tc.text || cursor != tc.cursor || ok != tc.ok || slack != 0 {
+				t.Fatalf("promptText = (%q, %d, %d, %v), want (%q, %d, 0, %v)", text, cursor, slack, ok, tc.text, tc.cursor, tc.ok)
 			}
 		})
 	}
@@ -362,6 +362,59 @@ func TestPanelShowsDiff(t *testing.T) {
 	for _, want := range []string{"Prompt diff", "Last prompt sent", "MANGO", "+4 −1 words"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("panel is missing %q:\n%s", want, screen)
+		}
+	}
+}
+
+// Layouts recorded from claude 2.1.308 at 60 columns: rows hold 56 cells.
+func TestPromptTextAcrossRows(t *testing.T) {
+	rule := strings.Repeat("─", 60)
+	box := func(cursor string, rows ...string) string {
+		return rule + "\r\n" + strings.Join(rows, "\r\n") + "\r\n" + rule + cursor
+	}
+	long := strings.Repeat("a", 56)
+	cases := []struct {
+		name, screen, text string
+		cursor, slack      int
+	}{
+		{"wrapped words",
+			box("\x1b[3;56H", "❯ this is a long prompt that will certainly need to wrap", "  onto a second row because it is longer than the width"),
+			"this is a long prompt that will certainly need to wrap onto a second row because it is longer than the width", 108, 1},
+		{"a newline: the next word would have fit",
+			box("\x1b[3;14H", "❯ Fix the bug.", "  Second line"), "Fix the bug.\nSecond line", 24, 1},
+		{"an expanded prompt",
+			box("\x1b[5;17H", "❯ Fix the bug.", "", "  Context:", "  - Branch: main"), "Fix the bug.\n\nContext:\n- Branch: main", 37, 3},
+		{"a long word cut at the row's end",
+			box("\x1b[3;14H", "❯ "+long, "  aaaaaaaaaaa"), long + "aaaaaaaaaaa", 67, 1},
+		{"a full row of short words",
+			box("\x1b[3;9H", "❯ "+strings.Repeat("ab ", 18)+"xy", "  zz end"), strings.Repeat("ab ", 18) + "xy zz end", 63, 1},
+		{"cursor on the first row",
+			box("\x1b[2;5H", "❯ Fix the bug.", "  Second line"), "Fix the bug.\nSecond line", 2, 1},
+		{"spaces kept inside a row",
+			box("\x1b[3;17H", "❯ wwwwwwwww wwwwwwwww wwwwwwwww wwwwwwwww wwwwwwwww", "  wwwwwww   tail"),
+			"wwwwwwwww wwwwwwwww wwwwwwwww wwwwwwwww wwwwwwwww wwwwwww   tail", 64, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel(60, 10)
+			m.app.emu.Write([]byte(tc.screen))
+			text, cursor, slack, ok := m.app.promptText()
+			if !ok || text != tc.text || cursor != tc.cursor || slack != tc.slack {
+				t.Fatalf("promptText = (%q, %d, %d, %v)\nwant           (%q, %d, %d, true)", text, cursor, slack, ok, tc.text, tc.cursor, tc.slack)
+			}
+		})
+	}
+
+	// Not read: no top rule above a taller box (an earlier prompt in the
+	// transcript), or a row wider than claude lays out.
+	for name, screen := range map[string]string{
+		"no top rule":  "❯ old prompt\r\n  more of it\r\n" + rule + "\x1b[2;8H",
+		"row too wide": box("\x1b[3;5H", "❯ "+strings.Repeat("b", 58), "  cc"),
+	} {
+		m := newTestModel(60, 10)
+		m.app.emu.Write([]byte(screen))
+		if text, _, _, ok := m.app.promptText(); ok {
+			t.Errorf("%s: read %q", name, text)
 		}
 	}
 }

@@ -167,18 +167,34 @@ func TestTrackerResync(t *testing.T) {
 		t.Fatal("expected desync")
 	}
 	tr.Filter([]byte("x")) // newer input than the screen read
-	if tr.Resync(s.Rev, "refa", 4) {
+	if tr.Resync(s.Rev, "refa", 4, 0) {
 		t.Fatal("resync applied over newer input")
 	}
 	s = tr.Snapshot()
-	if !tr.Resync(s.Rev, "refa", 9) {
+	if !tr.Resync(s.Rev, "refa", 9, 0) {
 		t.Fatal("resync not applied")
 	}
 	if s := tr.Snapshot(); s.Text != "refa" || s.Cursor != 4 || !s.Synced {
 		t.Fatalf("snapshot = %+v (cursor should clamp to 4)", s)
 	}
-	if tr.Resync(tr.Snapshot().Rev, "refa", 4) {
+	if tr.Resync(tr.Snapshot().Rev, "refa", 4, 0) {
 		t.Error("identical resync reported a change")
+	}
+}
+
+func TestTrackerResyncSlack(t *testing.T) {
+	tr := NewTracker()
+	tr.Filter([]byte("\x1b[A"))
+	if !tr.Resync(tr.Snapshot().Rev, "a long wrapped prompt", 21, 1) || tr.Snapshot().Slack != 1 {
+		t.Fatalf("slack not kept: %+v", tr.Snapshot())
+	}
+	tr.Filter([]byte("!")) // typing on keeps it
+	if s := tr.Snapshot(); s.Slack != 1 || s.Text != "a long wrapped prompt!" {
+		t.Fatalf("after typing: %+v", s)
+	}
+	tr.Filter([]byte("\x03")) // cleared
+	if tr.Snapshot().Slack != 0 {
+		t.Error("slack kept after the prompt was cleared")
 	}
 }
 

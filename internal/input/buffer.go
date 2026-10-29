@@ -15,6 +15,9 @@ type Buffer struct {
 	runes  []rune
 	cursor int
 	synced bool
+	// slack: how many characters the text may lack, when it was read from
+	// a prompt spanning rows on the screen (State.Slack).
+	slack int
 	rev    uint64
 	// pastes holds what was pasted since the prompt was last empty, so a
 	// rewrite can keep it exactly (PRD Appendix 1, FR-7.4e).
@@ -32,6 +35,21 @@ func (b *Buffer) Cursor() int { return b.cursor }
 
 // Synced reports whether the buffer is believed to match the child's prompt.
 func (b *Buffer) Synced() bool { return b.synced }
+
+// Slack is how many characters the text may lack (State.Slack).
+func (b *Buffer) Slack() int {
+	if len(b.runes) == 0 {
+		return 0
+	}
+	return b.slack
+}
+
+func (b *Buffer) setSlack(n int) {
+	if b.slack != n {
+		b.slack = n
+		b.rev++
+	}
+}
 
 // Pastes returns the text of each paste since the prompt was last
 // cleared, oldest first. Later edits may have changed or removed them.
@@ -127,6 +145,9 @@ func (b *Buffer) deleteRange(from, to int) {
 	}
 	b.runes = append(b.runes[:from], b.runes[to:]...)
 	b.cursor = from
+	if len(b.runes) == 0 {
+		b.slack = 0 // what's typed next is known exactly
+	}
 	b.rev++
 }
 
@@ -158,7 +179,7 @@ func (b *Buffer) reset() {
 	if len(b.runes) == 0 && b.cursor == 0 && b.synced {
 		return
 	}
-	b.runes, b.cursor, b.synced, b.pastes = b.runes[:0], 0, true, nil
+	b.runes, b.cursor, b.synced, b.pastes, b.slack = b.runes[:0], 0, true, nil, 0
 	b.rev++
 }
 

@@ -661,18 +661,18 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		k := ctrl.CurrentKeys()
 		switch {
 		case pending:
-			return &tui.Diff{Title: "Preparing a rewrite…", Ops: diff.Words(text, text)}
+			return &tui.Diff{Title: "Preparing a rewrite…", Ops: diff.Prompt(text, text)}
 		case out == "":
 			notes := []string{"Not offered: " + reason + "."}
 			if guard != "" && live.Load().Panel.GuardDetails {
 				notes = guardNotes("Guard ", guard, detail, rejected)
 			}
-			return &tui.Diff{Title: "No rewrite suggested", Ops: diff.Words(text, text),
+			return &tui.Diff{Title: "No rewrite suggested", Ops: diff.Prompt(text, text),
 				Notes: append(notes, "Enter sends what you typed.")}
 		}
 		return &tui.Diff{
 			Title: "Suggested rewrite (not used yet)",
-			Ops:   diff.Words(text, out),
+			Ops:   diff.Prompt(text, out),
 			Notes: []string{fmt.Sprintf("%s then %s uses it; Enter sends what you typed.", k.Leader, k.Expand)},
 		}
 	}
@@ -690,7 +690,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			}
 			return &tui.Diff{
 				Title: "Ready to send (not sent yet)",
-				Ops:   diff.Words(original, preview),
+				Ops:   diff.Prompt(original, preview),
 				Notes: []string{"Enter sends it; the undo key puts your text back."},
 			}
 		}

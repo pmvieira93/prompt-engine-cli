@@ -33,7 +33,7 @@ type Submission struct {
 }
 
 // Diff compares what was typed with what was sent.
-func (s Submission) Diff() []diff.Op { return diff.Words(s.Raw, s.Sent) }
+func (s Submission) Diff() []diff.Op { return diff.Prompt(s.Raw, s.Sent) }
 
 // record is one line of the history file. Prompt text is only included
 // when asked for: the file is local, but prompts can hold anything.
