@@ -1,0 +1,64 @@
+# prompt-engine configuration
+#
+# Location: ~/.config/prompt-engine/config.yaml
+#           ($XDG_CONFIG_HOME/prompt-engine/config.yaml when that is set)
+# Override: PROMPT_ENGINE_CONFIG=<file>, or the --pe-config <file> flag (the flag wins).
+#
+# Every key is optional: anything left out keeps the default shown here.
+# Unknown keys and invalid values are rejected with a warning, and the defaults
+# (or, while running, the previous settings) are kept.
+# Edits apply while prompt-engine runs, except where a key says "restart".
+
+# The CLI that prompt-engine wraps. Only Claude Code is supported today.
+command: claude        # restart
+args: []               # restart; put before the arguments you type, e.g. ["--model", "opus"]
+env: {}                # restart; added to the CLI's environment, e.g. {FOO: bar}
+
+llm:
+  enabled: true        # false turns ghost-text suggestions off
+  provider: ollama     # ollama, or fake (a fixed word list, for testing)
+  endpoint: http://localhost:11434
+  model: qwen2.5-coder:1.5b   # ghost text; must support fill-in-the-middle
+  max_tokens: 8        # length of each suggestion (1-64)
+  debounce: 150ms      # pause in typing before a suggestion is requested
+  timeout: 2s          # a suggestion that takes longer is dropped
+  expand_model: qwen2.5:7b    # rewrites prompts (expansion)
+  expand_timeout: 30s  # when you asked for a rewrite; includes loading the model
+
+expand:
+  on_enter: off        # off: rewrite only on Ctrl+Q, e
+                       # preview: a rewrite is prepared while you pause and shown in the panel
+                       # auto: Enter rewrites the prompt, then sends it
+  style: default       # default, llm (terse, for the assistant), human (natural), or both
+  context: prompts     # prompts: the model sees your last prompts, to resolve "it" or "same"; or none
+  context_prompts: 3   # how many earlier prompts (1-20)
+  preview_pause: 1s    # preview: how long typing must pause
+  min_words: 3         # auto: shorter prompts ("yes", "continue") are sent as typed
+  auto_timeout: 5s     # auto: after this, the prompt is sent as typed
+
+ghost:
+  style: italic        # italic, faint, or color:N (an ANSI 256-colour number, 0-255)
+
+panel:
+  visible: false       # restart; open the side panel at startup
+  side: right          # right or left
+  width: 40            # percent of the terminal (10-90)
+  guard_details: false # when a guard stops a rewrite, also show which one and what the model wrote
+
+keys:                  # shortcuts are leader-prefixed, like tmux: press leader, then the key
+  leader: ctrl+q       # ctrl+a..z or ctrl+\ ] ^ _ (letters type the same on every keyboard layout)
+  panel: p             # toggle the side panel
+  expand: e            # rewrite the prompt in place (or apply the preview)
+  undo: u              # put back the prompt from before the last rewrite
+  panel_wider: "+"     # widen the panel by 5%
+  panel_narrower: "-"  # narrow it by 5%
+
+templates:
+  dir: templates       # restart; relative to this file's directory
+                       # templates/append.txt: rules added to every prompt you send
+                       # templates/system.txt: replaces the rewrite instructions (and every style)
+
+history:
+  enabled: true        # one JSON line of metrics per prompt sent
+  include_text: false  # also store the prompts themselves, and rewrites a guard stopped
+  path: ""             # default: ~/.local/state/prompt-engine/history.jsonl

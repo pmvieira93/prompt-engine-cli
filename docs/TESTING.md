@@ -78,46 +78,7 @@ Claude Code switches the terminal into an enhanced keyboard mode, so many keys a
 
 None is needed for testing; without a file, the built-in defaults are used. Part D creates its own throwaway config files.
 
-For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`). `bin/prompt-engine --pe-config <file>` uses another file instead; the flag is removed before the rest of the arguments go to `claude`. `PROMPT_ENGINE_CONFIG=<file>` works too; the flag wins if both are set. These are all its settings, with their defaults:
-
-```yaml
-command: claude
-args: []
-env: {}
-llm:
-  enabled: true      # false turns suggestions off
-  provider: ollama   # or fake (fixed word list, for testing)
-  endpoint: http://localhost:11434
-  model: qwen2.5-coder:1.5b  # must support fill-in-the-middle
-  max_tokens: 8      # length of each suggestion
-  expand_model: qwen2.5:7b  # rewrites prompts on request (keys.expand)
-  expand_timeout: 30s
-  debounce: 150ms    # pause in typing before asking
-  timeout: 2s
-panel:
-  visible: false  # open the side panel at startup
-  side: right     # or left
-  width: 40       # percent of the terminal (10-90)
-templates:
-  dir: templates
-keys:           # leader-prefixed shortcuts, like tmux
-  leader: ctrl+q  # ctrl+a..z or ctrl+\ ] ^ _; prefer letters, punctuation varies by keyboard layout
-  panel: p        # leader, then this key, toggles the side panel
-  expand: e       # leader, then this key, rewrites the prompt in place
-  undo: u         # leader, then this key, puts back the prompt from before the last expansion
-  panel_wider: "+"     # leader, then this key, widens the panel by 5%
-  panel_narrower: "-"  # leader, then this key, narrows it
-expand:
-  context: prompts    # or none: give the expansion model the last prompts sent, to resolve "it", "same"…
-  context_prompts: 3
-  on_enter: off       # or auto: Enter expands the prompt, then sends it (guard rails apply)
-  min_words: 3        # in auto mode, shorter prompts are sent as typed
-  auto_timeout: 5s    # in auto mode, after this the prompt is sent as typed
-history:
-  enabled: true       # one line of metrics per prompt sent
-  include_text: false # also store the prompts themselves
-  path: ""            # default: ~/.local/state/prompt-engine/history.jsonl
-```
+For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`). `bin/prompt-engine --pe-config <file>` uses another file instead; the flag is removed before the rest of the arguments go to `claude`. `PROMPT_ENGINE_CONFIG=<file>` works too; the flag wins if both are set. Every setting, with its default and a comment, is in [`config.example.yaml`](config.example.yaml); the [README](../README.md#configuration) has the reference table.
 
 ---
 

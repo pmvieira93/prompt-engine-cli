@@ -30,6 +30,22 @@ func TestLoadFileMissingReturnsDefaults(t *testing.T) {
 	}
 }
 
+// The documented template must load and match the defaults, so it can't
+// drift from them.
+func TestExampleMatchesDefaults(t *testing.T) {
+	cfg, err := LoadFile(filepath.Join("..", "..", "docs", "config.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.path = ""
+	want := Default()
+	if cfg.Command != want.Command || len(cfg.Args) != 0 || len(cfg.Env) != 0 || cfg.LLM != want.LLM ||
+		cfg.Panel != want.Panel || cfg.Templates != want.Templates || cfg.Keys != want.Keys ||
+		cfg.History != want.History || cfg.Expand != want.Expand || cfg.Ghost != want.Ghost {
+		t.Fatalf("docs/config.example.yaml differs from Default():\n%+v\nwant %+v", cfg, want)
+	}
+}
+
 func TestLoadFileEmptyReturnsDefaults(t *testing.T) {
 	cfg, err := LoadFile(writeConfig(t, ""))
 	if err != nil {
