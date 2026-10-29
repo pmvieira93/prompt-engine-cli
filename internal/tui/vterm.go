@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -330,56 +331,132 @@ func (a *app) firstContent(y, limit int) string {
 	return ""
 }
 
-// promptText reads claude's prompt from the screen: the text after the
-// prompt marker on the cursor's row, and the cursor offset in runes. It only
-// reports a prompt that fits on one row, with the input box's bottom rule
-// directly below, so a wrapped or multi-line prompt is never half-read. Faint
-// cells are skipped: they are claude's placeholder ("Try ..."), not text.
-func (a *app) promptText() (text string, cursor int, ok bool) {
+// promptText reads claude's prompt from the screen, and the cursor offset
+// in runes: the rows of the input box, from the prompt marker's row to the
+// box's bottom rule. Faint cells are skipped: they are claude's
+// placeholder ("Try ..."), not text.
+//
+// Rows of a longer prompt are joined as claude 2.1.308 lays them out
+// (recorded at 60 and 100 columns): rows are screen width − 4 cells wide,
+// continuation rows are indented by two, a word that doesn't fit moves to
+// the next row and the spaces before it aren't shown, and a word longer
+// than a row is cut at its end. So a break is a newline if the next row's
+// first word would have fit; otherwise it's a wrap, read as one space, or
+// as nothing at a full row cut mid-word. The screen doesn't show how many
+// spaces a wrap took, nor a space typed before a newline: claude moves the
+// cursor past it rather than writing it. So the text may lack a character
+// at each break, and slack counts the breaks.
+func (a *app) promptText() (text string, cursor, slack int, ok bool) {
 	if a.emu.CursorHidden() {
-		return "", 0, false
+		return "", 0, 0, false
 	}
 	pos := a.emu.CursorPosition()
+	top := pos.Y // the marker's row
+	for a.firstContent(top, a.emu.Width()) != promptMarker {
+		if top--; top < 0 || a.isRule(top) {
+			return "", 0, 0, false
+		}
+	}
 	marker := -1
-	for x := 0; x < pos.X; x++ {
-		c := a.emu.CellAt(x, pos.Y)
-		if c == nil || isBlank(c.Content) {
-			continue
-		}
-		if c.Content == promptMarker {
+	for x := 0; x < a.emu.Width(); x++ {
+		if c := a.emu.CellAt(x, top); c != nil && c.Content == promptMarker {
 			marker = x
+			break
 		}
-		break
 	}
 	start := marker + 2 // the marker, then a (non-breaking) space
-	if marker < 0 || pos.X < start || !a.isRule(pos.Y+1) {
-		return "", 0, false
+	bottom := pos.Y + 1 // the box's bottom rule
+	for !a.isRule(bottom) {
+		if bottom++; bottom >= a.emu.Height() {
+			return "", 0, 0, false
+		}
+	}
+	if marker < 0 || (pos.Y == top && pos.X < start) || (bottom-top > 1 && !a.isRule(top-1)) {
+		return "", 0, 0, false
 	}
 
 	w := a.emu.Width()
-	var rs []rune
-	cursor, end := -1, 0
-	for x := start; x < w; x++ {
-		if x == pos.X {
-			cursor = len(rs)
+	width := w - start - 2 // cells a row holds
+	type row struct {
+		rs     []rune
+		cells  int // display width of rs
+		cursor int // rune index of the cursor, or -1
+	}
+	var rows []row
+	for y := top; y < bottom; y++ {
+		r := row{cursor: -1}
+		end, endCells, cells := 0, 0, 0
+		for x := start; x < w; x++ {
+			if y == pos.Y && x == pos.X {
+				r.cursor = len(r.rs)
+			}
+			c := a.emu.CellAt(x, y)
+			if c == nil || c.Content == "" || c.Style.Attrs&uv.AttrFaint != 0 {
+				continue // wide-character continuation, or placeholder
+			}
+			r.rs = append(r.rs, []rune(c.Content)...)
+			cells += max(c.Width, 1)
+			if !isBlank(c.Content) {
+				end, endCells = len(r.rs), cells
+			}
 		}
-		c := a.emu.CellAt(x, pos.Y)
-		if c == nil || c.Content == "" || c.Style.Attrs&uv.AttrFaint != 0 {
-			continue // wide-character continuation, or placeholder
+		if y == pos.Y && r.cursor < 0 {
+			r.cursor = len(r.rs)
 		}
-		if x == w-1 && !isBlank(c.Content) {
-			return "", 0, false // may continue on the next row
+		// Keep spaces typed before the cursor; drop the row's padding.
+		keep := end
+		if r.cursor > end {
+			keep, endCells = r.cursor, endCells+(r.cursor-end)
 		}
-		rs = append(rs, []rune(c.Content)...)
-		if !isBlank(c.Content) {
-			end = len(rs)
+		r.rs, r.cells = r.rs[:keep], endCells
+		if r.cells > width {
+			return "", 0, 0, false // not laid out as expected: may continue
+		}
+		rows = append(rows, r)
+	}
+
+	var b []rune
+	for i, r := range rows {
+		if i > 0 {
+			b = append(b, []rune(rowBreak(rows[i-1].rs, rows[i-1].cells, r.rs, width))...)
+		}
+		if r.cursor >= 0 {
+			cursor = len(b) + r.cursor
+		}
+		b = append(b, r.rs...)
+	}
+	return string(b), cursor, len(rows) - 1, true
+}
+
+// rowBreak is what the break between two rows of the input box stands
+// for (see promptText): prev is the row before, cells its width, next the
+// row after, and width the cells a row holds.
+func rowBreak(prev []rune, cells int, next []rune, width int) string {
+	if len(prev) == 0 || len(next) == 0 {
+		return "\n" // a blank line
+	}
+	first := next
+	if i := slices.Index(next, ' '); i >= 0 {
+		first = next[:i]
+	}
+	firstCells := uniseg.StringWidth(string(first))
+	switch {
+	case cells+1+firstCells <= width:
+		return "\n" // the word would have fit: claude didn't wrap here
+	case cells < width:
+		return " "
+	}
+	last := prev
+	for i := len(prev) - 1; i >= 0; i-- {
+		if prev[i] == ' ' {
+			last = prev[i+1:]
+			break
 		}
 	}
-	if cursor < 0 {
-		cursor = len(rs)
+	if uniseg.StringWidth(string(last))+firstCells <= width {
+		return " " // one word this short would have moved whole
 	}
-	// Keep spaces typed before the cursor; drop the row's trailing padding.
-	return string(rs[:max(end, cursor)]), cursor, true
+	return "" // a long word cut at the row's end
 }
 
 // canInsert reports whether text can be inserted into claude's prompt: the

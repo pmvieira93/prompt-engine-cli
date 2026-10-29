@@ -84,7 +84,7 @@ type Controller struct {
 	mu        sync.Mutex
 	output    io.Writer // to the child, for Replace
 	notice    string    // shown at the cursor, e.g. "expanding…"
-	screen    func() (text string, cursor int, ok bool)
+	screen    func() (text string, cursor, slack int, ok bool)
 	panelOpen func() bool
 	dec       input.Decoder
 	sug       string
@@ -105,7 +105,7 @@ func (c *Controller) Disable() {
 // SetScreen installs a reader for the prompt as the child's screen shows
 // it, used to resync the input buffer when replayed keys can't tell what
 // the child did with them. It may be called while the worker runs.
-func (c *Controller) SetScreen(f func() (text string, cursor int, ok bool)) {
+func (c *Controller) SetScreen(f func() (text string, cursor, slack int, ok bool)) {
 	c.mu.Lock()
 	c.screen = f
 	c.mu.Unlock()
@@ -136,13 +136,14 @@ func (c *Controller) Redraw() {
 
 // ScreenPrompt returns the prompt text and cursor (in runes) shown on the
 // child's screen, or ok == false if there is no screen reader or the
-// prompt can't be read reliably.
-func (c *Controller) ScreenPrompt() (text string, cursor int, ok bool) {
+// prompt can't be read reliably. slack is how many characters the text
+// may lack where the prompt spans rows (input.State.Slack).
+func (c *Controller) ScreenPrompt() (text string, cursor, slack int, ok bool) {
 	c.mu.Lock()
 	f := c.screen
 	c.mu.Unlock()
 	if f == nil {
-		return "", 0, false
+		return "", 0, 0, false
 	}
 	return f()
 }
@@ -236,12 +237,16 @@ func (c *Controller) Replace(rev uint64, from, to string) error {
 	case c.CanInsert != nil && !c.CanInsert():
 		return errors.New("the cursor isn't in the prompt")
 	}
+	// A prompt read from rows on the screen may be longer than s.Text by
+	// s.Slack characters: extra → and Backspace presses cover them, and do
+	// nothing at the prompt's end or in an empty prompt (recorded in claude
+	// 2.1.308).
 	var b strings.Builder
 	rs := []rune(s.Text)
-	for range uniseg.GraphemeClusterCount(string(rs[s.Cursor:])) {
+	for range uniseg.GraphemeClusterCount(string(rs[s.Cursor:])) + s.Slack {
 		b.WriteString("\x1b[C")
 	}
-	b.WriteString(strings.Repeat("\x7f", uniseg.GraphemeClusterCount(from)))
+	b.WriteString(strings.Repeat("\x7f", uniseg.GraphemeClusterCount(from)+s.Slack))
 	b.WriteString(typed(to))
 	c.sug = ""
 	_, err := c.output.Write(c.Tracker.Filter([]byte(b.String())))

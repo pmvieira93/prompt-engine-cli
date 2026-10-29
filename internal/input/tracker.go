@@ -10,6 +10,10 @@ type State struct {
 	Text   string
 	Cursor int // in runes
 	Synced bool
+	// Slack is how many characters Text may lack: it was read from a
+	// prompt spanning rows on the screen, which can hide a space at each
+	// break. 0 when it's exact.
+	Slack int
 	// Pastes is what was pasted into the prompt since it was last
 	// cleared, oldest first; edits since may have changed it.
 	Pastes []string
@@ -63,13 +67,14 @@ func (t *Tracker) Filter(p []byte) []byte {
 // child's screen, if the state is still at revision rev: input that arrived
 // since rev is newer than any screen read made for it. It reports whether
 // the state changed.
-func (t *Tracker) Resync(rev uint64, text string, cursor int) bool {
+func (t *Tracker) Resync(rev uint64, text string, cursor, slack int) bool {
 	t.mu.Lock()
 	if t.buf.Rev() != rev {
 		t.mu.Unlock()
 		return false
 	}
 	t.buf.Set(text, cursor)
+	t.buf.setSlack(slack)
 	changed := t.buf.Rev() != rev
 	subs := t.subs
 	t.mu.Unlock()
@@ -93,7 +98,7 @@ func notify(subs []chan struct{}) {
 func (t *Tracker) Snapshot() State {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return State{Text: t.buf.Text(), Cursor: t.buf.Cursor(), Synced: t.buf.Synced(), Rev: t.buf.Rev(),
+	return State{Text: t.buf.Text(), Cursor: t.buf.Cursor(), Synced: t.buf.Synced(), Slack: t.buf.Slack(), Rev: t.buf.Rev(),
 		Pastes: slices.Clone(t.buf.Pastes())}
 }
 

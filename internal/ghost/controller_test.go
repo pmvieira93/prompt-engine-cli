@@ -218,7 +218,7 @@ func TestWorkerSurvivesSuggesterPanic(t *testing.T) {
 // keys desync the buffer, and the screen is used to recover.
 func TestWorkerResyncsFromScreen(t *testing.T) {
 	c := &Controller{Tracker: input.NewTracker()}
-	c.SetScreen(func() (string, int, bool) { return "refa", 4, true })
+	c.SetScreen(func() (string, int, int, bool) { return "refa", 4, 0, true })
 	w := &Worker{Tracker: c.Tracker, Ctrl: c, Suggester: suggest.Fake{}, Debounce: 20 * time.Millisecond, Timeout: time.Second}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -385,6 +385,27 @@ func TestReplace(t *testing.T) {
 		t.Fatalf("wrote %q\nwant  %q", out.String(), want)
 	}
 	if s := c.Tracker.Snapshot(); s.Text != "Fix the bug.\n\nContext:\n- Branch: main    x" || !s.Synced {
+		t.Fatalf("tracker after Replace: %+v", s)
+	}
+}
+
+func TestReplaceCoversSlack(t *testing.T) {
+	// Read from two rows on the screen: claude's text may have one more
+	// character (a space before the newline, seen in testing), so one more
+	// Right and Backspace are sent.
+	c, out, _ := expandController(t)
+	c.Filter([]byte("\x1b[A")) // history: the buffer loses track
+	if !c.Tracker.Resync(c.Tracker.Snapshot().Rev, "Check it.\nNow", 13, 1) {
+		t.Fatal("resync not applied")
+	}
+	s := c.Tracker.Snapshot()
+	if err := c.Replace(s.Rev, s.Text, "Fix."); err != nil {
+		t.Fatal(err)
+	}
+	if want := "\x1b[C" + strings.Repeat("\x7f", 14) + "Fix."; out.String() != want {
+		t.Fatalf("wrote %q\nwant  %q", out.String(), want)
+	}
+	if s := c.Tracker.Snapshot(); s.Text != "Fix." || s.Slack != 0 {
 		t.Fatalf("tracker after Replace: %+v", s)
 	}
 }
