@@ -1,6 +1,6 @@
 # PRD Appendix 2: Rewrite Styles
 
-**Extends:** [PRD.md](PRD.md) version 1.2.0 (section 4.3, prompt enhancement) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7)  
+**Extends:** [PRD.md](../PRD.md) version 1.2.0 (section 4.3, prompt enhancement) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7)  
 **Appendix Version:** 1.2.0  
 **Date:** 2026-10-29  
 **Status:** Built (FR-8.1 to FR-8.5); FR-8.6 is a later candidate

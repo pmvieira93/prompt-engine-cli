@@ -615,7 +615,7 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-left.y
 
 ## 12. Part K: Session context and automatic expansion
 
-Phase 4.5 ([PRD Appendix 1](../PRD-APPENDIX-1.md)): expansion now knows your last few prompts, and can run automatically on Enter.
+Phase 4.5 ([PRD Appendix 1](PRD-APPENDIX-1.md)): expansion now knows your last few prompts, and can run automatically on Enter.
 
 > ⚠️ **K1, K4, K5, K6 and K7 send real prompts.** They're all harmless (greetings, a joke). Don't substitute coding requests: in auto mode, `claude` acts on them straight away.
 
@@ -680,7 +680,7 @@ In auto mode, a rewrite that breaks any of these is not used: the prompt is sent
 
 ## 13. Part L: Rewriting around pastes
 
-[PRD Appendix 1](../PRD-APPENDIX-1.md), FR-7.4e: what you type is rewritten; what you paste is kept exactly. A prompt that is only a paste is rewritten, except its code blocks, unless it looks like a log, trace, JSON or diff.
+[PRD Appendix 1](PRD-APPENDIX-1.md), FR-7.4e: what you type is rewritten; what you paste is kept exactly. A prompt that is only a paste is rewritten, except its code blocks, unless it looks like a log, trace, JSON or diff.
 
 **Setup:** as for Part K, with auto off: `printf 'expand:\n  on_enter: off\n' > /tmp/pe-auto.yaml`. Steps L1–L5 use **Ctrl+Q**, **e** and **don't send**; clear with **Ctrl+C** between them. Copy each paste from the blocks below the table.
 
@@ -723,7 +723,7 @@ In the log, kept parts show as `<<PASTE_1>>`, `<<PASTE_2>>`… in what the model
 
 ## 14. Part M: Preview mode
 
-[PRD Appendix 1](../PRD-APPENDIX-1.md), FR-7.6: when you pause typing (`expand.preview_pause`, 1 s), the rewrite is prepared in the background and the panel shows it. **Ctrl+Q**, **e** then uses it at once; **Enter** sends what you typed. It passes the same guard rails as auto mode.
+[PRD Appendix 1](PRD-APPENDIX-1.md), FR-7.6: when you pause typing (`expand.preview_pause`, 1 s), the rewrite is prepared in the background and the panel shows it. **Ctrl+Q**, **e** then uses it at once; **Enter** sends what you typed. It passes the same guard rails as auto mode.
 
 **Setup:**
 
@@ -750,7 +750,7 @@ Open the panel (Ctrl+Q, then p). Its Session section should say `expansion:   pr
 
 ## 15. Part N: Rewrite styles
 
-[PRD Appendix 2](../PRD-APPENDIX-2.md), FR-8: `expand.style` picks who a rewrite's wording is tuned for: `default` (as before), `llm` (direct and terse, for Claude), `human` (natural, in your voice) or `both`. All keep the same guard rails. Preview mode shows each style's rewrite without sending it.
+[PRD Appendix 2](PRD-APPENDIX-2.md), FR-8: `expand.style` picks who a rewrite's wording is tuned for: `default` (as before), `llm` (direct and terse, for Claude), `human` (natural, in your voice) or `both`. All keep the same guard rails. Preview mode shows each style's rewrite without sending it.
 
 **Setup:**
 
