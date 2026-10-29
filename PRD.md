@@ -3,9 +3,9 @@
 ## Project Name: `prompt-engine-cli` (Working Title)
 **Target Execution Language:** Go (Golang)  
 **Primary Integration (MVP):** Claude Code CLI  
-**Document Version:** 1.2.1  
+**Document Version:** 1.2.2  
 **Last Updated:** 2026-10-29  
-**Appendices:** [Appendix 1: Session Context and Automatic Enhancement](PRD-APPENDIX-1.md) (Phase 4.5) · [Appendix 2: Rewrite Styles](PRD-APPENDIX-2.md) (built)  
+**Appendices:** [Appendix 1: Session Context and Automatic Enhancement](docs/PRD-APPENDIX-1.md) (Phase 4.5) · [Appendix 2: Rewrite Styles](docs/PRD-APPENDIX-2.md) (built)  
 
 ---
 
@@ -137,8 +137,8 @@ The primary goal is to lower developer friction and improve the quality of AI in
 * Add `Ctrl+E` trigger to transform shorthand inputs into rich prompts using template system prompts and git heuristics, and render the split UI pane with the Prompt Diff Panel.
 
 ### Phase 4.5: Session Context & Automatic Enhancement
-* Give the local model session context, and optionally apply enhancement automatically on Enter. See [PRD Appendix 1](PRD-APPENDIX-1.md).
-* Then (built): choose who the rewrite's wording is tuned for (the model, people, or both). See [PRD Appendix 2](PRD-APPENDIX-2.md).
+* Give the local model session context, and optionally apply enhancement automatically on Enter. See [PRD Appendix 1](docs/PRD-APPENDIX-1.md).
+* Then (built): choose who the rewrite's wording is tuned for (the model, people, or both). See [PRD Appendix 2](docs/PRD-APPENDIX-2.md).
 
 ### Phase 5 (Post-MVP): Multi-Tool Support
 * Abstract integration layers to add support for Gemini CLI, GitHub Copilot CLI, and Aider.

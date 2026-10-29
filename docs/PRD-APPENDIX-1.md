@@ -1,6 +1,6 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
-**Extends:** [PRD.md](PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
+**Extends:** [PRD.md](../PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
 **Appendix Version:** 1.9.0  
 **Date:** 2026-10-29  
 **Status:** Built in Phase 4.5 (FR-6.1, FR-7.1 to FR-7.6, with FR-7.4f); FR-6.2 and FR-6.3 are later candidates

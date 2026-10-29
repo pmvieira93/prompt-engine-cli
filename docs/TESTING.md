@@ -78,46 +78,7 @@ Claude Code switches the terminal into an enhanced keyboard mode, so many keys a
 
 None is needed for testing; without a file, the built-in defaults are used. Part D creates its own throwaway config files.
 
-For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`). `bin/prompt-engine --pe-config <file>` uses another file instead; the flag is removed before the rest of the arguments go to `claude`. `PROMPT_ENGINE_CONFIG=<file>` works too; the flag wins if both are set. These are all its settings, with their defaults:
-
-```yaml
-command: claude
-args: []
-env: {}
-llm:
-  enabled: true      # false turns suggestions off
-  provider: ollama   # or fake (fixed word list, for testing)
-  endpoint: http://localhost:11434
-  model: qwen2.5-coder:1.5b  # must support fill-in-the-middle
-  max_tokens: 8      # length of each suggestion
-  expand_model: qwen2.5:7b  # rewrites prompts on request (keys.expand)
-  expand_timeout: 30s
-  debounce: 150ms    # pause in typing before asking
-  timeout: 2s
-panel:
-  visible: false  # open the side panel at startup
-  side: right     # or left
-  width: 40       # percent of the terminal (10-90)
-templates:
-  dir: templates
-keys:           # leader-prefixed shortcuts, like tmux
-  leader: ctrl+q  # ctrl+a..z or ctrl+\ ] ^ _; prefer letters, punctuation varies by keyboard layout
-  panel: p        # leader, then this key, toggles the side panel
-  expand: e       # leader, then this key, rewrites the prompt in place
-  undo: u         # leader, then this key, puts back the prompt from before the last expansion
-  panel_wider: "+"     # leader, then this key, widens the panel by 5%
-  panel_narrower: "-"  # leader, then this key, narrows it
-expand:
-  context: prompts    # or none: give the expansion model the last prompts sent, to resolve "it", "same"…
-  context_prompts: 3
-  on_enter: off       # or auto: Enter expands the prompt, then sends it (guard rails apply)
-  min_words: 3        # in auto mode, shorter prompts are sent as typed
-  auto_timeout: 5s    # in auto mode, after this the prompt is sent as typed
-history:
-  enabled: true       # one line of metrics per prompt sent
-  include_text: false # also store the prompts themselves
-  path: ""            # default: ~/.local/state/prompt-engine/history.jsonl
-```
+For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`). `bin/prompt-engine --pe-config <file>` uses another file instead; the flag is removed before the rest of the arguments go to `claude`. `PROMPT_ENGINE_CONFIG=<file>` works too; the flag wins if both are set. Every setting, with its default and a comment, is in [`config.example.yaml`](config.example.yaml); the [README](../README.md#configuration) has the reference table.
 
 ---
 
@@ -615,7 +576,7 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-left.y
 
 ## 12. Part K: Session context and automatic expansion
 
-Phase 4.5 ([PRD Appendix 1](../PRD-APPENDIX-1.md)): expansion now knows your last few prompts, and can run automatically on Enter.
+Phase 4.5 ([PRD Appendix 1](PRD-APPENDIX-1.md)): expansion now knows your last few prompts, and can run automatically on Enter.
 
 > ⚠️ **K1, K4, K5, K6 and K7 send real prompts.** They're all harmless (greetings, a joke). Don't substitute coding requests: in auto mode, `claude` acts on them straight away.
 
@@ -680,7 +641,7 @@ In auto mode, a rewrite that breaks any of these is not used: the prompt is sent
 
 ## 13. Part L: Rewriting around pastes
 
-[PRD Appendix 1](../PRD-APPENDIX-1.md), FR-7.4e: what you type is rewritten; what you paste is kept exactly. A prompt that is only a paste is rewritten, except its code blocks, unless it looks like a log, trace, JSON or diff.
+[PRD Appendix 1](PRD-APPENDIX-1.md), FR-7.4e: what you type is rewritten; what you paste is kept exactly. A prompt that is only a paste is rewritten, except its code blocks, unless it looks like a log, trace, JSON or diff.
 
 **Setup:** as for Part K, with auto off: `printf 'expand:\n  on_enter: off\n' > /tmp/pe-auto.yaml`. Steps L1–L5 use **Ctrl+Q**, **e** and **don't send**; clear with **Ctrl+C** between them. Copy each paste from the blocks below the table.
 
@@ -723,7 +684,7 @@ In the log, kept parts show as `<<PASTE_1>>`, `<<PASTE_2>>`… in what the model
 
 ## 14. Part M: Preview mode
 
-[PRD Appendix 1](../PRD-APPENDIX-1.md), FR-7.6: when you pause typing (`expand.preview_pause`, 1 s), the rewrite is prepared in the background and the panel shows it. **Ctrl+Q**, **e** then uses it at once; **Enter** sends what you typed. It passes the same guard rails as auto mode.
+[PRD Appendix 1](PRD-APPENDIX-1.md), FR-7.6: when you pause typing (`expand.preview_pause`, 1 s), the rewrite is prepared in the background and the panel shows it. **Ctrl+Q**, **e** then uses it at once; **Enter** sends what you typed. It passes the same guard rails as auto mode.
 
 **Setup:**
 
@@ -750,7 +711,7 @@ Open the panel (Ctrl+Q, then p). Its Session section should say `expansion:   pr
 
 ## 15. Part N: Rewrite styles
 
-[PRD Appendix 2](../PRD-APPENDIX-2.md), FR-8: `expand.style` picks who a rewrite's wording is tuned for: `default` (as before), `llm` (direct and terse, for Claude), `human` (natural, in your voice) or `both`. All keep the same guard rails. Preview mode shows each style's rewrite without sending it.
+[PRD Appendix 2](PRD-APPENDIX-2.md), FR-8: `expand.style` picks who a rewrite's wording is tuned for: `default` (as before), `llm` (direct and terse, for Claude), `human` (natural, in your voice) or `both`. All keep the same guard rails. Preview mode shows each style's rewrite without sending it.
 
 **Setup:**
 
