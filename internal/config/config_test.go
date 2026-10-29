@@ -80,6 +80,7 @@ func TestLoadFileErrorsFallBackToDefaults(t *testing.T) {
 		"bad on_enter": "expand:\n  on_enter: always\n",
 		"no prompts":   "expand:\n  context_prompts: 0\n",
 		"no pause":     "expand:\n  on_enter: preview\n  preview_pause: 0s\n",
+		"bad style":    "expand:\n  style: auto\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -208,5 +209,27 @@ func TestLoadPreviewMode(t *testing.T) {
 	}
 	if cfg.Expand.OnEnter != "preview" || cfg.Expand.PreviewPause != 1500*time.Millisecond {
 		t.Fatalf("expand = %+v", cfg.Expand)
+	}
+}
+
+func TestLoadStyle(t *testing.T) {
+	cfg, err := LoadFile(writeConfig(t, ""))
+	if err != nil || cfg.Expand.Style != "default" {
+		t.Fatalf("default style = %q, %v", cfg.Expand.Style, err)
+	}
+	cfg, err = LoadFile(writeConfig(t, "expand:\n  style: llm\n"))
+	if err != nil || cfg.Expand.Style != "llm" {
+		t.Fatalf("style = %q, %v", cfg.Expand.Style, err)
+	}
+}
+
+func TestLoadGuardDetails(t *testing.T) {
+	cfg, err := LoadFile(writeConfig(t, ""))
+	if err != nil || cfg.Panel.GuardDetails {
+		t.Fatalf("guard_details on by default (%v)", err)
+	}
+	cfg, err = LoadFile(writeConfig(t, "panel:\n  guard_details: true\n"))
+	if err != nil || !cfg.Panel.GuardDetails {
+		t.Fatalf("guard_details = %v, %v", cfg.Panel.GuardDetails, err)
 	}
 }

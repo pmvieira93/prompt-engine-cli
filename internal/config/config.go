@@ -9,10 +9,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 )
 
@@ -67,6 +69,9 @@ type PanelConfig struct {
 	Visible bool   `yaml:"visible"`
 	Side    string `yaml:"side"`
 	Width   int    `yaml:"width"`
+	// GuardDetails shows, when a guard rail stops a rewrite, which one and
+	// what the model wrote (PRD Appendix 1, FR-7.4), not only why.
+	GuardDetails bool `yaml:"guard_details"`
 }
 
 // KeysConfig sets prompt-engine's own shortcuts. They are leader-prefixed,
@@ -95,6 +100,10 @@ type ExpandConfig struct {
 	// the expand shortcut applies it at once, and Enter sends the prompt
 	// as typed (FR-7.6).
 	OnEnter string `yaml:"on_enter"`
+	// Style is who a rewrite's wording is tuned for: "default", "llm"
+	// (the assistant), "human" (people) or "both" (PRD Appendix 2, FR-8).
+	// templates/system.txt replaces every style.
+	Style string `yaml:"style"`
 	// PreviewPause is how long typing must pause before preview mode
 	// prepares a rewrite.
 	PreviewPause time.Duration `yaml:"preview_pause"`
@@ -158,7 +167,7 @@ func Default() Config {
 		History: HistoryConfig{Enabled: true},
 		// Recent prompts resolved every follow-up tested ("add tests for
 		// it") without adding requirements to unrelated ones.
-		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", MinWords: 3, AutoTimeout: 5 * time.Second,
+		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", Style: "default", MinWords: 3, AutoTimeout: 5 * time.Second,
 			PreviewPause: time.Second},
 	}
 }
@@ -250,6 +259,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("expand.context must be \"none\" or \"prompts\", got %q", c.Expand.Context)
 	case c.Expand.OnEnter != "off" && c.Expand.OnEnter != "auto" && c.Expand.OnEnter != "preview":
 		return fmt.Errorf("expand.on_enter must be \"off\", \"auto\" or \"preview\", got %q", c.Expand.OnEnter)
+	case !slices.Contains(expand.Styles, c.Expand.Style):
+		return fmt.Errorf("expand.style must be \"default\", \"llm\", \"human\" or \"both\", got %q", c.Expand.Style)
 	case c.Expand.PreviewPause <= 0:
 		return errors.New("expand.preview_pause must be positive")
 	case c.Expand.AutoTimeout <= 0:

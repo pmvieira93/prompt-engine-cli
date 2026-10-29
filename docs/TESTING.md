@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -388,6 +388,7 @@ The model's wording varies, so judge whether a suggestion is a sensible continua
 | F5 | Ctrl+U, type `why does the ghost text ` (ending with a space) and stop | The suggestion starts with a word, with no double space |
 | F6 | Type quickly without pausing | No suggestions while typing; one appears only after you stop. Typing never lags |
 | F7 | Look at the times in the `suggestion shown` lines | Mostly 50–300 ms |
+| F8 | Ctrl+U, type `it still fails, same error message, same code, same environment`, then accept each suggestion (→) as it appears | The list grows for a few suggestions, then they stop, rather than cycling through the same items again. Log: `suggestion dropped rev=… "…" repeats the prompt` |
 
 ### F8: Ollama stopped
 
@@ -714,7 +715,40 @@ Open the panel (Ctrl+Q, then p). Its Session section should say `expansion:   pr
 
 ---
 
-## 15. Known limitations (expected, not bugs)
+## 15. Part N: Rewrite styles
+
+[PRD Appendix 2](../PRD-APPENDIX-2.md), FR-8: `expand.style` picks who a rewrite's wording is tuned for: `default` (as before), `llm` (direct and terse, for Claude), `human` (natural, in your voice) or `both`. All keep the same guard rails. Preview mode shows each style's rewrite without sending it.
+
+**Setup:**
+
+```sh
+printf 'expand:\n  on_enter: preview\n  style: llm\n' > /tmp/pe-auto.yaml
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-auto.yaml
+```
+
+Open the panel (Ctrl+Q, then p). Change the style **in another terminal tab** with the `sed` commands below; each change applies within a second. Clear the prompt with **Ctrl+C** between steps, and don't send unless a step says so.
+
+| # | Do this | Expected |
+|---|---|---|
+| N1 | Look at the panel's Session section | `expansion:   preview on Enter, style llm, model qwen2.5:7b` |
+| N2 | Type `can u pls check why make test is slow on ci, i think its the race detector` and stop | A terse suggestion, without politeness or hedging, e.g. ``Check why `make test` is slow on CI, suspect it's the race detector.`` Log: `expand: preview ready for … (…, style llm)` |
+| N3 | Type `it still fails, same as before` and stop | It stays a report: `It still fails, same as before.`, not a task such as "Ensure the issue…" |
+| N4 | `sed -i '' 's/style: llm/style: human/' /tmp/pe-auto.yaml` | The Session section says `style human` at once, and the suggestion from N3 goes |
+| N5 | Type N2's prompt again and stop | Your politeness and your guess are kept, e.g. `Can you please check why the make test is slow in CI? I think it might be the race detector.` Log: `style human` |
+| N6 | `sed -i '' 's/style: human/style: both/' /tmp/pe-auto.yaml`, then type N2's prompt again | Natural wording, between the two, e.g. `Please check why the make test is slow on CI; I think it might be the race detector.` |
+| N7 | Type `waht does thsi do: `, then paste **A** from Part L | Only typos are fixed, whatever the style. Log: `style typos` |
+| N8 | Type `say helo in thre words`, wait for the suggestion, then **Ctrl+Q**, **e**, **Enter** (sends a harmless prompt) | Sent corrected. `tail -1 ~/.local/state/prompt-engine/history.jsonl` shows `"expanded":true,"style":"both"` |
+| N9 | `sed -i '' 's/style: both/style: auto/' /tmp/pe-auto.yaml` | Rejected: the Session section shows `last edit rejected: … expand.style must be "default", "llm", "human" or "both", got "auto"`, and `style both` stays in use |
+| N10 | `sed -i '' 's/style: auto/style: llm/' /tmp/pe-auto.yaml`. Type `it still fais` and stop | Either a plain typo fix (`It still fails.`), or `No rewrite suggested` with `Not offered: the rewrite added a task you didn't ask for (fix).` Never a task. A stopped rewrite is tried once more first (log: `stopped by guard added-task (…); asking again`) |
+| N11 | `printf 'panel:\n  guard_details: true\n' >> /tmp/pe-auto.yaml`. Type `it still fails, same error message, same code, same environment, same machine, same OS, same version of the AI coding assistant, same` and stop | Usually `No rewrite suggested` (the model sometimes gets it right), then two short lines: `Guard added-task: ensure, …` and `Rejected: "Ensure the code runs…"`, the start of what the model wrote. Log: `no preview for …; guard added-task rejected "Ensure …"`, in full |
+
+A `templates/system.txt` replaces every style; the history then says `"style":"custom"`.
+
+**Cleanup:** `rm -f /tmp/pe-auto.yaml`.
+
+---
+
+## 16. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -730,6 +764,7 @@ Open the panel (Ctrl+Q, then p). Its Session section should say `expansion:   pr
 | If you edit an expanded prompt before sending it, the panel shows your edited text as "typed" | The panel only knows the original once the prompt still matches the expansion exactly |
 | In auto mode, typing while `⟳ expanding…` shows cancels the send, so you press Enter again (and it expands again) | Anything typed after Enter would otherwise go into a prompt that's about to be replaced |
 | Around a paste, a typo can come back wrong (seen: `what does this, just answr:` → `just ansr:`, every time) | Typo-only rewrites keep nearly every word, so no word check can tell a bad fix from a good one; with the missing word (`what does this print, just answr:`) it was fixed |
+| On short prompts, the rewrite styles often give the same text | The styles mostly change tone and length: a short request has little of either to change. Compare them on a polite or several-part prompt (N2, N5, N6) |
 | In preview mode, the expansion model runs after every pause in typing | That's what prepares the suggestion. It's cancelled as soon as you type again, but it uses CPU while it runs; use `off` or a longer `expand.preview_pause` to run it less |
 | A paste that you then edit counts as typed text, so it can be rewritten | The kept parts are found by their exact pasted text |
 | A long paste that `claude` shows as `[Pasted text #1 +N lines]` is never rewritten if the prompt was re-read from the screen | The screen only has the placeholder, not the text |
@@ -741,7 +776,7 @@ Open the panel (Ctrl+Q, then p). Its Session section should say `expansion:   pr
 
 ---
 
-## 16. Reporting a problem
+## 17. Reporting a problem
 
 Include:
 

@@ -2,6 +2,7 @@ package ghost
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -93,7 +94,10 @@ func (w *Worker) request(ctx context.Context, suggester suggest.Suggester, s inp
 	}()
 	start := time.Now()
 	sug, err := suggester.Suggest(ctx, s.Text, s.Cursor)
+	var repeat *suggest.RepeatError
 	switch {
+	case errors.As(err, &repeat):
+		w.logf("suggestion dropped rev=%d: %v", s.Rev, err)
 	case err != nil:
 		w.logf("suggestion error rev=%d: %v", s.Rev, err)
 	case sug == "":

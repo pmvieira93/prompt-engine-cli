@@ -1,7 +1,9 @@
 package expand
 
 import (
+	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -61,12 +63,22 @@ var (
 	actions     = []string{"fix", "chang", "updat", "add", "remov", "delet", "refactor", "implement", "handl", "writ", "creat", "renam", "replac", "modif", "mov", "run", "commit", "push", "instal", "build"}
 )
 
+// tasks are word stems of what a rewrite must not ask for when typed is
+// a report: actions, and asking for an investigation.
+var tasks = append([]string{"ensur", "verif", "investigat", "check", "explain", "debug", "resolv", "diagnos", "troubleshoot"}, actions...)
+
+// isStem reports whether word w starts with stem; a short stem ("rm",
+// "mov") only for a short word.
+func isStem(w, stem string) bool {
+	return strings.HasPrefix(w, stem) && (len(stem) > 2 || len(w) <= len(stem)+2)
+}
+
 // newWords returns the words of rewritten starting with one of stems that
 // no word of typed starts with.
 func newWords(typed, rewritten string, stems []string) []string {
 	has := func(text, stem string) string {
 		for _, w := range words(strings.ToLower(text)) {
-			if strings.HasPrefix(w, stem) && (len(stem) > 2 || len(w) <= len(stem)+2) {
+			if isStem(w, stem) {
 				return w
 			}
 		}
@@ -116,6 +128,44 @@ func fromEarlier(typed, rewritten string, earlier []string) []string {
 		return nil
 	}
 	return leaked
+}
+
+// addedTasks returns the tasks a rewrite asks for when typed asks for
+// none of them: it reports something ("it still fails, same error
+// message"), or asks with a verb not in tasks ("tidy the branch"). Seen
+// in testing: "it still fais" became "Fix the error in the sentence: it
+// still fails.", and a list of "same …" became "Ensure the "hello" message
+// is displayed…", from an earlier prompt. A typed word with the same first
+// three letters counts as asking, so a typo ("refactr") doesn't make the
+// fixed word ("Refactor") new.
+func addedTasks(typed, rewritten string) []string {
+	typedWords := words(strings.ToLower(typed))
+	for _, w := range typedWords {
+		for _, stem := range tasks {
+			if isStem(w, stem) {
+				return nil // a request, not a report
+			}
+		}
+	}
+	var added []string
+next:
+	for _, w := range words(strings.ToLower(rewritten)) {
+		for _, stem := range tasks {
+			if !isStem(w, stem) {
+				continue
+			}
+			for _, t := range typedWords {
+				if len(t) >= 3 && strings.HasPrefix(w, t[:3]) {
+					continue next
+				}
+			}
+			if !slices.Contains(added, w) {
+				added = append(added, w)
+			}
+			continue next
+		}
+	}
+	return added
 }
 
 // isQuestion reports whether typed asks something rather than asks for
@@ -177,46 +227,73 @@ func LostNames(typed, rewritten string) []string {
 	return lost
 }
 
+// A Stop is why a rewrite isn't used: the guard rail that stopped it, by
+// a short name for the panel and the log, and the reason.
+type Stop struct {
+	Guard string // e.g. "negation"
+	// Detail is what tripped it, in a few words, for the panel: "ensure,
+	// check" for added-task, "negations 0 → 1". "" when the name says it
+	// all.
+	Detail string
+	Reason string // e.g. "the rewrite changed a negation (not, never, without, only…)"
+}
+
 // Guard checks a rewrite before it's sent without review (PRD Appendix 1,
-// FR-7.4) and returns why it must not be used, or "" if it may. The
-// checks come from bad rewrites seen in testing: "rfcator tracker"
-// became "the RFCator tracker", a gap became "[insert specific technology
-// here]", and without instructions the model asked for details instead.
-// earlier are the prompts given to the model as session context.
+// FR-7.4) and returns why it must not be used, or "" if it may.
 func Guard(typed, rewritten string, earlier ...string) string {
+	if stop := Check(typed, rewritten, earlier...); stop != nil {
+		return stop.Reason
+	}
+	return ""
+}
+
+// Check is Guard with the guard rail's name: nil if the rewrite may be
+// used. The checks come from bad rewrites seen in testing: "rfcator
+// tracker" became "the RFCator tracker", a gap became "[insert specific
+// technology here]", and without instructions the model asked for details
+// instead. earlier are the prompts given to the model as session context.
+// A rewrite asking for something else (a question or a report turned into
+// a task) is checked before the negations, since such a rewrite often adds one
+// too ("Ensure the code runs without errors"), and the change of kind is
+// the clearer reason.
+func Check(typed, rewritten string, earlier ...string) *Stop {
 	typed, rewritten = StripContext(typed), StripContext(rewritten)
+	stop := func(guard, detail, reason string) *Stop { return &Stop{Guard: guard, Detail: detail, Reason: reason} }
+	list := strings.Join
 	switch {
 	case rewritten == "":
-		return "the rewrite was empty"
+		return stop("empty", "", "the rewrite was empty")
 	case placeholder.MatchString(rewritten) && !placeholder.MatchString(typed):
-		return "the rewrite has a placeholder to fill in"
+		return stop("placeholder", placeholder.FindString(rewritten), "the rewrite has a placeholder to fill in")
 	case strings.HasSuffix(rewritten, "?") && !isQuestion(typed):
-		return "the model asked a question instead of rewriting"
+		return stop("asked-back", "", "the model asked a question instead of rewriting")
 	case Language(typed) != Language(rewritten):
-		return "the rewrite changed the language"
+		return stop("language", languageName(typed)+" → "+languageName(rewritten), "the rewrite changed the language")
 	}
 	if lost := LostNames(typed, rewritten); len(lost) > 0 {
-		return "the rewrite dropped or changed " + strings.Join(lost, ", ")
+		return stop("names", "lost "+list(lost, ", "), "the rewrite dropped or changed "+list(lost, ", "))
 	}
 	if lost := LostQuotes(typed, rewritten); len(lost) > 0 {
-		return "the rewrite changed quoted text " + strings.Join(lost, ", ")
-	}
-	if negations(rewritten) != negations(typed) {
-		return "the rewrite changed a negation (not, never, without, only…)"
-	}
-	if leaked := fromEarlier(typed, rewritten, earlier); len(leaked) > 0 {
-		return "the rewrite added details from your earlier prompts (" + strings.Join(leaked, ", ") + ")"
+		return stop("quotes", "changed "+list(lost, ", "), "the rewrite changed quoted text "+list(lost, ", "))
 	}
 	if added := newWords(typed, rewritten, destructive); len(added) > 0 {
-		return "the rewrite added a destructive action (" + strings.Join(added, ", ") + ")"
+		return stop("destructive", list(added, ", "), "the rewrite added a destructive action ("+list(added, ", ")+")")
 	}
 	if isQuestion(typed) {
 		if added := newWords(typed, rewritten, actions); len(added) > 0 {
-			return "the rewrite turned your question into an instruction (" + strings.Join(added, ", ") + ")"
+			return stop("question", list(added, ", "), "the rewrite turned your question into an instruction ("+list(added, ", ")+")")
 		}
+	} else if added := addedTasks(typed, rewritten); len(added) > 0 {
+		return stop("added-task", list(added, ", "), "the rewrite added a task you didn't ask for ("+list(added, ", ")+")")
+	}
+	if n, m := negations(typed), negations(rewritten); n != m {
+		return stop("negation", fmt.Sprintf("negations %d → %d", n, m), "the rewrite changed a negation (not, never, without, only…)")
+	}
+	if leaked := fromEarlier(typed, rewritten, earlier); len(leaked) > 0 {
+		return stop("earlier-prompts", "from earlier: "+list(leaked, ", "), "the rewrite added details from your earlier prompts ("+list(leaked, ", ")+")")
 	}
 	if t, r := len(strings.Fields(typed)), len(strings.Fields(rewritten)); r > 3*t+15 {
-		return "the rewrite is much longer than what you typed"
+		return stop("length", fmt.Sprintf("%d → %d words", t, r), "the rewrite is much longer than what you typed")
 	}
 	typedWords := words(strings.ToLower(typed))
 	have := map[string]bool{}
@@ -230,7 +307,15 @@ func Guard(typed, rewritten string, earlier ...string) string {
 		}
 	}
 	if len(typedWords) > 0 && float64(missing)/float64(len(typedWords)) > MaxRemoved {
-		return "the rewrite replaced most of what you typed"
+		return stop("replaced", fmt.Sprintf("%d of %d words gone", missing, len(typedWords)), "the rewrite replaced most of what you typed")
 	}
-	return ""
+	return nil
+}
+
+// languageName is Language, with "English" for "".
+func languageName(text string) string {
+	if l := Language(text); l != "" {
+		return l
+	}
+	return "English"
 }

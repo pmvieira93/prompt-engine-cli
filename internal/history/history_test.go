@@ -16,7 +16,10 @@ func TestAppend(t *testing.T) {
 		Raw:      "fix teh bug",
 		Sent:     "Fix the bug.\n\n- End with MANGO.",
 		Expanded: true,
+		Style:    "llm",
 		Rules:    true,
+		Guard:    "negation",
+		Rejected: "Fix the bug without tests.",
 	}
 
 	metrics := &Log{Path: path}
@@ -44,13 +47,16 @@ func TestAppend(t *testing.T) {
 		t.Fatal(err)
 	}
 	if first.RawWords != 3 || first.SentWords != 7 || first.WordsAdded != 7 || first.WordsRemoved != 3 ||
-		!first.Expanded || !first.Rules || first.RawChars != 11 {
+		!first.Expanded || first.Style != "llm" || !first.Rules || first.RawChars != 11 {
 		t.Errorf("metrics = %+v", first)
 	}
-	if first.Raw != "" || first.Sent != "" {
+	if first.Guard != "negation" {
+		t.Errorf("guard = %q", first.Guard)
+	}
+	if first.Raw != "" || first.Sent != "" || first.Rejected != "" {
 		t.Error("prompt text stored without IncludeText")
 	}
-	if second.Raw != sub.Raw || second.Sent != sub.Sent {
+	if second.Raw != sub.Raw || second.Sent != sub.Sent || second.Rejected != sub.Rejected {
 		t.Errorf("text not stored with IncludeText: %+v", second)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {

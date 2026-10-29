@@ -32,6 +32,16 @@ func TestGuard(t *testing.T) {
 		{"say hi in 3 words", "Say hi in three words.", false},
 		// A question at the end, without its "?" (seen around a paste).
 		{"the eror is <<PASTE_1>> when i run make, can yuo fix it", "The error is <<PASTE_1>> when I run make, can you fix it?", false},
+		// A report must stay a report (seen in preview mode).
+		{"it still fails, same as before", "It still fails, same as before.", false},
+		{"it still fais", "Fix the error in the sentence: it still fails.", true},
+		{"it still fails, same error message, same code, same environment, same machine, same operating system,",
+			`Ensure the "hello" message is displayed using three words. It still fails with the same error message, code, environment, machine, and operating system.`, true},
+		{"the tracker loses sync after a paste", "Investigate why the tracker loses sync after a paste.", true},
+		// A typo in the verb isn't a new task.
+		{"refactr the paresr to use a lookup tabel", "Refactor the parser to use a lookup table.", false},
+		{"updte the readme", "Update the README.", false},
+		{"tell me a joke abuot cats", "Tell me a joke about cats.", false},
 	}
 	for _, tc := range cases {
 		reason := Guard(tc.typed, tc.rewritten)
@@ -141,5 +151,37 @@ func TestGuardContextLeak(t *testing.T) {
 	if reason := Guard("now add tests for it", "Add tests for the retry mechanism in the ollama client.",
 		"add a retry to the ollama client with exponential backoff"); reason != "" {
 		t.Errorf("a resolved reference was stopped: %q", reason)
+	}
+}
+
+func TestCheckNamesTheGuard(t *testing.T) {
+	cases := []struct{ typed, rewritten, guard string }{
+		// Seen in testing: the added task also adds a negation; the task
+		// is the clearer reason.
+		{"it still fails, same error message, same code, same environment", "Ensure the code runs without errors. Report any new observations.", "added-task"},
+		{"don't touch the tests, just fix the config", "Fix the config and update the tests.", "negation"},
+		{"tidy the branch", "Tidy the branch and force push it.", "destructive"},
+		{"now using code-reviewer look into MR !110", "Review the code in MR !110.", "names"},
+		{"why does it flicker", "Fix the flicker.", "question"},
+		{"fix it", "", "empty"},
+	}
+	for _, tc := range cases {
+		stop := Check(tc.typed, tc.rewritten)
+		if stop == nil || stop.Guard != tc.guard {
+			t.Errorf("Check(%q, %q) = %+v, want guard %q", tc.typed, tc.rewritten, stop, tc.guard)
+		}
+	}
+	for _, tc := range []struct{ typed, rewritten, detail string }{
+		{"it still fails", "Ensure it runs. Check it.", "ensure, runs, check"},
+		{"fix the bug", "Fix the bug without tests.", "negations 0 → 1"},
+		{"now using code-reviewer look into MR !110", "Review MR !110.", "lost code-reviewer"},
+		{"corrige o erro no ficheiro", "Fix the error in the file.", "Portuguese → English"},
+	} {
+		if stop := Check(tc.typed, tc.rewritten); stop == nil || stop.Detail != tc.detail {
+			t.Errorf("Check(%q, %q) = %+v, want detail %q", tc.typed, tc.rewritten, stop, tc.detail)
+		}
+	}
+	if stop := Check("fix teh bug", "Fix the bug."); stop != nil {
+		t.Errorf("a good rewrite was stopped: %+v", stop)
 	}
 }

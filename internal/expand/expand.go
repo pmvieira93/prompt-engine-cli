@@ -24,11 +24,12 @@ import (
 	"strings"
 )
 
-// SystemFile, in the templates directory, replaces DefaultSystem.
+// SystemFile, in the templates directory, replaces the instructions of
+// every style.
 const SystemFile = "system.txt"
 
-// DefaultSystem is the instruction the model gets when there is no
-// templates/system.txt.
+// DefaultSystem is the instruction for StyleDefault, used when there is
+// no templates/system.txt.
 const DefaultSystem = `You rewrite a developer's short, rough request to an AI coding assistant (Claude Code) into a clear prompt.
 Rules:
 - Keep the developer's intent exactly. Never add goals, components, files, or steps they didn't mention.
@@ -74,7 +75,10 @@ type Expander struct {
 	// first, for the model to resolve references with ("add tests for
 	// it"). Nil or empty means none.
 	Earlier func() []string
-	// TypoOnly uses TypoSystem: corrections, no rewording (Plan.TypoOnly).
+	// Style picks the instructions (StyleSystem); "" is StyleDefault.
+	Style string
+	// TypoOnly uses TypoSystem whatever the style: corrections, no
+	// rewording (Plan.TypoOnly).
 	TypoOnly bool
 	Client   *http.Client
 }
@@ -159,21 +163,45 @@ func (e *Expander) Warm(ctx context.Context) error {
 	return err
 }
 
+// system returns the instructions: the developer's templates/system.txt,
+// or those for e.Style (FR-8.4).
 func (e *Expander) system() (string, error) {
+	t, err := e.template()
+	if err != nil || t != "" {
+		return t, err
+	}
+	return StyleSystem(e.Style), nil
+}
+
+// template returns the developer's templates/system.txt, or "" if there's
+// none or it's empty.
+func (e *Expander) template() (string, error) {
 	if e.TemplatesDir == "" {
-		return DefaultSystem, nil
+		return "", nil
 	}
 	data, err := os.ReadFile(filepath.Join(e.TemplatesDir, SystemFile))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return DefaultSystem, nil
+		return "", nil
 	case err != nil:
 		return "", err
 	}
-	if s := strings.TrimSpace(string(data)); s != "" {
-		return s, nil
+	return strings.TrimSpace(string(data)), nil
+}
+
+// StyleName says which instructions Expand uses, for the history (FR-8.5):
+// "typos" in typo mode, "custom" for templates/system.txt, otherwise the
+// style.
+func (e *Expander) StyleName() string {
+	switch t, _ := e.template(); {
+	case e.TypoOnly:
+		return "typos"
+	case t != "":
+		return "custom"
+	case e.Style == "":
+		return StyleDefault
 	}
-	return DefaultSystem, nil
+	return e.Style
 }
 
 type chatMessage struct {

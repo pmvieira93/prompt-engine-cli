@@ -187,3 +187,58 @@ func TestExpandTypoOnlyWithMarkers(t *testing.T) {
 		t.Errorf("request = %+v", req.Messages)
 	}
 }
+
+func TestExpandStyles(t *testing.T) {
+	for _, style := range append(Styles, "") {
+		e, req := fakeChat(t, `{"message":{"content":"Fix it."}}`)
+		e.Style = style
+		if _, err := e.Expand(context.Background(), "fix it"); err != nil {
+			t.Fatal(err)
+		}
+		if req.Messages[0].Content != StyleSystem(style) {
+			t.Errorf("style %q: system = %q", style, req.Messages[0].Content)
+		}
+		want := style
+		if want == "" {
+			want = StyleDefault
+		}
+		if e.StyleName() != want {
+			t.Errorf("style %q: StyleName = %q", style, e.StyleName())
+		}
+	}
+	if StyleSystem(StyleDefault) != DefaultSystem || StyleSystem("") != DefaultSystem {
+		t.Error("the default style isn't DefaultSystem")
+	}
+	for _, style := range []string{StyleLLM, StyleHuman, StyleBoth} {
+		// FR-8.2: every style keeps the shared rules.
+		if s := StyleSystem(style); !strings.Contains(s, styleRules) || s == DefaultSystem {
+			t.Errorf("style %q lacks the shared rules", style)
+		}
+	}
+}
+
+func TestStyleGivesWayToTyposAndTemplate(t *testing.T) {
+	// FR-8.3: typo-only rewrites ignore the style.
+	e, req := fakeChat(t, `{"message":{"content":"Fix it."}}`)
+	e.Style, e.TypoOnly = StyleLLM, true
+	if _, err := e.Expand(context.Background(), "fix it"); err != nil {
+		t.Fatal(err)
+	}
+	if req.Messages[0].Content != TypoSystem || e.StyleName() != "typos" {
+		t.Errorf("typo mode: system = %q, StyleName = %q", req.Messages[0].Content, e.StyleName())
+	}
+
+	// FR-8.4: templates/system.txt replaces every style.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, SystemFile), []byte("Be terse."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e, req = fakeChat(t, `{"message":{"content":"Fix it."}}`)
+	e.Style, e.TemplatesDir = StyleHuman, dir
+	if _, err := e.Expand(context.Background(), "fix it"); err != nil {
+		t.Fatal(err)
+	}
+	if req.Messages[0].Content != "Be terse." || e.StyleName() != "custom" {
+		t.Errorf("template: system = %q, StyleName = %q", req.Messages[0].Content, e.StyleName())
+	}
+}

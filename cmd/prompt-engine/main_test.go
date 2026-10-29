@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -25,5 +26,19 @@ func TestOwnFlags(t *testing.T) {
 		if (err != nil) != tc.wantsErr || cfg != tc.cfg || !slices.Equal(rest, tc.rest) {
 			t.Errorf("ownFlags(%q) = %q, %q, %v; want %q, %q, error %v", tc.args, rest, cfg, err, tc.rest, tc.cfg, tc.wantsErr)
 		}
+	}
+}
+
+func TestGuardNotes(t *testing.T) {
+	got := guardNotes("Guard ", "added-task", "ensure, runs", "Ensure the code runs without errors.\nCheck for the same error message, code and environment.")
+	want := []string{"Guard added-task: ensure, runs", "Rejected: “Ensure the code runs without errors. Check for…”"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("guardNotes = %q\nwant         %q", got, want)
+	}
+	if got := guardNotes("Guard ", "empty", "", "")[0]; got != "Guard empty" {
+		t.Errorf("without a detail: %q", got)
+	}
+	if got := shorten("short", 50); got != "short" {
+		t.Errorf("shorten kept %q", got)
 	}
 }
