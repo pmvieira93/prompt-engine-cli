@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -41,6 +43,7 @@ type Config struct {
 	Keys      KeysConfig      `yaml:"keys"`
 	History   HistoryConfig   `yaml:"history"`
 	Expand    ExpandConfig    `yaml:"expand"`
+	Ghost     GhostConfig     `yaml:"ghost"`
 
 	// path is the file this config was loaded from ("" if defaults only).
 	path string
@@ -116,6 +119,12 @@ type ExpandConfig struct {
 	AutoTimeout time.Duration `yaml:"auto_timeout"`
 }
 
+// GhostConfig controls how ghost text looks.
+type GhostConfig struct {
+	// Style is "faint", "italic" or "color:N" (0–255); see tui.GhostStyle.
+	Style string `yaml:"style"`
+}
+
 // HistoryConfig controls the log of sent prompts (one JSON line each).
 type HistoryConfig struct {
 	Enabled bool `yaml:"enabled"`
@@ -167,6 +176,7 @@ func Default() Config {
 		History: HistoryConfig{Enabled: true},
 		// Recent prompts resolved every follow-up tested ("add tests for
 		// it") without adding requirements to unrelated ones.
+		Ghost: GhostConfig{Style: "italic"},
 		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", Style: "default", MinWords: 3, AutoTimeout: 5 * time.Second,
 			PreviewPause: time.Second},
 	}
@@ -269,6 +279,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("expand.min_words must be at least 1, got %d", c.Expand.MinWords)
 	case c.Expand.ContextPrompts < 1 || c.Expand.ContextPrompts > 20:
 		return fmt.Errorf("expand.context_prompts must be between 1 and 20, got %d", c.Expand.ContextPrompts)
+	case !validGhostStyle(c.Ghost.Style):
+		return fmt.Errorf("ghost.style must be \"faint\", \"italic\" or \"color:N\" (0-255), got %q", c.Ghost.Style)
 	case c.Panel.Side != "left" && c.Panel.Side != "right":
 		return fmt.Errorf("panel.side must be \"left\" or \"right\", got %q", c.Panel.Side)
 	case c.Panel.Width < 10 || c.Panel.Width > 90:
@@ -309,4 +321,12 @@ func (c Config) TemplatesDir() (string, error) {
 		base = dir
 	}
 	return filepath.Join(base, c.Templates.Dir), nil
+}
+
+func validGhostStyle(s string) bool {
+	if s == "faint" || s == "italic" {
+		return true
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(s, "color:"))
+	return strings.HasPrefix(s, "color:") && err == nil && n >= 0 && n <= 255
 }

@@ -214,6 +214,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 					go warmExpander(ctx, next, logf)
 				}
 			}
+			if next.Ghost != prev.Ghost {
+				applied = append(applied, "ghost") // read on each frame
+			}
 			if next.History != prev.History {
 				applied = append(applied, "history") // read on each submit
 			}
@@ -741,6 +744,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		Status:        func() []string { return *status.Load() },
 		Diff:          panelDiff,
 		PanelLeft:     func() bool { return live.Load().Panel.Side == "left" },
+		GhostStyle:    func() string { return live.Load().Ghost.Style },
 		PanelOpen:     cfg.Panel.Visible,
 		OnFilterError: onFilterError,
 		Logf:          logf,

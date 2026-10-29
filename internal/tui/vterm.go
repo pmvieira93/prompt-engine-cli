@@ -24,6 +24,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,6 +73,10 @@ type Options struct {
 	// RawOutput, if set, receives a copy of everything the child writes,
 	// for debugging how it draws. Writes happen on the output goroutine.
 	RawOutput io.Writer
+
+	// GhostStyle returns the ghost.style setting (see GhostStyle); nil for
+	// the default.
+	GhostStyle func() string
 
 	// PanicOnGhost makes the renderer panic when it first draws ghost text,
 	// to exercise the pass-through fallback. Testing only.
@@ -708,7 +713,22 @@ func drawEmulator(scr uv.Screen, emu *vt.SafeEmulator, ox, w, h int) {
 	}
 }
 
-var ghostStyle = uv.Style{Fg: ansi.IndexedColor(244), Attrs: uv.AttrFaint}
+// GhostStyle is how ghost text and notices are drawn, by the ghost.style
+// setting: "faint" (grey and dim), "italic" (grey italic, the default) or
+// "color:N" for terminal colour N (0–255). Claude Code's own grey text,
+// its "Try …" placeholder, is dim and upright, and only shows in an empty
+// prompt (recorded with claude 2.1.308), so italic tells them apart.
+func GhostStyle(name string) uv.Style {
+	switch {
+	case name == "faint":
+		return uv.Style{Fg: ansi.IndexedColor(244), Attrs: uv.AttrFaint}
+	case strings.HasPrefix(name, "color:"):
+		if n, err := strconv.Atoi(strings.TrimPrefix(name, "color:")); err == nil && n >= 0 && n <= 255 {
+			return uv.Style{Fg: ansi.IndexedColor(n)}
+		}
+	}
+	return uv.Style{Fg: ansi.IndexedColor(244), Attrs: uv.AttrItalic}
+}
 
 // View renders one frame. A panic while drawing is recovered here rather
 // than by Bubble Tea, whose handler prints a stack trace over the session;
@@ -741,13 +761,17 @@ func (m *model) view() tea.View {
 	}
 	drawEmulator(m.canvas, emu, ox, ew, eh)
 	pos := emu.CursorPosition()
+	style := GhostStyle("")
+	if f := m.app.opt.GhostStyle; f != nil {
+		style = GhostStyle(f())
+	}
 	if sug := m.app.opt.Ctrl.Visible(); sug != "" {
 		if m.app.opt.PanicOnGhost {
 			panic("PanicOnGhost: simulated renderer failure")
 		}
-		drawGhost(m.canvas, ox+pos.X, pos.Y, ox+ew, sug)
+		drawGhost(m.canvas, ox+pos.X, pos.Y, ox+ew, sug, style)
 	} else if note := m.app.opt.Ctrl.Notice(); note != "" {
-		drawGhost(m.canvas, ox+pos.X, pos.Y, ox+ew, "  "+note)
+		drawGhost(m.canvas, ox+pos.X, pos.Y, ox+ew, "  "+note, style)
 	}
 	if m.app.panel.Load() && ew < m.w {
 		// lipgloss Layer.Draw ignores X/Y and repaints its whole area, so
@@ -782,8 +806,9 @@ func (m *model) view() tea.View {
 	return v
 }
 
-// drawGhost writes s dimmed from (x, y), clipped at the child's right edge.
-func drawGhost(scr uv.Screen, x, y, maxX int, s string) {
+// drawGhost writes s in style from (x, y), clipped at the child's right
+// edge.
+func drawGhost(scr uv.Screen, x, y, maxX int, s string, style uv.Style) {
 	g := uniseg.NewGraphemes(s)
 	for g.Next() {
 		cluster := g.Str()
@@ -791,7 +816,7 @@ func drawGhost(scr uv.Screen, x, y, maxX int, s string) {
 		if cluster == "\n" || x+w > maxX {
 			return
 		}
-		scr.SetCell(x, y, &uv.Cell{Content: cluster, Width: w, Style: ghostStyle})
+		scr.SetCell(x, y, &uv.Cell{Content: cluster, Width: w, Style: style})
 		x += w
 	}
 }

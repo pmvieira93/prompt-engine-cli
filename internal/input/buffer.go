@@ -18,7 +18,7 @@ type Buffer struct {
 	// slack: how many characters the text may lack, when it was read from
 	// a prompt spanning rows on the screen (State.Slack).
 	slack int
-	rev    uint64
+	rev   uint64
 	// pastes holds what was pasted since the prompt was last empty, so a
 	// rewrite can keep it exactly (PRD Appendix 1, FR-7.4e).
 	pastes []string
