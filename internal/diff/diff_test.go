@@ -73,3 +73,36 @@ func TestWordsHugeFallsBack(t *testing.T) {
 		t.Fatalf("got %d ops", len(ops))
 	}
 }
+
+func TestPrompt(t *testing.T) {
+	// Seen in testing: the dropped sentence lined up with the context.
+	old := "keep it short;\nthis is long enough to wrap"
+	rewrite := "Keep it short.\n\nContext:\n- Branch: main"
+	got := Prompt(old, rewrite)
+	last := got[len(got)-1]
+	if last.Kind != Insert || !strings.HasSuffix(last.Text, "\n\nContext:\n- Branch: main") {
+		t.Fatalf("context not added whole, at the end: %+v", got)
+	}
+	for _, op := range got[:len(got)-1] {
+		if strings.Contains(op.Text, "Branch") || strings.Contains(op.Text, "Context") {
+			t.Fatalf("context mixed into the words: %+v", got)
+		}
+	}
+	var o, n strings.Builder // the ops still rebuild both texts
+	for _, op := range got {
+		if op.Kind != Insert {
+			o.WriteString(op.Text)
+		}
+		if op.Kind != Delete {
+			n.WriteString(op.Text)
+		}
+	}
+	if o.String() != old || n.String() != rewrite {
+		t.Fatalf("ops rebuild %q / %q", o.String(), n.String())
+	}
+	// The same context on both sides is unchanged.
+	same := "Fix it.\n\nContext:\n- Branch: main"
+	if got := Prompt(same, same); len(got) != 1 || got[0].Kind != Equal {
+		t.Fatalf("unchanged prompt: %+v", got)
+	}
+}
