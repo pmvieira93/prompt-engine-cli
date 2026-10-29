@@ -418,3 +418,17 @@ func TestPromptTextAcrossRows(t *testing.T) {
 		}
 	}
 }
+
+func TestGhostStyle(t *testing.T) {
+	for name, want := range map[string]uv.Style{
+		"":          {Fg: ansi.IndexedColor(244), Attrs: uv.AttrItalic},
+		"italic":    {Fg: ansi.IndexedColor(244), Attrs: uv.AttrItalic},
+		"faint":     {Fg: ansi.IndexedColor(244), Attrs: uv.AttrFaint},
+		"color:117": {Fg: ansi.IndexedColor(117)},
+		"color:999": {Fg: ansi.IndexedColor(244), Attrs: uv.AttrItalic},
+	} {
+		if got := GhostStyle(name); !got.Equal(&want) {
+			t.Errorf("GhostStyle(%q) = %+v, want %+v", name, got, want)
+		}
+	}
+}

@@ -81,6 +81,7 @@ func TestLoadFileErrorsFallBackToDefaults(t *testing.T) {
 		"no prompts":   "expand:\n  context_prompts: 0\n",
 		"no pause":     "expand:\n  on_enter: preview\n  preview_pause: 0s\n",
 		"bad style":    "expand:\n  style: auto\n",
+		"bad ghost":    "ghost:\n  style: color:300\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -231,5 +232,17 @@ func TestLoadGuardDetails(t *testing.T) {
 	cfg, err = LoadFile(writeConfig(t, "panel:\n  guard_details: true\n"))
 	if err != nil || !cfg.Panel.GuardDetails {
 		t.Fatalf("guard_details = %v, %v", cfg.Panel.GuardDetails, err)
+	}
+}
+
+func TestLoadGhostStyle(t *testing.T) {
+	cfg, err := LoadFile(writeConfig(t, ""))
+	if err != nil || cfg.Ghost.Style != "italic" {
+		t.Fatalf("default ghost.style = %q, %v", cfg.Ghost.Style, err)
+	}
+	for _, style := range []string{"faint", "italic", "color:0", "color:244"} {
+		if cfg, err := LoadFile(writeConfig(t, "ghost:\n  style: \""+style+"\"\n")); err != nil || cfg.Ghost.Style != style {
+			t.Errorf("ghost.style %q: %q, %v", style, cfg.Ghost.Style, err)
+		}
 	}
 }

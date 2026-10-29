@@ -168,6 +168,58 @@ next:
 	return added
 }
 
+// droppedPart returns, shortened, a sentence or line of typed with at
+// least three content words none of which the rewrite has, or "". Seen in
+// testing: "…keep the answer short; this promtp is just long enough to
+// wrap onto a second row" lost its second sentence, and only "only", when
+// it was there, got the rewrite stopped. Words are compared by their first
+// four letters, so a fixed typo ("promtp" → "prompt") still counts.
+func droppedPart(typed, rewritten string) string {
+	key := func(w string) string {
+		if r := []rune(w); len(r) > 4 {
+			return string(r[:4])
+		}
+		return w
+	}
+	have := map[string]bool{}
+	for _, w := range words(strings.ToLower(rewritten)) {
+		have[key(w)] = true
+	}
+	for _, part := range sentence.Split(typed, -1) {
+		content, kept := 0, false
+		for _, w := range words(strings.ToLower(part)) {
+			if len(w) < 3 || stopWords[w] {
+				continue
+			}
+			content++
+			kept = kept || have[key(w)]
+		}
+		if content >= 3 && !kept {
+			return shortPart(strings.TrimSpace(part))
+		}
+	}
+	return ""
+}
+
+// sentence splits a prompt into its sentences and lines.
+var sentence = regexp.MustCompile(`\n+|[.;:?!]+(\s+|$)`)
+
+// stopWords don't show whether a part of a prompt was kept.
+var stopWords = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "this": true, "that": true, "these": true, "those": true,
+	"are": true, "was": true, "were": true, "you": true, "your": true, "can": true, "but": true, "from": true,
+	"into": true, "onto": true, "just": true, "also": true, "then": true, "them": true, "they": true, "have": true,
+	"has": true, "its": true, "our": true, "out": true, "all": true, "any": true, "please": true, "pls": true,
+}
+
+// shortPart cuts a part to about 40 characters for a reason.
+func shortPart(s string) string {
+	if r := []rune(s); len(r) > 40 {
+		return strings.TrimSpace(string(r[:40])) + "…"
+	}
+	return s
+}
+
 // isQuestion reports whether typed asks something rather than asks for
 // something to be done.
 func isQuestion(typed string) bool {
@@ -285,6 +337,9 @@ func Check(typed, rewritten string, earlier ...string) *Stop {
 		}
 	} else if added := addedTasks(typed, rewritten); len(added) > 0 {
 		return stop("added-task", list(added, ", "), "the rewrite added a task you didn't ask for ("+list(added, ", ")+")")
+	}
+	if part := droppedPart(typed, rewritten); part != "" {
+		return stop("dropped-part", "“"+part+"”", "the rewrite dropped part of what you typed (“"+part+"”)")
 	}
 	if n, m := negations(typed), negations(rewritten); n != m {
 		return stop("negation", fmt.Sprintf("negations %d → %d", n, m), "the rewrite changed a negation (not, never, without, only…)")
