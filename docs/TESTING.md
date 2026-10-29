@@ -388,7 +388,6 @@ The model's wording varies, so judge whether a suggestion is a sensible continua
 | F5 | Ctrl+U, type `why does the ghost text ` (ending with a space) and stop | The suggestion starts with a word, with no double space |
 | F6 | Type quickly without pausing | No suggestions while typing; one appears only after you stop. Typing never lags |
 | F7 | Look at the times in the `suggestion shown` lines | Mostly 50–300 ms |
-| F8 | Ctrl+U, type `it still fails, same error message, same code, same environment`, then accept each suggestion (→) as it appears | The list grows for a few suggestions, then they stop, rather than cycling through the same items again. Log: `suggestion dropped rev=… "…" repeats the prompt` |
 
 ### F8: Ollama stopped
 
@@ -419,7 +418,6 @@ Type `refa` and stop.
 
 ### F10: Suggestions turned off
 
-```sh
 Run these three lines one by one. The first empties the log, so lines from earlier tests can't be mistaken for this one:
 
 ```sh
@@ -432,7 +430,42 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-off.ya
 
 If the first line names a different config, or says `defaults`, the setting didn't reach `prompt-engine`: check that `--pe-config …` is part of the command.
 
-**Cleanup:** `rm -f /tmp/pe-nofim.yaml /tmp/pe-off.yaml`, and `brew services start ollama` if you left it stopped.
+### F11: Suggestions that repeat the prompt
+
+Start it normally (Ollama running), as for F1:
+
+```sh
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+Type `it still fails, same error message, same code, same environment`, then accept each suggestion (→) as it appears.
+
+**Expected:** the list grows for a few suggestions, then they stop, rather than cycling through the same items again. Log: `suggestion dropped rev=… "…" repeats the prompt`
+
+### F12: Ghost text style
+
+```sh
+printf 'ghost:\n  style: faint\n' > /tmp/pe-ghost.yaml
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-ghost.yaml
+```
+
+While it runs, edit `/tmp/pe-ghost.yaml`, save, then type `refa` and stop after each change. `style` takes one value on one line (`color:117`, no space after the colon, not a nested `color:` key):
+
+```yaml
+ghost:
+  style: faint      # then italic, then color:117, then color:300
+```
+
+| Value | Expected |
+|---|---|
+| `italic` (also the default, with no `ghost:` key) | Grey italic, so it can't be mistaken for `claude`'s own grey placeholder (`Try "…"`), which is upright and only shows in an empty box |
+| `faint` | Dimmed and upright (the look before `ghost.style`) |
+| `color:117` | Light blue |
+| `color:300` | Not applied; the previous style stays |
+
+Log, for each valid value: `config: reloaded /tmp/pe-ghost.yaml; applied: ghost; needs a restart: none`. For `color:300`: `config: invalid …: ghost.style must be "faint", "italic" or "color:N" (0-255), got "color:300"; keeping the previous settings`.
+
+**Cleanup:** `rm -f /tmp/pe-nofim.yaml /tmp/pe-off.yaml /tmp/pe-ghost.yaml`, and `brew services start ollama` if you left it stopped.
 
 ---
 
@@ -771,6 +804,7 @@ Open the panel (Ctrl+Q, then p), so the prompt box is narrower and long prompts 
 | O6 | Press **↑** | Log: `buffer resynced from screen "…\n\nContext:\n- Branch: …" (read from … rows; …)`, the line breaks included |
 | O7 | **Ctrl+Q**, **e** | Rewritten with nothing left over (the old `Context:` lines are replaced, not added to). **Ctrl+C** |
 | O8 | Ctrl+C, send a short prompt such as `say hi` (harmless), then type `fix` and press ↑ | `claude` replaces `fix` with `say hi`, and the log shows it without `read from … rows`: a one-row prompt is read exactly, as before |
+| O9 | Ctrl+C. Type `say hello in three words, and keep the answer short; this prompt is just long enough to wrap onto a second row` and stop | Usually `No rewrite suggested`: the model drops the second sentence, and `dropped-part` stops it (with `panel.guard_details`: `Guard dropped-part: "this prompt is just long enough to wrap…"`). If the model keeps both sentences, a suggestion is offered |
 
 **Cleanup:** `rm -f /tmp/pe-auto.yaml`.
 
@@ -793,6 +827,7 @@ Open the panel (Ctrl+Q, then p), so the prompt box is narrower and long prompts 
 | In auto mode, typing while `⟳ expanding…` shows cancels the send, so you press Enter again (and it expands again) | Anything typed after Enter would otherwise go into a prompt that's about to be replaced |
 | Around a paste, a typo can come back wrong (seen: `what does this, just answr:` → `just ansr:`, every time) | Typo-only rewrites keep nearly every word, so no word check can tell a bad fix from a good one; with the missing word (`what does this print, just answr:`) it was fixed |
 | On short prompts, the rewrite styles often give the same text | The styles mostly change tone and length: a short request has little of either to change. Compare them on a polite or several-part prompt (N2, N5, N6) |
+| Grey text in an empty prompt (`Try "…"`) is `claude`'s placeholder, not a suggestion | Recorded with `claude` 2.1.308: it shows only while the box is empty, dim and upright, and → or Tab don't take it. After a reply, `claude` showed no suggestion of its own. `prompt-engine`'s ghost text shows only after you type, in grey italic, with a `suggestion shown` line in the log |
 | In preview mode, the expansion model runs after every pause in typing | That's what prepares the suggestion. It's cancelled as soon as you type again, but it uses CPU while it runs; use `off` or a longer `expand.preview_pause` to run it less |
 | A paste that you then edit counts as typed text, so it can be rewritten | The kept parts are found by their exact pasted text |
 | A long paste that `claude` shows as `[Pasted text #1 +N lines]` is never rewritten if the prompt was re-read from the screen | The screen only has the placeholder, not the text |
