@@ -1,9 +1,9 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.6.0  
-**Date:** 2026-10-28  
-**Status:** Built in Phase 4.5 (FR-6.1, FR-7.1 to FR-7.6); FR-6.2 and FR-6.3 are later candidates
+**Appendix Version:** 1.8.0  
+**Date:** 2026-10-29  
+**Status:** Built in Phase 4.5 (FR-6.1, FR-7.1 to FR-7.6, with FR-7.4f); FR-6.2 and FR-6.3 are later candidates
 
 ---
 
@@ -88,6 +88,7 @@ A setting for when expansion runs:
   * changes the number of negations (*not, never, without, only…*). Rewording is fine: "don't touch the tests" → "without changing the tests";
   * adds a destructive action the developer didn't ask for (*delete, remove, reset, force, push…*);
   * turns a question into an instruction ("and what about multi line prompts" → "Can you handle multi-line prompts?");
+  * adds a task to a prompt that asked for none: a report, or a request with a verb not in the list (*fix, ensure, check, investigate…*). Seen: "it still fais" → "Fix the error in the sentence: it still fails."; a list of "same …" → "Ensure the "hello" message is displayed…", taken from an earlier prompt. A typed word with the same first three letters counts, so a typo'd verb ("refactr") isn't a new task. It's checked before the negations, since such rewrites often add one too ("Ensure the code runs **without** errors");
   * changes quoted or `code` text (this one applies to the shortcut too);
   * changes the language. Seen: Portuguese and Spanish prompts came back in English. `prompt-engine` detects the language and names it in the request when it isn't English, since naming languages in the instructions made the model translate English prompts;
   * brings in details from earlier prompts when the request doesn't refer back to them. Seen: "Don't touch the tests or the config loader." added to an unrelated request;
@@ -116,12 +117,14 @@ A setting for when expansion runs:
   * A question at the end of a prompt ("…, can you fix it") counts as a question, so a rewrite that adds its "?" isn't stopped.
   * Typo fixes kept the markers in every test, and fixed 7 of 8 prompts; one (`what does this, just answr:`) came back as `just ansr:` every time. Like the RFCator case, no word-based check can catch it.
   * Not handled: a paste edited afterwards counts as typed; a long paste that `claude` shows as `[Pasted text #1 +N lines]` is not rewritten if the prompt text came from the screen.
-* **FR-7.5:** The history log (FR-5.4) records whether a prompt was auto-expanded, and whether a guard rail stopped it.
+* **FR-7.4f:** Each guard rail has a short name, used in the log and the history (`guard`): `empty`, `placeholder`, `asked-back`, `language`, `names`, `quotes`, `destructive`, `question`, `added-task`, `negation`, `earlier-prompts`, `length`, `replaced`, and `pastes` (a marker dropped or moved). With `panel.guard_details: true` (default off), the panel also shows, in two short lines, the guard and what tripped it, then the start of the rewrite it stopped (`Guard added-task: ensure, check` / `Rejected: "Ensure the code runs…"`), for preview suggestions and for prompts auto mode sent as typed. A first version with the full reason and the whole rewrite was too long for the panel. The log always has both in full.
+* **FR-7.5:** The history log (FR-5.4) records whether a prompt was auto-expanded, whether a guard rail stopped it, and which (`guard`); with `history.include_text`, also the rewrite it stopped (`rejected`).
 * **FR-7.6:** `preview` mode, for when `auto` is too blunt. As built:
   * After a pause in typing (`expand.preview_pause`, default 1 s), the rewrite is prepared in the background; typing again cancels it.
   * The panel shows it as "Suggested rewrite (not used yet)", or "No rewrite suggested" with the reason. With the panel closed, a notice at the cursor says a rewrite is ready.
   * The expand shortcut (Ctrl+Q, then e) applies a ready suggestion at once, so no new key is needed; without one it expands as before. Enter always sends what was typed.
   * Suggestions pass the same guard rails as `auto` (FR-7.4 to FR-7.4e), so what is offered is what `auto` would send.
+  * A rewrite a guard rail stops gets one more try: the model gives a different rewrite each time, and in testing one try in three turned a report into a task where the next didn't. `auto` doesn't retry, since Enter is held while it runs.
   * Cost: the expansion model runs after every pause, about 1 s each with `qwen2.5:7b`.
 
 ### 3.3 Risks
