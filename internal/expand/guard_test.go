@@ -38,6 +38,14 @@ func TestGuard(t *testing.T) {
 		{"it still fails, same error message, same code, same environment, same machine, same operating system,",
 			`Ensure the "hello" message is displayed using three words. It still fails with the same error message, code, environment, machine, and operating system.`, true},
 		{"the tracker loses sync after a paste", "Investigate why the tracker loses sync after a paste.", true},
+		// A whole sentence dropped (seen in Part O).
+		{"say hello in three words, and keep the answer short;\nthis promtp is just long enough to wrap onto a second row",
+			"Say hello in three words, and keep the answer short.", true},
+		{"say hello in three words, and keep the answer short; this prompt is just long enough to wrap onto a second row",
+			"Say hello in three words; keep the answer short.", true},
+		// Sentences merged or reworded keep something of each.
+		{"fix the login bug. dont touch the api", "Fix the login bug without changing the API.", false},
+		{"add a retry to the client. make it exponential with max 5 attempts", "Add an exponential retry with at most 5 attempts to the client.", false},
 		// A typo in the verb isn't a new task.
 		{"refactr the paresr to use a lookup tabel", "Refactor the parser to use a lookup table.", false},
 		{"updte the readme", "Update the README.", false},
