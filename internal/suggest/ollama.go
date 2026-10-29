@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -56,8 +57,18 @@ func (o *Ollama) Suggest(ctx context.Context, text string, cursor int) (string, 
 	if err != nil {
 		return "", err
 	}
-	return clean(text, out), nil
+	out = clean(text, out)
+	if repeats(text, out) {
+		return "", &RepeatError{Suggestion: out}
+	}
+	return out, nil
 }
+
+// RepeatError is returned instead of a suggestion that repeats the prompt
+// (see repeats), so it can be logged.
+type RepeatError struct{ Suggestion string }
+
+func (e *RepeatError) Error() string { return fmt.Sprintf("%q repeats the prompt", e.Suggestion) }
 
 // Warm loads the model so the first suggestion isn't delayed by it.
 func (o *Ollama) Warm(ctx context.Context) error {
@@ -123,4 +134,47 @@ func clean(text, out string) string {
 		out = strings.TrimLeft(out, " ")
 	}
 	return out
+}
+
+// repeats reports whether at least two of the three-word runs within out,
+// and at least half, are already in text. Seen in testing: asked to
+// continue a list ("it still fails, same error message, same code, same
+// environment, …"), the model cycled through the same items again, and
+// accepting each suggestion grew the prompt in a loop. Only runs of out's
+// own words count: runs that start in text made " dependencies, same
+// code, same environment," look mostly new. A parallel phrase ("add tests
+// for the parser, then add tests" + " for the lexer") has a single run
+// within out, so it's kept. Words are compared by their first four letters, so a
+// typo doesn't hide a repeat: "environemtent" typed, "environment"
+// suggested.
+func repeats(text, out string) bool {
+	words := func(s string) []string {
+		ws := strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		})
+		for i, w := range ws {
+			if r := []rune(w); len(r) > 4 {
+				ws[i] = string(r[:4])
+			}
+		}
+		return ws
+	}
+	typed, all := words(text), words(text+out)
+	first := len(typed) // index in all of the first word out adds to
+	if t := []rune(text); len(t) > 0 && (unicode.IsLetter(t[len(t)-1]) || unicode.IsDigit(t[len(t)-1])) {
+		first-- // a word out finishes ("refa" + "ctor") counts as added
+		typed = typed[:max(0, len(typed)-1)]
+	}
+	seen := map[[3]string]bool{}
+	for i := 2; i < len(typed); i++ {
+		seen[[3]string{typed[i-2], typed[i-1], typed[i]}] = true
+	}
+	var added, again int
+	for i := max(2, first+2); i < len(all); i++ {
+		added++
+		if seen[[3]string{all[i-2], all[i-1], all[i]}] {
+			again++
+		}
+	}
+	return again >= 2 && 2*again >= added
 }

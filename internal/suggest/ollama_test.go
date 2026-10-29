@@ -118,3 +118,38 @@ func TestClean(t *testing.T) {
 		}
 	}
 }
+
+func TestRepeats(t *testing.T) {
+	// The suggestions seen in testing, accepted one after another.
+	text := "it still fails, same error message, same code, same environment"
+	steps := []struct {
+		out  string
+		keep bool
+	}{
+		{", same machine, same operating system,", true},
+		{" same Python version, same libraries, same", true},
+		{" dependencies, same code, same environment,", false}, // seen in the retest: let through before
+		{" same machine, same operating system, same", false},
+		{" Python version, same libraries, same dependencies", false},
+	}
+	for _, st := range steps {
+		if repeats(text, st.out) == st.keep {
+			t.Errorf("repeats(…%q, %q) = %v, want %v", text[max(0, len(text)-30):], st.out, !st.keep, !st.keep)
+		}
+		text += st.out
+	}
+	// A typo in the prompt doesn't hide a repeat (seen in testing).
+	typo := "it still fails, same error mesage, same code same environemtent, same python version, same OS, same libraries, same code"
+	if !repeats(typo, ", same environment, same python version,") {
+		t.Error("kept a suggestion that repeats the prompt but for a typo")
+	}
+	for _, tc := range []struct{ text, out string }{
+		{"refa", "ctor the parser"}, // finishing a word
+		{"fix the bug in the parser and the", " lexer"},
+		{"add tests for the parser, then add tests", " for the lexer"},
+	} {
+		if repeats(tc.text, tc.out) {
+			t.Errorf("repeats(%q, %q): dropped a new suggestion", tc.text, tc.out)
+		}
+	}
+}
