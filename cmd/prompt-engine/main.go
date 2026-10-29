@@ -177,7 +177,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 	setStatus := func(cfg config.Config, cfgErr error, note string) {
 		src, llm := describeConfig(cfg, cfgErr)
 		lines := []string{"config:      " + src, "suggestions: " + llm,
-			fmt.Sprintf("expansion:   %s on Enter, model %s", cfg.Expand.OnEnter, cfg.LLM.ExpandModel)}
+			fmt.Sprintf("expansion:   %s on Enter, style %s, model %s", cfg.Expand.OnEnter, cfg.Expand.Style, cfg.LLM.ExpandModel)}
 		if note != "" {
 			lines = append(lines, note)
 		}
@@ -192,6 +192,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				msg := strings.ReplaceAll(err.Error(), "\n", " ")
 				logf("config: %s; keeping the previous settings", msg)
 				setStatus(*live.Load(), nil, "last edit rejected: "+msg)
+				ctrl.Redraw()
 				return
 			}
 			prev := live.Swap(&next)
@@ -204,7 +205,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				ctrl.SetKeys(bindings(next.Keys))
 				applied = append(applied, "keys")
 			}
-			if next.Panel.Side != prev.Panel.Side || next.Panel.Width != prev.Panel.Width {
+			if next.Panel.Side != prev.Panel.Side || next.Panel.Width != prev.Panel.Width || next.Panel.GuardDetails != prev.Panel.GuardDetails {
 				applied = append(applied, "panel")
 			}
 			if next.Expand != prev.Expand {
@@ -232,6 +233,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				note = "needs a restart: " + listOrNone(restart)
 			}
 			setStatus(next, nil, note)
+			ctrl.Redraw() // the panel shows the new status, and hides a preview of another style
 		})
 	}
 
@@ -257,9 +259,10 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		sync.Mutex
 		running            bool
 		original, expanded string
+		style              string // of expanded, for the history
 	}
 	var autoExpand func(context.Context, context.CancelFunc, config.Config, input.State, expand.Plan)
-	var readyPreview func(input.State) string // a prepared rewrite for the prompt, or
+	var readyPreview func(input.State) (string, string) // a prepared rewrite for the prompt and its style, or
 	if cfg.Expand.OnEnter != "off" {
 		go warmExpander(ctx, cfg, logf) // so the first rewrite isn't slowed by loading it
 	}
@@ -274,14 +277,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			logf("expand: already expanding")
 			return
 		}
-		if out := readyPreview(s); out != "" {
+		if out, style := readyPreview(s); out != "" {
 			expansion.Unlock()
 			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
 				logf("expand: preview not applied: %v", err)
 				return
 			}
 			expansion.Lock()
-			expansion.original, expansion.expanded = s.Text, out
+			expansion.original, expansion.expanded, expansion.style = s.Text, out, style
 			expansion.Unlock()
 			logf("expand: used the preview: replaced %q with %q", s.Text, out)
 			return
@@ -312,7 +315,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			ectx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
 			defer cancel()
 			start := time.Now()
-			masked, err := expandPrompt(ectx, *cfg, plan, earlierPrompts())
+			masked, style, err := expandPrompt(ectx, *cfg, plan, earlierPrompts())
 			if err != nil {
 				logf("expand: failed: %v", err)
 				return
@@ -333,9 +336,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				return
 			}
 			expansion.Lock()
-			expansion.original, expansion.expanded = s.Text, out
+			expansion.original, expansion.expanded, expansion.style = s.Text, out, style
 			expansion.Unlock()
-			logf("expand: replaced %q with %q (%s)", s.Text, out, time.Since(start).Round(time.Millisecond))
+			logf("expand: replaced %q with %q (%s, style %s)", s.Text, out, time.Since(start).Round(time.Millisecond), style)
 		}()
 	}
 	ctrl.OnUndo = func(s input.State) {
@@ -360,19 +363,25 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 	// auto mode, so what's offered is what auto mode would send.
 	var preview struct {
 		sync.Mutex
-		text    string // the prompt the preview is for
-		out     string // its rewrite, or "" if there is none
-		reason  string // why there is none
-		pending bool   // being prepared
-		cancel  context.CancelFunc
+		text     string // the prompt the preview is for
+		out      string // its rewrite, or "" if there is none
+		reason   string // why there is none
+		style    string // out's style (expand.Expander.StyleName)
+		asked    string // expand.style when it was prepared
+		guard    string // the guard rail that stopped the rewrite, if one did
+		detail   string // what tripped it (expand.Stop.Detail)
+		rejected string // the rewrite it stopped
+		pending  bool   // being prepared
+		cancel   context.CancelFunc
 	}
-	readyPreview = func(s input.State) string {
+	readyPreview = func(s input.State) (string, string) {
 		preview.Lock()
 		defer preview.Unlock()
-		if !s.Synced || preview.pending || preview.text != s.Text {
-			return ""
+		// A style changed by a reload since makes it stale.
+		if !s.Synced || preview.pending || preview.text != s.Text || preview.asked != live.Load().Expand.Style {
+			return "", ""
 		}
-		return preview.out
+		return preview.out, preview.style
 	}
 	preparePreview := func() {
 		cfg := live.Load()
@@ -381,13 +390,15 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		expanded := expansion.expanded != "" && s.Text == expansion.expanded
 		expansion.Unlock()
 		preview.Lock()
-		if cfg.Expand.OnEnter != "preview" || preview.text == s.Text { // ready, or being prepared
+		if cfg.Expand.OnEnter != "preview" || preview.text == s.Text && preview.asked == cfg.Expand.Style { // ready, or being prepared
 			preview.Unlock()
 			return
 		}
 		show := s.Synced && !expanded && rules.SkipReason(s) == "" && len(strings.Fields(s.Text)) >= cfg.Expand.MinWords
 		plan := expand.PlanRewrite(s.Text, s.Pastes)
 		preview.text, preview.out, preview.reason, preview.pending = s.Text, "", "", false
+		preview.style, preview.asked = "", cfg.Expand.Style
+		preview.guard, preview.detail, preview.rejected = "", "", ""
 		switch {
 		case !show:
 			preview.text = "" // nothing to offer: the panel shows the last prompt sent
@@ -401,41 +412,58 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			ctrl.Redraw()
 			return
 		}
-		pctx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
+		pctx, cancel := context.WithCancel(ctx)
 		preview.pending, preview.cancel = true, cancel
 		preview.Unlock()
 		ctrl.Redraw()
 
+		// The model gives a different rewrite on another try: in testing,
+		// one try in three turned "it still fails, same …" into a task,
+		// and the next was fine. So a stopped rewrite gets a second try.
 		start := time.Now()
 		earlier := earlierPrompts()
-		masked, err := expandPrompt(pctx, *cfg, plan, earlier)
-		cancelled := pctx.Err() == context.Canceled
-		cancel()
-		var out, reason string
-		switch {
-		case cancelled:
-			return // typing resumed: a newer preview is on its way
-		case err != nil:
-			reason = "the rewrite failed: " + err.Error()
-		default:
-			if reason = expand.Guard(plan.Masked, masked, earlier...); reason == "" {
-				if out, err = plan.Restore(masked); err != nil {
-					reason = err.Error()
-				}
+		var out, reason, style, guard, detail, rejected string
+		for try := 1; try <= 2; try++ {
+			tctx, tcancel := context.WithTimeout(pctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
+			masked, st, err := expandPrompt(tctx, *cfg, plan, earlier)
+			tcancel()
+			if pctx.Err() != nil {
+				cancel()
+				return // typing resumed: a newer preview is on its way
+			}
+			style = st
+			if err != nil {
+				reason, guard, detail, rejected = "the rewrite failed: "+err.Error(), "", "", ""
+				break
+			}
+			var stop *expand.Stop
+			if out, stop = review(plan, masked, earlier); stop == nil {
+				reason, guard, detail, rejected = "", "", "", ""
+				break
+			}
+			reason, guard, detail, rejected = stop.Reason, stop.Guard, stop.Detail, expand.StripContext(masked)
+			if try == 1 {
+				logf("expand: preview rewrite %q stopped by guard %s (%s); asking again", rejected, guard, reason)
 			}
 		}
+		cancel()
 		preview.Lock()
 		if preview.text != s.Text || !preview.pending {
 			preview.Unlock()
 			return
 		}
 		preview.out, preview.reason, preview.pending, preview.cancel = out, reason, false, nil
+		preview.style, preview.guard, preview.detail, preview.rejected = style, guard, detail, rejected
 		preview.Unlock()
 		took := time.Since(start).Round(time.Millisecond)
 		if out == "" {
-			logf("expand: no preview for %q: %s (%s)", plan.Masked, reason, took)
+			rejectedBy := ""
+			if guard != "" {
+				rejectedBy = fmt.Sprintf("; guard %s rejected %q", guard, rejected)
+			}
+			logf("expand: no preview for %q: %s (%s)%s", plan.Masked, reason, took, rejectedBy)
 		} else {
-			logf("expand: preview ready for %q: %q (%s)", s.Text, out, took)
+			logf("expand: preview ready for %q: %q (%s, style %s)", s.Text, out, took, style)
 			if !ctrl.PanelOpen() {
 				k := ctrl.CurrentKeys()
 				flashNotice(ctrl, fmt.Sprintf("✎ rewrite ready · %s then %s uses it, %s then %s shows it", k.Leader, k.Expand, k.Leader, k.Panel))
@@ -473,8 +501,11 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		pending, escaped bool
 		cancel           context.CancelFunc
 		// For the record of the next prompt sent.
-		ran     bool
-		stopped string
+		ran      bool
+		stopped  string
+		guard    string // the guard rail that stopped the rewrite, if one did
+		detail   string // what tripped it (expand.Stop.Detail)
+		rejected string // the rewrite it stopped
 	}
 	ctrl.KeyHook = func(k input.Key, s input.State) bool {
 		auto.Lock()
@@ -517,7 +548,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		ctrl.SetNotice("⟳ expanding…")
 		start := time.Now()
 		earlier := earlierPrompts()
-		masked, err := expandPrompt(actx, cfg, plan, earlier)
+		masked, style, err := expandPrompt(actx, cfg, plan, earlier)
 		ctrl.SetNotice("")
 
 		auto.Lock()
@@ -529,18 +560,16 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		auto.pending, auto.escaped = false, false
 		auto.Unlock()
 
-		var reason, out string
+		var reason, out, guard, detail, rejected string
 		switch {
 		case escaped:
 			reason = "you pressed Esc"
 		case err != nil:
 			reason = "expansion failed: " + err.Error()
 		default:
-			// The guards see what the model rewrote, pastes as markers.
-			if reason = expand.Guard(plan.Masked, masked, earlier...); reason == "" {
-				if out, err = plan.Restore(masked); err != nil {
-					reason = err.Error()
-				}
+			var stop *expand.Stop
+			if out, stop = review(plan, masked, earlier); stop != nil {
+				reason, guard, detail, rejected = stop.Reason, stop.Guard, stop.Detail, expand.StripContext(masked)
 			}
 		}
 		if reason == "" {
@@ -548,22 +577,25 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				reason = "couldn't replace the prompt: " + err.Error()
 			} else {
 				expansion.Lock()
-				expansion.original, expansion.expanded = s.Text, out
+				expansion.original, expansion.expanded, expansion.style = s.Text, out, style
 				expansion.Unlock()
 				auto.Lock()
-				auto.ran, auto.stopped = true, ""
+				auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected = true, "", "", "", ""
 				auto.Unlock()
 				if err := ctrl.Submit(tracker.Snapshot().Rev, out); err != nil {
 					logf("expand: auto expansion not sent: %v", err)
 					return
 				}
-				logf("expand: auto expanded and sent %q (%s)", out, time.Since(start).Round(time.Millisecond))
+				logf("expand: auto expanded and sent %q (%s, style %s)", out, time.Since(start).Round(time.Millisecond), style)
 				return
 			}
 		}
+		if guard != "" {
+			reason = "guard " + guard + ": " + reason
+		}
 		logf("expand: auto rewrite %q not used (%s); sending as typed", masked, reason)
 		auto.Lock()
-		auto.ran, auto.stopped = true, reason
+		auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected = true, reason, guard, detail, rejected
 		auto.Unlock()
 		if err := ctrl.Submit(s.Rev, s.Text); err != nil {
 			logf("expand: not sent: %v", err)
@@ -592,13 +624,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		sub := history.Submission{Time: time.Now(), Raw: s.Text, Sent: s.Text, Rules: appended != ""}
 		expansion.Lock()
 		if expansion.expanded != "" && s.Text == expansion.expanded {
-			sub.Raw, sub.Expanded = expansion.original, true
+			sub.Raw, sub.Expanded, sub.Style = expansion.original, true, expansion.style
 		}
-		expansion.original, expansion.expanded = "", ""
+		expansion.original, expansion.expanded, expansion.style = "", "", ""
 		expansion.Unlock()
 		auto.Lock()
-		sub.Auto, sub.Stopped = auto.ran, auto.stopped
-		auto.ran, auto.stopped = false, ""
+		sub.Auto, sub.Stopped, sub.Guard, sub.GuardDetail, sub.Rejected = auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected
+		auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected = false, "", "", "", ""
 		auto.Unlock()
 		if appended != "" {
 			sub.Sent += rules.Separator + appended
@@ -620,9 +652,10 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 	previewDiff := func() *tui.Diff {
 		s := tracker.Snapshot()
 		preview.Lock()
-		text, out, reason, pending := preview.text, preview.out, preview.reason, preview.pending
+		text, out, reason, pending, asked := preview.text, preview.out, preview.reason, preview.pending, preview.asked
+		guard, detail, rejected := preview.guard, preview.detail, preview.rejected
 		preview.Unlock()
-		if live.Load().Expand.OnEnter != "preview" || !s.Synced || text == "" || text != s.Text {
+		if ec := live.Load().Expand; ec.OnEnter != "preview" || ec.Style != asked || !s.Synced || text == "" || text != s.Text {
 			return nil
 		}
 		k := ctrl.CurrentKeys()
@@ -630,8 +663,12 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		case pending:
 			return &tui.Diff{Title: "Preparing a rewrite…", Ops: diff.Words(text, text)}
 		case out == "":
+			notes := []string{"Not offered: " + reason + "."}
+			if guard != "" && live.Load().Panel.GuardDetails {
+				notes = guardNotes("Guard ", guard, detail, rejected)
+			}
 			return &tui.Diff{Title: "No rewrite suggested", Ops: diff.Words(text, text),
-				Notes: []string{"Not offered: " + reason + ".", "Enter sends what you typed."}}
+				Notes: append(notes, "Enter sends what you typed.")}
 		}
 		return &tui.Diff{
 			Title: "Suggested rewrite (not used yet)",
@@ -677,7 +714,10 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			note += " · rules added"
 		}
 		notes := []string{note}
-		if sub.Stopped != "" {
+		switch {
+		case sub.Guard != "" && live.Load().Panel.GuardDetails:
+			notes = append(notes, guardNotes("Sent as typed · guard ", sub.Guard, sub.GuardDetail, sub.Rejected)...)
+		case sub.Stopped != "":
 			notes = append(notes, "Sent as typed: the automatic rewrite wasn't used ("+sub.Stopped+").")
 		}
 		return &tui.Diff{Title: "Last prompt sent", Ops: ops, Notes: notes}
@@ -802,11 +842,50 @@ func bindings(k config.KeysConfig) ghost.Keys {
 	}
 }
 
+// review checks a rewrite of plan.Masked with the guard rails (PRD
+// Appendix 1, FR-7.4) and puts the kept parts back: the prompt to use, or
+// what stopped it.
+func review(plan expand.Plan, masked string, earlier []string) (string, *expand.Stop) {
+	if stop := expand.Check(plan.Masked, masked, earlier...); stop != nil {
+		return "", stop
+	}
+	out, err := plan.Restore(masked)
+	if err != nil {
+		return "", &expand.Stop{Guard: "pastes", Reason: err.Error()}
+	}
+	return out, nil
+}
+
+// guardNotes are the panel's lines for a rewrite a guard rail stopped,
+// with panel.guard_details, kept short: the guard and what tripped it
+// ("Guard added-task: ensure, check"), then the start of the rewrite.
+// The log has both in full.
+func guardNotes(prefix, guard, detail, rejected string) []string {
+	line := prefix + guard
+	if detail != "" {
+		line += ": " + detail
+	}
+	return []string{line, "Rejected: “" + shorten(strings.Join(strings.Fields(rejected), " "), 50) + "”"}
+}
+
+// shorten cuts text to about n runes at a word boundary, marking the cut.
+func shorten(text string, n int) string {
+	r := []rune(text)
+	if len(r) <= n {
+		return text
+	}
+	cut := string(r[:n])
+	if i := strings.LastIndex(cut, " "); i > n/2 {
+		cut = cut[:i]
+	}
+	return strings.TrimRight(cut, " ,.;:") + "…"
+}
+
 // expandPrompt rewrites plan.Masked with the configured model and appends
 // git context for the working directory; the caller restores the kept
 // parts. With the fake provider it uses a fixed, offline rewrite, so tests
 // are repeatable.
-func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, earlier []string) (string, error) {
+func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, earlier []string) (rewrite, style string, err error) {
 	text := plan.Masked
 	dir, _ := os.Getwd()
 	provider := cfg.LLM.Provider
@@ -821,8 +900,10 @@ func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, earl
 		TemplatesDir: templates,
 		Context:      expand.GitContext(dir),
 		Earlier:      func() []string { return earlier },
+		Style:        cfg.Expand.Style,
 		TypoOnly:     plan.TypoOnly,
 	}
+	style = e.StyleName()
 	if provider == "fake" {
 		lines := e.Context(ctx)
 		out := "Please " + expand.StripContext(text) + "."
@@ -832,9 +913,10 @@ func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, earl
 		if len(lines) > 0 {
 			out += "\n\nContext:\n- " + strings.Join(lines, "\n- ")
 		}
-		return out, nil
+		return out, style, nil
 	}
-	return e.Expand(ctx, text)
+	rewrite, err = e.Expand(ctx, text)
+	return rewrite, style, err
 }
 
 // suggesterFor returns the suggester cfg asks for, or nil when

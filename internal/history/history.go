@@ -22,9 +22,14 @@ type Submission struct {
 	Raw      string // what the user typed
 	Sent     string // what the CLI received
 	Expanded bool   // Raw was rewritten by expansion
+	Style    string // the rewrite's style, when Expanded (expand.Expander.StyleName)
 	Rules    bool   // rules were appended
 	Auto     bool   // expansion ran automatically on Enter
 	Stopped  string // why an automatic rewrite wasn't used, if it wasn't
+	Guard    string // the guard rail that stopped it, if one did (expand.Stop)
+	// GuardDetail is what tripped it, for the panel; not recorded.
+	GuardDetail string
+	Rejected    string // the rewrite it stopped
 }
 
 // Diff compares what was typed with what was sent.
@@ -41,11 +46,14 @@ type record struct {
 	WordsAdded   int       `json:"words_added"`
 	WordsRemoved int       `json:"words_removed"`
 	Expanded     bool      `json:"expanded"`
+	Style        string    `json:"style,omitempty"`
 	Rules        bool      `json:"rules"`
 	Auto         bool      `json:"auto,omitempty"`
 	Stopped      string    `json:"stopped,omitempty"`
+	Guard        string    `json:"guard,omitempty"`
 	Raw          string    `json:"raw,omitempty"`
 	Sent         string    `json:"sent,omitempty"`
+	Rejected     string    `json:"rejected,omitempty"`
 }
 
 // Log appends submissions to a JSON Lines file.
@@ -82,12 +90,14 @@ func (l *Log) Append(s Submission) error {
 		WordsAdded:   added,
 		WordsRemoved: removed,
 		Expanded:     s.Expanded,
+		Style:        s.Style,
 		Rules:        s.Rules,
 		Auto:         s.Auto,
 		Stopped:      s.Stopped,
+		Guard:        s.Guard,
 	}
 	if l.IncludeText {
-		r.Raw, r.Sent = s.Raw, s.Sent
+		r.Raw, r.Sent, r.Rejected = s.Raw, s.Sent, s.Rejected
 	}
 	line, err := json.Marshal(r)
 	if err != nil {
