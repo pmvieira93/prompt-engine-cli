@@ -809,13 +809,13 @@ func logStartup(logf func(string, ...any), cfg config.Config, cfgErr error) {
 // describeConfig says where cfg came from and what suggestions it gives,
 // for the debug log and the side panel.
 func describeConfig(cfg config.Config, cfgErr error) (src, llm string) {
-	src = cfg.Source()
+	src = tilde(cfg.Source())
 	switch {
 	case cfgErr != nil:
 		src = "defaults, because the config file failed: " + strings.ReplaceAll(cfgErr.Error(), "\n", " ")
 	case src == "":
 		path, _ := config.Path()
-		src = "defaults (no file at " + path + ")"
+		src = "defaults (no file at " + tilde(path) + ")"
 	}
 	llm = "off (llm.enabled: false)"
 	if cfg.LLM.Enabled {
@@ -1070,6 +1070,22 @@ func ownFlags(args []string) (rest []string, cfgPath string, err error) {
 		}
 	}
 	return rest, cfgPath, nil
+}
+
+// tilde shortens a path in the home directory to start with "~", as a
+// shell shows it: shorter in the narrow side panel.
+func tilde(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || path == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if rest, ok := strings.CutPrefix(path, home+string(os.PathSeparator)); ok {
+		return "~" + string(os.PathSeparator) + rest
+	}
+	return path
 }
 
 // wantsVersion reports whether args ask for prompt-engine's version
