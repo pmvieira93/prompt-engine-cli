@@ -1,9 +1,9 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](../PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.9.0  
-**Date:** 2026-10-29  
-**Status:** Built in Phase 4.5 (FR-6.1, FR-7.1 to FR-7.6, with FR-7.4f); FR-6.2 and FR-6.3 are later candidates
+**Appendix Version:** 1.10.0  
+**Date:** 2026-10-30  
+**Status:** Built: FR-6.1 and FR-7.1 to FR-7.6 (with FR-7.4f) in Phase 4.5; FR-6.2 and FR-6.3 after it (2.5)
 
 ---
 
@@ -38,7 +38,7 @@ Give the local model **session context** at a configurable level:
 
 * **FR-6.1:** Support levels L0 and L1, selected in config (`expand.context: none | prompts`).
 * **FR-6.2:** Optionally use L1 context for ghost-text suggestions too, so they follow the session's topic.
-* **FR-6.3 (later):** L2 and L3, once L1 has been evaluated.
+* **FR-6.3:** L2 and L3 (`expand.context: reply | session`), once L1 has been evaluated. Built after Phase 4.5; see 2.5.
 
 ### 2.3 Risks and mitigations
 
@@ -52,6 +52,71 @@ Give the local model **session context** at a configurable level:
 ### 2.4 Acceptance
 
 Before choosing a default, compare L0 and L1 on a fixed set of follow-up prompts (as was done to pick the expansion model in Phase 4). L1 becomes the default only if it resolves references better **without** adding requirements.
+
+### 2.5 As built: ghost text context, L2 and L3 (FR-6.2, FR-6.3)
+
+*Built 2026-10-30. L2 reads Claude Code's transcript, chosen over reading its screen: the transcript has the whole reply, while the screen has only what's still shown, mixed with tool boxes and spinners.*
+
+**FR-6.2: Ghost text context** (`ghost.context: none | prompts`, default `prompts`; `ghost.context_prompts`, default 3)
+
+* The suggestion model gets the last prompts as comment lines above the usual header, one line each (a newline would end the completion).
+* Evaluation with `qwen2.5-coder:1.5b` on 10 cases:
+  * all 7 follow-ups got suggestions that fit the session ("now add tests for the ret" → `ry mechanism in the http client.`, where L0 gave `urn value of the function`);
+  * one of 3 unrelated prompts took an earlier topic ("explain how the input buf" → `…used in the payment service`);
+  * the time was the same, 26–99 ms.
+* **Decision:** on by default. A suggestion is easy to ignore, so the occasional earlier topic costs little.
+
+**FR-6.3: L2 and L3** (`expand.context: reply | session`; the default stays `prompts`, since reading transcripts must be opt-in, 2.3)
+
+* **Where the reply comes from.** Claude Code writes each session to `~/.claude/projects/<working directory, "/" as "-">/<session id>.jsonl` (or under `$CLAUDE_CONFIG_DIR`). As recorded from version 2.1.308:
+  * prompts are `user` records with string content;
+  * tool results are `user` records with `tool_result` blocks;
+  * a reply is `assistant` records with `thinking`, `text` and `tool_use` blocks, the last with `stop_reason: end_turn`;
+  * subagent (`isSidechain`) and `isMeta` records are skipped, and so are prompts starting with `<` (task notifications, slash command output, shell mode).
+* **Which transcript.** The most recently written transcript that holds the last prompt sent, among those written since `prompt-engine` started (newest first, so after `/clear` the new one wins). Before the first prompt, none is used. Anything unreadable falls back to L1.
+  * *Seen in manual testing:* the first version took the newest transcript when nothing had been sent yet. That was another Claude Code session in the same project folder, and its conversation went into the L3 summary. It stayed on the machine (the local model wrote the summary), but it was the wrong session.
+* **What is used.** The reply is the text after the assistant's last tool call (its answer, not "Now I'll read…"). It's shortened to 150 words: the first quarter and the end, where options and closing questions are.
+* **L3.** After each finished reply, the rewrite model updates an 80-word summary from the summary so far, the prompt and the reply. A rewrite cancels a summary in progress, which runs again afterwards, so rewrites never wait for it.
+* **Guard rails.** A prompt **refers back** when it has "it", "that", "same"… or, only when a reply or summary was given, "the first one", "option 2", "yes, go ahead". When it does, the words a rewrite takes from the context are not counted as added by these guards:
+  * `added-task`, `question`, `negation` (only added negations: a negation typed must stay) and `earlier-prompts`;
+  * `replaced` doesn't apply when the prompt points at a reply, since "do the first one" is meant to be replaced;
+  * `destructive`, `asked-back`, `names`, `quotes` and `length` apply as before.
+
+  Without the "only when a reply was given" condition, an L1 rewrite of "fix the second one" built from the previous *prompt* got through.
+* **Also fixed:** "do" starts a question only before "you", "I", "we" or "they". "do the first one" counted as a question before.
+
+* **How the reply is given.** The last request and the reply go together, after the earlier requests ("The last request: … / The assistant's last reply, which the request may point at: …"), with the instruction to name what the request points at. Each part was needed, as seen in testing:
+  * in `"""` quotes, the reply was left alone ("say the second one in portuguese" kept "the second one");
+  * listed apart from its request, an older request won ("now the first one in french", after a list of fruits, took the colours asked for two requests earlier);
+  * naming the request inside the reply's label made the model answer the request.
+* **Also fixed in the guard rails.**
+  * Negations inside quotes or `code` are names, not instructions, so they aren't counted: before, a rewrite that dropped "don't touch the tests" passed thanks to a quoted "only… not…".
+  * "…" ends a word, so "only…" counts as "only".
+
+**Evaluation.** `qwen2.5:7b`, 2 tries per level, each checked by the guard rails as in `auto` mode:
+* 8 follow-ups after recorded-style exchanges;
+* 4 more after a list of colours or fruits (the K16 and K20 cases);
+* 3 unrelated prompts.
+
+| Prompt | L1 (prompts) | L2 (+ reply) | L3 (+ summary) |
+|---|---|---|---|
+| "do the first one" (2 options offered) | Wrong ("Why does the config reload…?"), stopped | "Apply panel.visible live by opening or closing the panel when it changes." | "Apply changes to the panel live." (vague) |
+| "ok go with option 2 and update the docs too" | "Update the code with option 2…" (vague) | "Apply panel.visible as it is and update the docs to reflect this." | Dropped "update the docs", stopped |
+| "yes go ahead" (after "Should I split it?") | Wrong ("Fix the build failure on Linux."), stopped | "Sure, split it into termios_darwin.go and termios_linux.go." | Added a task, stopped |
+| "it still fails, same error" | "The build still fails with the same error on Linux." | Copied the reply's question, stopped | Added a task, stopped |
+| "fix the second one but dont touch the tests" | Wrong (the previous prompt), stopped | Right once; once added a negation, stopped | "Fix the "only… not…" guard for false positives, but don't touch the tests." |
+| "explain that again more simply" | Wrong, stopped | "Explain the two guard rails for false positives more simply." | Right, longer |
+| "tell me a fun fact about the second one" (after "1. Blue 2. Orange") | "…the second colour from the earlier numbered list", stopped | "Tell me a fun fact about Orange." | Same |
+| "write a haiku about the second one" (after 3 fruits) | Wrong ("the third fruit") | "Write a haiku about Mango." | Same |
+| "say the second one in portuguese" | "Say the second colour in Portuguese." | Answered it ("Orange em português é laranja."), stopped | "Say the second one in Portuguese: 2. Orange" |
+| "now the first one in french" (after 3 fruits) | Wrong ("the first colour") | "Name the first fruit in French: 1. Apple" | Answered it ("1. Apple (in French: Pomme)") and **passed** |
+| 3 unrelated prompts | Nothing added | Nothing added | Nothing added |
+
+* **L2** resolved the follow-ups pointing at a reply in 15 of 18 tries. The other 3 were stopped and would be sent as typed, and no wrong rewrite got through. L1 resolved none: it guessed from the earlier prompts, and passed 2 wrong guesses ("the third fruit", "the first colour").
+* **L3** was no better: vaguer or wordier rewrites, and once it answered the request and passed the guards. The summaries took 1.5–8 s of model time after each reply.
+* **Known limit.** Asking to translate something in the reply can make the model answer instead of rewriting. The language guard stops it in `auto` and `preview` mode; with the shortcut, the developer sees it and can undo it.
+* **Time.** L2 and L3 rewrites took 0.4–3 s (5 s for the longest), up to about 1.5 s more than L1, since the request is longer.
+* **Decision:** `reply` is the recommended level and `session` stays available, not recommended. The default stays `prompts` until the developer opts in to transcript reading.
 
 ---
 
@@ -151,4 +216,4 @@ In order:
 2. **Automatic enhancement** (`expand.on_enter: auto`, FR-7.1 to FR-7.5), with the guard rails, the escape hatches, and short-prompt skipping.
 3. A manual test round (the next part of `docs/TESTING.md`) before merging.
 
-Built after the Phase 4.5 merge: rewriting typed text around pastes (FR-7.4e), then `preview` mode (FR-7.6). Later candidates: L2/L3 context (FR-6.3) and ghost text with session context (FR-6.2). Next: rewrite styles ([PRD Appendix 2](PRD-APPENDIX-2.md)).
+Built after the Phase 4.5 merge: rewriting typed text around pastes (FR-7.4e), then `preview` mode (FR-7.6), rewrite styles ([PRD Appendix 2](PRD-APPENDIX-2.md)), and then ghost text with session context (FR-6.2) and L2/L3 context (FR-6.3), in 2.5.
