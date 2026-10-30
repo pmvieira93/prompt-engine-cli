@@ -1,11 +1,12 @@
-# Tests every push to every branch (master included, so each merge is
-# tested) and every pull request, on Linux and macOS.
+# Tests every push to every branch, on Linux and macOS: a feature branch
+# as it's pushed, and master after each merge. A pull request shows the
+# run for its branch's commit, so there's no pull_request trigger: with
+# one, each commit of an open pull request was tested twice.
 name: CI
 
 on:
   push:
     branches: ["**"]
-  pull_request:
 
 permissions:
   contents: read
