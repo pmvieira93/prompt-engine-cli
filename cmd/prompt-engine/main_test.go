@@ -4,6 +4,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/pmvieira93/prompt-engine-cli/internal/config"
 )
 
 func TestOwnFlags(t *testing.T) {
@@ -43,6 +46,24 @@ func TestWantsVersion(t *testing.T) {
 		if got := wantsVersion(tc.args); got != tc.want {
 			t.Errorf("wantsVersion(%q) = %v", tc.args, got)
 		}
+	}
+}
+
+func TestExpansionMode(t *testing.T) {
+	cfg := config.Default()
+	for mode, want := range map[string]string{
+		"off":     "on request (ctrl+q then e)",
+		"preview": "preview after a 1s pause",
+		"auto":    "automatic on Enter",
+	} {
+		cfg.Expand.OnEnter = mode
+		if got := expansionMode(cfg); got != want {
+			t.Errorf("%s: %q, want %q", mode, got, want)
+		}
+	}
+	cfg.Expand.OnEnter, cfg.Expand.PreviewPause = "preview", 1500*time.Millisecond
+	if got := expansionMode(cfg); got != "preview after a 1.5s pause" {
+		t.Errorf("custom pause: %q", got)
 	}
 }
 

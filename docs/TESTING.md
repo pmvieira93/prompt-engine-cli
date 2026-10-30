@@ -720,7 +720,7 @@ printf 'expand:\n  on_enter: preview\n' > /tmp/pe-auto.yaml
 PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-auto.yaml
 ```
 
-Open the panel (Ctrl+Q, then p). Its Session section should say `expansion:   preview on Enter`. Clear the prompt between steps with **Ctrl+C**.
+Open the panel (Ctrl+Q, then p). Its Session section should say `expansion:   preview after a 1s pause`. Clear the prompt between steps with **Ctrl+C**.
 
 | # | Do this | Expected |
 |---|---|---|
@@ -751,7 +751,7 @@ Open the panel (Ctrl+Q, then p). Change the style **in another terminal tab** wi
 
 | # | Do this | Expected |
 |---|---|---|
-| N1 | Look at the panel's Session section | `expansion:   preview on Enter, style llm, model qwen2.5:7b` |
+| N1 | Look at the panel's Session section | `expansion:   preview after a 1s pause, style llm, model qwen2.5:7b` |
 | N2 | Type `can u pls check why make test is slow on ci, i think its the race detector` and stop | A terse suggestion, without politeness or hedging, e.g. ``Check why `make test` is slow on CI, suspect it's the race detector.`` Log: `expand: preview ready for … (…, style llm)` |
 | N3 | Type `it still fails, same as before` and stop | It stays a report: `It still fails, same as before.`, not a task such as "Ensure the issue…" |
 | N4 | `sed -i '' 's/style: llm/style: human/' /tmp/pe-auto.yaml` | The Session section says `style human` at once, and the suggestion from N3 goes |

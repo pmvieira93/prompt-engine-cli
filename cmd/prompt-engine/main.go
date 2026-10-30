@@ -214,7 +214,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 	setStatus := func(cfg config.Config, cfgErr error, note string) {
 		src, llm := describeConfig(cfg, cfgErr)
 		lines := []string{"config:      " + src, "suggestions: " + llm,
-			fmt.Sprintf("expansion:   %s on Enter, style %s, model %s", cfg.Expand.OnEnter, cfg.Expand.Style, cfg.LLM.ExpandModel),
+			fmt.Sprintf("expansion:   %s, style %s, model %s", expansionMode(cfg), cfg.Expand.Style, cfg.LLM.ExpandModel),
 			fmt.Sprintf("context:     rewrites %s, ghost text %s", cfg.Expand.Context, cfg.Ghost.Context)}
 		if note != "" {
 			lines = append(lines, note)
@@ -1070,6 +1070,18 @@ func ownFlags(args []string) (rest []string, cfgPath string, err error) {
 		}
 	}
 	return rest, cfgPath, nil
+}
+
+// expansionMode says when prompts are rewritten, for the panel. It
+// describes expand.on_enter by what it does: only "auto" acts on Enter.
+func expansionMode(cfg config.Config) string {
+	switch cfg.Expand.OnEnter {
+	case "auto":
+		return "automatic on Enter"
+	case "preview":
+		return fmt.Sprintf("preview after a %s pause", cfg.Expand.PreviewPause)
+	}
+	return fmt.Sprintf("on request (%s then %s)", cfg.Keys.Leader, cfg.Keys.Expand)
 }
 
 // tilde shortens a path in the home directory to start with "~", as a
