@@ -30,7 +30,11 @@ expand:
                        # preview: a rewrite is prepared while you pause and shown in the panel
                        # auto: Enter rewrites the prompt, then sends it
   style: default       # default, llm (terse, for the assistant), human (natural), or both
-  context: prompts     # prompts: the model sees your last prompts, to resolve "it" or "same"; or none
+  context: prompts     # what the model knows about the session, to resolve "it", "that", "the second one":
+                       #   none     the prompt alone
+                       #   prompts  your last prompts
+                       #   reply    those, and the end of Claude Code's last reply (reads its transcript)
+                       #   session  all that, and a running summary of the session (uses the model after each reply)
   context_prompts: 3   # how many earlier prompts (1-20)
   preview_pause: 1s    # preview: how long typing must pause
   min_words: 3         # auto: shorter prompts ("yes", "continue") are sent as typed
@@ -38,6 +42,8 @@ expand:
 
 ghost:
   style: italic        # italic, faint, or color:N (an ANSI 256-colour number, 0-255)
+  context: prompts     # prompts: suggestions follow your last prompts; or none
+  context_prompts: 3   # how many earlier prompts (1-20)
 
 panel:
   visible: false       # restart; open the side panel at startup

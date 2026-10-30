@@ -3,8 +3,8 @@
 ## Project Name: `prompt-engine-cli` (Working Title)
 **Target Execution Language:** Go (Golang)  
 **Primary Integration (MVP):** Claude Code CLI  
-**Document Version:** 1.2.2  
-**Last Updated:** 2026-10-29  
+**Document Version:** 1.2.3  
+**Last Updated:** 2026-10-30  
 **Appendices:** [Appendix 1: Session Context and Automatic Enhancement](docs/PRD-APPENDIX-1.md) (Phase 4.5) · [Appendix 2: Rewrite Styles](docs/PRD-APPENDIX-2.md) (built)  
 
 ---

@@ -37,6 +37,7 @@ Pause while typing, and a suggestion appears after the cursor in grey italics.
 - **Tab** or **→** accepts it, and **Esc** dismisses it. Typing on also dismisses it.
 - It finishes half-typed words (`refa` → `refactor`) and continues sentences. This uses a fill-in-the-middle model.
 - It only shows where it can't get in the way. It stays out of Claude Code's dialogs, its `@` file menu and `/` command menu, and doesn't show when the cursor isn't at the end of the prompt.
+- Suggestions follow the session: the model sees your last 3 prompts, so after `say hello in three words in portuguese`, typing `now say goodbye in thr` gets `ee words in portuguese`.
 - Suggestions that would only repeat what you already typed are dropped.
 - Typing never waits for the model. A suggestion is requested after a short pause (150 ms), and one that takes longer than 2 s is dropped.
 - The style is yours to pick: `italic` (default), `faint`, or any colour from the 256-colour palette.
@@ -57,7 +58,7 @@ Every rewrite follows the same rules:
 - **It keeps names exactly as written:** agents, skills, commands, `@mentions`, paths, branches, and issue and PR numbers.
 - **It keeps your language** and every limit or negation ("don't", "only", "without").
 - **It keeps what you pasted untouched.** Only the words you typed around a paste are corrected.
-- **It knows the session.** The model sees your last 3 prompts, so "add tests for it" resolves. A `Context:` block with the git branch and staged files is added to the result.
+- **It knows the session.** The model sees your last 3 prompts, so "add tests for it" resolves. A `Context:` block with the git branch and staged files is added to the result. For more, see [Session context](#session-context).
 - **Guard rails stop bad rewrites.** They catch a rewrite that changes your meaning, for example by:
   - asking you a question back, or turning your question into an instruction;
   - dropping a name, a quote or a whole sentence;
@@ -65,6 +66,22 @@ Every rewrite follows the same rules:
   - losing a negation, or changing the language.
 
   In `auto` mode the prompt is then sent as typed; in `preview` mode no rewrite is offered. Set `panel.guard_details: true` to see which guard stopped a rewrite, and why.
+
+### Session context
+
+How much the rewrite model knows about the session is set by `expand.context`. Each level adds to the one before.
+
+| Level | The model sees | Resolves |
+|---|---|---|
+| `none` | Your prompt alone | Nothing |
+| `prompts` (default) | Your last prompts | "add tests for **it**", "**same** for the client" |
+| `reply` (recommended) | Those, and the end of Claude Code's last reply | "do **the first one**", "**yes, go ahead**", "fix **the second one**" |
+| `session` | All that, and a running summary of the session | The same as `reply`, with the earlier turns summarised |
+
+- **`reply`** reads Claude Code's own transcript (`~/.claude/projects/…`), on your machine. That's why it's opt-in. Only the transcript holding a prompt this session sent is used, so there's no reply context before your first prompt. If the transcript can't be read, rewrites fall back to `prompts`. In testing it resolved 15 of 18 follow-ups that pointed at a reply, where `prompts` resolved none. The other 3 were stopped by the guard rails, so they'd be sent as typed. It added nothing to unrelated prompts.
+- **`session`** also asks the rewrite model to update a summary after each reply. That costs a few seconds of model time per reply, and in testing the rewrites came out no better than with `reply`: vaguer, and once an answer instead of a rewrite.
+- **Known limit.** Asking to translate something from the reply ("say the second one in portuguese") can make the model answer instead of rewriting. With the shortcut you see it and can undo it; in `auto` and `preview` mode the language guard stops it.
+- **Guard rails still apply.** A rewrite may take words from the reply only when your prompt points at it ("that", "the second one", "go ahead"). Even then, an added delete, reset or force push is stopped.
 
 **Rewrite styles** (`expand.style`) set who the wording is for:
 
@@ -234,13 +251,15 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | **`expand`**: prompt rewrites | | |
 | `expand.on_enter` | `off` | `off`, `preview` or `auto` ([modes](#prompt-rewrites-expansion)) |
 | `expand.style` | `default` | `default`, `llm`, `human` or `both` |
-| `expand.context` | `prompts` | `prompts` shows the model your last prompts; `none` doesn't |
+| `expand.context` | `prompts` | `none`, `prompts`, `reply` or `session` ([levels](#session-context)) |
 | `expand.context_prompts` | `3` | How many earlier prompts the model sees (1–20) |
 | `expand.preview_pause` | `1s` | `preview`: how long typing must pause |
 | `expand.min_words` | `3` | `auto`: shorter prompts are sent as typed |
 | `expand.auto_timeout` | `5s` | `auto`: after this, the prompt is sent as typed |
 | **`ghost`**: ghost text | | |
 | `ghost.style` | `italic` | `italic`, `faint` or `color:N` (0–255) |
+| `ghost.context` | `prompts` | `prompts`: suggestions follow your last prompts; `none` doesn't |
+| `ghost.context_prompts` | `3` | How many earlier prompts the ghost text model sees (1–20) |
 | **`panel`**: side panel | | |
 | `panel.visible` | `false` | Open the panel at startup. *Restart* |
 | `panel.side` | `right` | `right` or `left` |
@@ -271,6 +290,7 @@ Durations use Go's format: `150ms`, `2s`, `1m`.
 | `PROMPT_ENGINE_CONFIG` | Path to the config file, overriding the default location. The `--pe-config <file>` flag does the same and wins over the variable. It is removed before the other arguments reach `claude`. |
 | `XDG_CONFIG_HOME` | Base folder for the config (default `~/.config`) |
 | `XDG_STATE_HOME` | Base folder for the history (default `~/.local/state`) |
+| `CLAUDE_CONFIG_DIR` | Claude Code's folder (default `~/.claude`), where `expand.context: reply` and `session` find its transcripts |
 | **Troubleshooting** | |
 | `PROMPT_ENGINE_DEBUG_LOG` | File for a detailed log: keys, the prompt as tracked, suggestions, rewrites and guards |
 | `PROMPT_ENGINE_DEBUG_OUTPUT` | File for a raw copy of everything Claude Code draws |
@@ -292,6 +312,7 @@ Durations use Go's format: `150ms`, `2s`, `1m`.
 | `~/.config/prompt-engine/templates/append.txt` | Rules added to every prompt |
 | `~/.config/prompt-engine/templates/system.txt` | Your own rewrite instructions (replaces every style) |
 | `~/.local/state/prompt-engine/history.jsonl` | The history of sent prompts |
+| `~/.claude/projects/<project>/<session>.jsonl` | Claude Code's transcript: read, never written, with `expand.context: reply` or `session` |
 | `~/.local/bin/prompt-engine` | The binary, as installed by the script |
 
 ---

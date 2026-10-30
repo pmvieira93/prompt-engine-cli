@@ -91,9 +91,12 @@ type KeysConfig struct {
 
 // ExpandConfig controls prompt expansion beyond its model (llm.expand_model).
 type ExpandConfig struct {
-	// Context is what the expansion model is told about the session:
-	// "none", or "prompts" for the last ContextPrompts prompts sent (PRD
-	// Appendix 1, FR-6.1), so it can tell what "it" or "same" refer to.
+	// Context is what the expansion model is told about the session, so
+	// it can tell what "it" or "same" refer to (PRD Appendix 1, FR-6):
+	// "none", "prompts" for the last ContextPrompts prompts sent, "reply"
+	// for those and the end of Claude Code's last reply, read from its
+	// transcript, or "session" for all that and a running summary of the
+	// session, kept by llm.expand_model after each reply.
 	Context        string `yaml:"context"`
 	ContextPrompts int    `yaml:"context_prompts"`
 	// OnEnter is "off" (expand only on the shortcut, reviewed before
@@ -119,10 +122,15 @@ type ExpandConfig struct {
 	AutoTimeout time.Duration `yaml:"auto_timeout"`
 }
 
-// GhostConfig controls how ghost text looks.
+// GhostConfig controls ghost text.
 type GhostConfig struct {
 	// Style is "faint", "italic" or "color:N" (0–255); see tui.GhostStyle.
 	Style string `yaml:"style"`
+	// Context is "prompts" to give the suggestion model the last
+	// ContextPrompts prompts sent, so suggestions follow the session's
+	// topic (PRD Appendix 1, FR-6.2), or "none".
+	Context        string `yaml:"context"`
+	ContextPrompts int    `yaml:"context_prompts"`
 }
 
 // HistoryConfig controls the log of sent prompts (one JSON line each).
@@ -176,7 +184,10 @@ func Default() Config {
 		History: HistoryConfig{Enabled: true},
 		// Recent prompts resolved every follow-up tested ("add tests for
 		// it") without adding requirements to unrelated ones.
-		Ghost: GhostConfig{Style: "italic"},
+		// Earlier prompts made 7 of 7 follow-up suggestions fit the
+		// session, at no cost in time; one of 3 unrelated prompts got an
+		// earlier topic, which is easy to ignore in a suggestion.
+		Ghost: GhostConfig{Style: "italic", Context: "prompts", ContextPrompts: 3},
 		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", Style: "default", MinWords: 3, AutoTimeout: 5 * time.Second,
 			PreviewPause: time.Second},
 	}
@@ -265,8 +276,8 @@ func (c Config) Validate() error {
 		return errors.New("llm.debounce must not be negative")
 	case c.LLM.Timeout <= 0:
 		return errors.New("llm.timeout must be positive")
-	case c.Expand.Context != "none" && c.Expand.Context != "prompts":
-		return fmt.Errorf("expand.context must be \"none\" or \"prompts\", got %q", c.Expand.Context)
+	case !slices.Contains(expand.ContextLevels, c.Expand.Context):
+		return fmt.Errorf("expand.context must be \"none\", \"prompts\", \"reply\" or \"session\", got %q", c.Expand.Context)
 	case c.Expand.OnEnter != "off" && c.Expand.OnEnter != "auto" && c.Expand.OnEnter != "preview":
 		return fmt.Errorf("expand.on_enter must be \"off\", \"auto\" or \"preview\", got %q", c.Expand.OnEnter)
 	case !slices.Contains(expand.Styles, c.Expand.Style):
@@ -279,6 +290,10 @@ func (c Config) Validate() error {
 		return fmt.Errorf("expand.min_words must be at least 1, got %d", c.Expand.MinWords)
 	case c.Expand.ContextPrompts < 1 || c.Expand.ContextPrompts > 20:
 		return fmt.Errorf("expand.context_prompts must be between 1 and 20, got %d", c.Expand.ContextPrompts)
+	case c.Ghost.Context != "none" && c.Ghost.Context != "prompts":
+		return fmt.Errorf("ghost.context must be \"none\" or \"prompts\", got %q", c.Ghost.Context)
+	case c.Ghost.ContextPrompts < 1 || c.Ghost.ContextPrompts > 20:
+		return fmt.Errorf("ghost.context_prompts must be between 1 and 20, got %d", c.Ghost.ContextPrompts)
 	case !validGhostStyle(c.Ghost.Style):
 		return fmt.Errorf("ghost.style must be \"faint\", \"italic\" or \"color:N\" (0-255), got %q", c.Ghost.Style)
 	case c.Panel.Side != "left" && c.Panel.Side != "right":

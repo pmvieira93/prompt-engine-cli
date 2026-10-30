@@ -81,6 +81,15 @@ expand:
 
 Short replies like `yes` or `continue` go as typed. If a guard rail finds the rewrite changed your meaning, your original prompt is sent instead.
 
+**Let rewrites understand "do the first one"** (Claude Code's last reply):
+
+```yaml
+expand:
+  context: reply
+```
+
+After Claude Code replies with a list or options, `tell me more about the second one` is rewritten to name what the second item says. This reads Claude Code's transcript, on your machine, from your first prompt on.
+
 **Choose who the wording is for:**
 
 ```yaml
@@ -134,6 +143,7 @@ echo 'alias claude=prompt-engine' >> ~/.zshrc
 | A setting is ignored | The panel's **Session** section shows the error | Fix the key or value it names; the template is [`config.example.yaml`](config.example.yaml) |
 | `ghost.style` rejected | The value must be on one line | `style: color:117`, not a nested `color:` key |
 | Rewrites never apply | `panel.guard_details: true` | Each stop names its guard. Rephrase, or use `preview` to review |
+| "the second one" isn't named | `context: reading the transcript` in the debug log | Set `expand.context: reply`, and send a first prompt: the transcript is only used once it holds one of yours |
 | Odd characters on screen | Run with `PROMPT_ENGINE_PASSTHROUGH=1` | If they remain, the cause isn't `prompt-engine` |
 | Need details for a bug report | `PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log prompt-engine` | Attach the log. Use harmless prompts: it records what you type |
 

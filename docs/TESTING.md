@@ -426,6 +426,18 @@ ghost:
 
 Log, for each valid value: `config: reloaded /tmp/pe-ghost.yaml; applied: ghost; needs a restart: none`. For `color:300`: `config: invalid …: ghost.style must be "faint", "italic" or "color:N" (0-255), got "color:300"; keeping the previous settings`.
 
+### F13: Suggestions that follow the session
+
+[PRD Appendix 1](PRD-APPENDIX-1.md), FR-6.2: the suggestion model sees your last prompts (`ghost.context: prompts`, the default).
+
+```sh
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
+```
+
+Send `say hello in three words in portuguese` (a harmless prompt) and wait for the reply. Then type `now say goodbye in thr` and stop.
+
+**Expected:** the suggestion follows the earlier prompt: `ee words in portuguese`. With `ghost:` / `  context: none` in a config file (`--pe-config`), the same text gets only `ee words`.
+
 **Cleanup:** `rm -f /tmp/pe-nofim.yaml /tmp/pe-off.yaml /tmp/pe-ghost.yaml`, and `brew services start ollama` if you left it stopped.
 
 ---
@@ -578,7 +590,7 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-left.y
 
 Phase 4.5 ([PRD Appendix 1](PRD-APPENDIX-1.md)): expansion now knows your last few prompts, and can run automatically on Enter.
 
-> ⚠️ **K1, K4, K5, K6 and K7 send real prompts.** They're all harmless (greetings, a joke). Don't substitute coding requests: in auto mode, `claude` acts on them straight away.
+> ⚠️ **K1, K4, K5, K6, K7, K15 and K19 send real prompts.** They're all harmless (greetings, a joke, colours, fruits). Don't substitute coding requests: in auto mode, `claude` acts on them straight away.
 
 **Setup:** a throwaway config, edited from Terminal B as you go (it reloads within a second):
 
@@ -634,6 +646,21 @@ These check that a rewrite keeps your meaning. Use the shortcut and **don't send
 | K14 | ``fix the error `connection refused: dial tcp [::1]:11434` in the client`` | The part in backticks is kept exactly |
 
 In auto mode, a rewrite that breaks any of these is not used: the prompt is sent as typed, and the log line `expand: auto rewrite "…" not used (…)` gives the reason. The checks themselves are covered by the unit tests (`go test ./internal/expand/`).
+
+### Claude Code's last reply and the session summary
+
+[PRD Appendix 1](PRD-APPENDIX-1.md), FR-6.3: `expand.context: reply` adds `claude`'s last reply, read from its transcript, so "the second one" can be named; `session` adds a running summary too. Same session as above. Each step that changes the level writes the config itself (it reloads within a second). These steps send harmless prompts.
+
+| # | Do this | Expected |
+|---|---|---|
+| K15 | In Terminal B: `printf 'expand:\n  on_enter: off\n  context: reply\n' > /tmp/pe-auto.yaml`. Ctrl+C, send `name two colours, as a numbered list`, and wait for the reply | `claude` lists two colours. Log: `config: reloaded …; applied: expand` |
+| K16 | Type `tell me a fun fact about the second one` and press **Ctrl+Q**, **e** (don't send) | The rewrite names the second colour, e.g. `Tell me a fun fact about Orange.` Log: `context: reading the transcript …/<session id>.jsonl` |
+| K17 | In Terminal B: `printf 'expand:\n  on_enter: off\n  context: prompts\n' > /tmp/pe-auto.yaml`. Ctrl+C, type `tell me a fun fact about the second one`, **Ctrl+Q**, **e** | Without the reply, the colour isn't named (e.g. `…about the second colour from the earlier list.`) |
+| K18 | In Terminal B: `printf 'expand:\n  on_enter: off\n  context: reply\n' > /tmp/pe-auto.yaml`. Ctrl+C, type `what is two plus two`, **Ctrl+Q**, **e** | Rewritten on its own: no colours added. The panel's **Session** section says `context: rewrites reply, …` |
+| K19 | In Terminal B: `printf 'expand:\n  on_enter: off\n  context: session\n' > /tmp/pe-auto.yaml`. Ctrl+C, send `name three fruits`, and wait for the reply | A few seconds after the reply, log: `context: summary updated in …: "…"`, mentioning the fruits |
+| K20 | Type `write a haiku about the second one`, **Ctrl+Q**, **e** | The rewrite names the second fruit, e.g. `Write a haiku about Mango.` |
+
+Known limit: asking to translate what the reply listed (`say the second one in portuguese`) can make the model answer it (`Orange em português é laranja`) instead of rewriting. With the shortcut you see that and can undo it (**Ctrl+Q**, **u**). In `auto` and `preview` mode, the language guard stops it.
 
 **Cleanup:** `rm -f /tmp/pe-auto.yaml`.
 

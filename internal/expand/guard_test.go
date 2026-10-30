@@ -193,3 +193,70 @@ func TestCheckNamesTheGuard(t *testing.T) {
 		t.Errorf("a good rewrite was stopped: %+v", stop)
 	}
 }
+
+// Cases from the L1/L2/L3 evaluation (PRD Appendix 1, FR-6.3): the
+// assistant's last reply lets a rewrite resolve what a follow-up points at.
+func TestCheckSessionResolvesTheReply(t *testing.T) {
+	panel := SessionContext{
+		Prompts: []string{"why does the config reload ignore panel.visible"},
+		Reply:   "panel.visible is only read at startup. Two options:\n1. Apply it live, by opening or closing the panel when it changes.\n2. Keep it as it is, and say so in the README.\nWhich do you prefer?",
+	}
+	build := SessionContext{
+		Prompts: []string{"the build fails on linux"},
+		Reply:   "internal/pty/termios.go uses unix.TIOCGETA, which exists only on macOS. I can split it into termios_darwin.go and termios_linux.go. Should I?",
+	}
+	guards := SessionContext{
+		Prompts: []string{"review the guard rails for false positives"},
+		Reply:   "I found two:\n1. added-task stops rewrites of typo'd verbs.\n2. negation stops \"only… not…\" rewrites that keep the meaning.",
+	}
+	for _, c := range []struct {
+		sc                SessionContext
+		typed, rewritten  string
+		guard             string // "" for none
+		guardWithoutReply string
+	}{
+		// "do" is not a question here, and the pointer words are replaced.
+		{panel, "do the first one", "Apply panel.visible live by opening or closing the panel when it changes.", "", "added-task"},
+		// The reply's "only" is resolved, not added.
+		{panel, "ok go with option 2 and update the docs too", "Apply option 2 and update the docs to reflect that panel.visible is only read at startup.", "", "negation"},
+		{build, "yes go ahead", "Split termios.go into termios_darwin.go and termios_linux.go.", "", "replaced"},
+		{guards, "fix the second one but dont touch the tests", "Fix the guard rail for \"only… not…\" rewrites that keep the meaning, but don't touch the tests.", "", ""},
+		// A negation typed must still be kept.
+		{guards, "fix the second one but dont touch the tests", "Fix the \"only… not…\" guard and update the tests.", "negation", "negation"},
+		// The model copied the reply's question: still stopped.
+		{build, "it still fails, same error", "The build still fails. Should I split termios.go?", "asked-back", "asked-back"},
+		// Destructive actions are stopped wherever they come from.
+		{SessionContext{Reply: "Should I delete the old snapshots?"}, "yes go ahead", "Delete the old snapshots.", "destructive", "destructive"},
+	} {
+		got := ""
+		if st := CheckSession(c.typed, c.rewritten, c.sc); st != nil {
+			got = st.Guard
+		}
+		if got != c.guard {
+			t.Errorf("%q → %q: guard %q, want %q", c.typed, c.rewritten, got, c.guard)
+		}
+		// With only the earlier prompts (L1), "the first one" or "go ahead"
+		// point at nothing the model was given, so the guards apply.
+		got = ""
+		if st := CheckSession(c.typed, c.rewritten, SessionContext{Prompts: c.sc.Prompts}); st != nil {
+			got = st.Guard
+		}
+		if got != c.guardWithoutReply {
+			t.Errorf("L1 %q → %q: guard %q, want %q", c.typed, c.rewritten, got, c.guardWithoutReply)
+		}
+	}
+}
+
+func TestDoStartsAQuestionOnlyBeforeASubject(t *testing.T) {
+	for text, want := range map[string]bool{
+		"do you know why it fails": true,
+		"do we need the lock":      true,
+		"do the first one":         false,
+		"do it":                    false,
+		"does it work":             true,
+	} {
+		if got := isQuestion(text); got != want {
+			t.Errorf("isQuestion(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
