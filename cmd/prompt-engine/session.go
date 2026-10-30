@@ -33,6 +33,7 @@ type sessionInfo struct {
 	mu         sync.Mutex
 	path       string // the transcript last read, to log a change
 	cached     cachedTurn
+	summaryOf  string // the transcript the summary is of
 	summary    string
 	summarized string // the ID of the last turn in the summary
 	failed     string // the ID of a turn the summary failed on: not retried
@@ -78,6 +79,15 @@ func (s *sessionInfo) turn() (transcript.Turn, bool) {
 	}
 	if path == "" {
 		return transcript.Turn{}, false
+	}
+	if path != s.summaryOf {
+		// Another transcript: after /clear, claude starts one with none of
+		// the earlier conversation. Seen live: the summary kept "three
+		// fruits … still open" after /clear, which claude no longer knew.
+		if s.summary != "" {
+			s.logf("context: summary cleared: the session has a new transcript")
+		}
+		s.summaryOf, s.summary, s.summarized, s.failed = path, "", "", ""
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -158,7 +168,7 @@ func (s *sessionInfo) run(ctx context.Context, current func() config.Config) {
 		}
 		sctx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout)
 		s.cancel = cancel
-		prev := s.summary
+		prev, of := s.summary, s.summaryOf
 		s.mu.Unlock()
 
 		start := time.Now()
@@ -167,6 +177,8 @@ func (s *sessionInfo) run(ctx context.Context, current func() config.Config) {
 		s.mu.Lock()
 		s.cancel = nil
 		switch {
+		case s.summaryOf != of:
+			// The transcript changed while the summary ran: it is of the old one.
 		case errors.Is(err, context.Canceled) && ctx.Err() == nil:
 			s.logf("context: summary paused for a rewrite; it runs again after")
 		case err != nil:

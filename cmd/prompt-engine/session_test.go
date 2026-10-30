@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -114,5 +116,51 @@ func TestSessionSummaryOnlyAtSessionLevel(t *testing.T) {
 	s.run(ctx, func() config.Config { return cfg })
 	if got := s.Summary(); got != "" {
 		t.Errorf("summary at the reply level: %q", got)
+	}
+}
+
+// After /clear, claude writes a new transcript with none of the earlier
+// conversation: the summary starts again from it.
+func TestSessionSummaryRestartsWithANewTranscript(t *testing.T) {
+	s, path, logged := testSession(t)
+	var last atomic.Pointer[string]
+	last.Store(&sent)
+	s.lastSent = func() string { return *last.Load() }
+	writeTranscript(t, path, tPrompt, tReply)
+	cfg := config.Default()
+	cfg.LLM.Provider = "fake"
+	cfg.Expand.Context = "session"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.run(ctx, func() config.Config { return cfg })
+
+	waitFor := func(want string) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for s.Summary() != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("summary = %q, want %q", s.Summary(), want)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	waitFor("Asked: why does the build fail on linux.")
+
+	// As recorded: the /clear command is the new transcript's first record.
+	cleared := filepath.Join(filepath.Dir(path), "after-clear.jsonl")
+	writeTranscript(t, cleared,
+		`{"type":"user","uuid":"c1","message":{"content":"<command-name>/clear</command-name>"}}`,
+		`{"type":"user","uuid":"u3","message":{"content":"name a planet"}}`,
+		`{"type":"assistant","uuid":"a3","message":{"content":[{"type":"text","text":"Mars."}],"stop_reason":"end_turn"}}`)
+	planet := "name a planet"
+	last.Store(&planet)
+	waitFor("Asked: name a planet.")
+	if got := s.reply(); got != "Mars." {
+		t.Errorf("reply = %q, want the new transcript's", got)
+	}
+	s.mu.Lock() // logf is called with s.mu held
+	defer s.mu.Unlock()
+	if !slices.Contains(*logged, "context: summary cleared: the session has a new transcript") {
+		t.Errorf("not logged: %q", *logged)
 	}
 }
