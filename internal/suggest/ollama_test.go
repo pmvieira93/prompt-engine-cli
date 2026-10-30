@@ -45,6 +45,27 @@ func TestOllamaSuggest(t *testing.T) {
 	}
 }
 
+func TestOllamaSuggestWithEarlierPrompts(t *testing.T) {
+	o, reqs := fakeOllama(t, http.StatusOK, `{"response":"ry logic"}`)
+	o.Earlier = func() []string { return []string{"add a retry to the client", "make it\nexponential"} }
+	if _, err := o.Suggest(context.Background(), "now add tests for the ret", 25); err != nil {
+		t.Fatal(err)
+	}
+	want := earlierHeader + "# - add a retry to the client\n# - make it exponential\n" + promptHeader + "now add tests for the ret"
+	if got := (*reqs)[0].Prompt; got != want {
+		t.Errorf("prompt = %q\nwant     %q", got, want)
+	}
+
+	// No earlier prompts: the header alone, as before.
+	o.Earlier = func() []string { return nil }
+	if _, err := o.Suggest(context.Background(), "refa", 4); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*reqs)[1].Prompt; got != promptHeader+"refa" {
+		t.Errorf("without earlier prompts: %q", got)
+	}
+}
+
 func TestOllamaSkipsWithoutRequest(t *testing.T) {
 	o, reqs := fakeOllama(t, http.StatusOK, `{"response":"x"}`)
 	for _, tc := range []struct {

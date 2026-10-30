@@ -156,12 +156,44 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	started := time.Now()
+
+	// The config in use: reloaded when the file is edited (FR-4.3).
+	var live atomic.Pointer[config.Config]
+	live.Store(&cfg)
+	// The prompts sent in this session, as sent without the rules, for the
+	// models' context (expand.context, ghost.context).
+	var recent struct {
+		sync.Mutex
+		prompts []string
+	}
+	lastPrompts := func(n int) []string {
+		recent.Lock()
+		defer recent.Unlock()
+		return slices.Clone(recent.prompts[max(0, len(recent.prompts)-n):])
+	}
+	ghostEarlier := func() []string {
+		if g := live.Load().Ghost; g.Context == "prompts" {
+			return lastPrompts(g.ContextPrompts)
+		}
+		return nil
+	}
+	// The last prompt sent, as sent, for the panel and the history (FR-5).
+	var lastSent atomic.Pointer[history.Submission]
+	sess := newSessionInfo(started, func() string {
+		if sub := lastSent.Load(); sub != nil {
+			return sub.Sent
+		}
+		return ""
+	}, logf)
+	go sess.run(ctx, func() config.Config { return *live.Load() })
+
 	// The worker runs even with suggestions off, so a config edit can turn
 	// them on, and so it keeps resyncing the input buffer for the rules.
 	worker := &ghost.Worker{
 		Tracker:   tracker,
 		Ctrl:      ctrl,
-		Suggester: suggesterFor(ctx, cfg.LLM, logf),
+		Suggester: suggesterFor(ctx, cfg.LLM, ghostEarlier, logf),
 		Debounce:  cfg.LLM.Debounce,
 		Timeout:   cfg.LLM.Timeout,
 		Logf:      logf,
@@ -170,14 +202,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 
 	// Reload the config when it's edited (FR-4.3). Settings that only
 	// matter at startup are reported rather than applied.
-	var live atomic.Pointer[config.Config]
-	live.Store(&cfg)
 	// status is what the side panel shows about the config in use.
 	var status atomic.Pointer[[]string]
 	setStatus := func(cfg config.Config, cfgErr error, note string) {
 		src, llm := describeConfig(cfg, cfgErr)
 		lines := []string{"config:      " + src, "suggestions: " + llm,
-			fmt.Sprintf("expansion:   %s on Enter, style %s, model %s", cfg.Expand.OnEnter, cfg.Expand.Style, cfg.LLM.ExpandModel)}
+			fmt.Sprintf("expansion:   %s on Enter, style %s, model %s", cfg.Expand.OnEnter, cfg.Expand.Style, cfg.LLM.ExpandModel),
+			fmt.Sprintf("context:     rewrites %s, ghost text %s", cfg.Expand.Context, cfg.Ghost.Context)}
 		if note != "" {
 			lines = append(lines, note)
 		}
@@ -198,7 +229,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			prev := live.Swap(&next)
 			var applied, restart []string
 			if next.LLM != prev.LLM {
-				worker.Update(suggesterFor(ctx, next.LLM, logf), next.LLM.Debounce, next.LLM.Timeout)
+				worker.Update(suggesterFor(ctx, next.LLM, ghostEarlier, logf), next.LLM.Debounce, next.LLM.Timeout)
 				applied = append(applied, "llm")
 			}
 			if next.Keys != prev.Keys {
@@ -215,7 +246,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				}
 			}
 			if next.Ghost != prev.Ghost {
-				applied = append(applied, "ghost") // read on each frame
+				applied = append(applied, "ghost") // read on each frame and suggestion
 			}
 			if next.History != prev.History {
 				applied = append(applied, "history") // read on each submit
@@ -242,20 +273,22 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 
 	// Prompt expansion: leader, then keys.expand, rewrites the prompt in
 	// place for the user to review; keys.undo puts the original back.
-	// The prompts sent in this session, as sent without the rules, for the
-	// expansion model's context (expand.context: prompts).
-	var recent struct {
-		sync.Mutex
-		prompts []string
-	}
-	earlierPrompts := func() []string {
+	// What the expansion model is told about the session, by level
+	// (expand.context; PRD Appendix 1, FR-6).
+	sessionContext := func() expand.SessionContext {
+		var sc expand.SessionContext
 		ec := live.Load().Expand
-		if ec.Context != "prompts" {
-			return nil
+		if ec.Context == expand.ContextNone {
+			return sc
 		}
-		recent.Lock()
-		defer recent.Unlock()
-		return slices.Clone(recent.prompts[max(0, len(recent.prompts)-ec.ContextPrompts):])
+		sc.Prompts = lastPrompts(ec.ContextPrompts)
+		if ec.Context == expand.ContextReply || ec.Context == expand.ContextSession {
+			sc.Reply = sess.reply()
+		}
+		if ec.Context == expand.ContextSession {
+			sc.Summary = sess.Summary()
+		}
+		return sc
 	}
 
 	var expansion struct {
@@ -318,7 +351,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			ectx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
 			defer cancel()
 			start := time.Now()
-			masked, style, err := expandPrompt(ectx, *cfg, plan, earlierPrompts())
+			release := sess.hold()
+			masked, style, err := expandPrompt(ectx, *cfg, plan, sessionContext())
+			release()
 			if err != nil {
 				logf("expand: failed: %v", err)
 				return
@@ -424,11 +459,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		// one try in three turned "it still fails, same …" into a task,
 		// and the next was fine. So a stopped rewrite gets a second try.
 		start := time.Now()
-		earlier := earlierPrompts()
+		sc := sessionContext()
 		var out, reason, style, guard, detail, rejected string
 		for try := 1; try <= 2; try++ {
 			tctx, tcancel := context.WithTimeout(pctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
-			masked, st, err := expandPrompt(tctx, *cfg, plan, earlier)
+			release := sess.hold()
+			masked, st, err := expandPrompt(tctx, *cfg, plan, sc)
+			release()
 			tcancel()
 			if pctx.Err() != nil {
 				cancel()
@@ -440,7 +477,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				break
 			}
 			var stop *expand.Stop
-			if out, stop = review(plan, masked, earlier); stop == nil {
+			if out, stop = review(plan, masked, sc); stop == nil {
 				reason, guard, detail, rejected = "", "", "", ""
 				break
 			}
@@ -550,8 +587,10 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		defer cancel()
 		ctrl.SetNotice("⟳ expanding…")
 		start := time.Now()
-		earlier := earlierPrompts()
-		masked, style, err := expandPrompt(actx, cfg, plan, earlier)
+		sc := sessionContext()
+		release := sess.hold()
+		masked, style, err := expandPrompt(actx, cfg, plan, sc)
+		release()
 		ctrl.SetNotice("")
 
 		auto.Lock()
@@ -571,7 +610,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			reason = "expansion failed: " + err.Error()
 		default:
 			var stop *expand.Stop
-			if out, stop = review(plan, masked, earlier); stop != nil {
+			if out, stop = review(plan, masked, sc); stop != nil {
 				reason, guard, detail, rejected = stop.Reason, stop.Guard, stop.Detail, expand.StripContext(masked)
 			}
 		}
@@ -607,7 +646,6 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 
 	// On each prompt sent: append the rules, and record what was typed
 	// against what was sent, for the panel and the history (FR-5).
-	var lastSent atomic.Pointer[history.Submission]
 	var record func(s input.State, appended string)
 	ctrl.BeforeSubmit = func(s input.State) []byte {
 		var insert []byte
@@ -758,7 +796,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 // for a bad config file is hidden as soon as the child draws its screen.
 func logStartup(logf func(string, ...any), cfg config.Config, cfgErr error) {
 	src, llm := describeConfig(cfg, cfgErr)
-	logf("session start: config %s; suggestions %s", src, llm)
+	logf("session start: config %s; suggestions %s; context: rewrites %s, ghost text %s", src, llm, cfg.Expand.Context, cfg.Ghost.Context)
 }
 
 // describeConfig says where cfg came from and what suggestions it gives,
@@ -849,8 +887,8 @@ func bindings(k config.KeysConfig) ghost.Keys {
 // review checks a rewrite of plan.Masked with the guard rails (PRD
 // Appendix 1, FR-7.4) and puts the kept parts back: the prompt to use, or
 // what stopped it.
-func review(plan expand.Plan, masked string, earlier []string) (string, *expand.Stop) {
-	if stop := expand.Check(plan.Masked, masked, earlier...); stop != nil {
+func review(plan expand.Plan, masked string, sc expand.SessionContext) (string, *expand.Stop) {
+	if stop := expand.CheckSession(plan.Masked, masked, sc); stop != nil {
 		return "", stop
 	}
 	out, err := plan.Restore(masked)
@@ -889,7 +927,7 @@ func shorten(text string, n int) string {
 // git context for the working directory; the caller restores the kept
 // parts. With the fake provider it uses a fixed, offline rewrite, so tests
 // are repeatable.
-func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, earlier []string) (rewrite, style string, err error) {
+func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, sc expand.SessionContext) (rewrite, style string, err error) {
 	text := plan.Masked
 	dir, _ := os.Getwd()
 	provider := cfg.LLM.Provider
@@ -903,7 +941,7 @@ func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, earl
 		KeepAlive:    "30m",
 		TemplatesDir: templates,
 		Context:      expand.GitContext(dir),
-		Earlier:      func() []string { return earlier },
+		Session:      func() expand.SessionContext { return sc },
 		Style:        cfg.Expand.Style,
 		TypoOnly:     plan.TypoOnly,
 	}
@@ -911,8 +949,8 @@ func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, earl
 	if provider == "fake" {
 		lines := e.Context(ctx)
 		out := "Please " + expand.StripContext(text) + "."
-		if len(earlier) > 0 {
-			out += " (Following: " + earlier[len(earlier)-1] + ")"
+		if len(sc.Prompts) > 0 {
+			out += " (Following: " + sc.Prompts[len(sc.Prompts)-1] + ")"
 		}
 		if len(lines) > 0 {
 			out += "\n\nContext:\n- " + strings.Join(lines, "\n- ")
@@ -925,11 +963,11 @@ func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, earl
 
 // suggesterFor returns the suggester cfg asks for, or nil when
 // suggestions are off.
-func suggesterFor(ctx context.Context, cfg config.LLMConfig, logf func(string, ...any)) suggest.Suggester {
+func suggesterFor(ctx context.Context, cfg config.LLMConfig, earlier func() []string, logf func(string, ...any)) suggest.Suggester {
 	if !cfg.Enabled {
 		return nil
 	}
-	return newSuggester(ctx, cfg, logf)
+	return newSuggester(ctx, cfg, earlier, logf)
 }
 
 func listOrNone(items []string) string {
@@ -942,7 +980,7 @@ func listOrNone(items []string) string {
 // newSuggester builds the configured suggester. For Ollama it loads the
 // model in the background, so the first suggestion doesn't wait for it;
 // if the server is down, each suggestion fails fast and is only logged.
-func newSuggester(ctx context.Context, cfg config.LLMConfig, logf func(string, ...any)) suggest.Suggester {
+func newSuggester(ctx context.Context, cfg config.LLMConfig, earlier func() []string, logf func(string, ...any)) suggest.Suggester {
 	provider := cfg.Provider
 	if p := os.Getenv(envSuggester); p != "" {
 		provider = p
@@ -952,7 +990,7 @@ func newSuggester(ctx context.Context, cfg config.LLMConfig, logf func(string, .
 		return suggest.Fake{Delay: delay}
 	}
 
-	o := &suggest.Ollama{Endpoint: cfg.Endpoint, Model: cfg.Model, MaxTokens: cfg.MaxTokens, KeepAlive: "30m"}
+	o := &suggest.Ollama{Endpoint: cfg.Endpoint, Model: cfg.Model, MaxTokens: cfg.MaxTokens, KeepAlive: "30m", Earlier: earlier}
 	go func() {
 		wctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()

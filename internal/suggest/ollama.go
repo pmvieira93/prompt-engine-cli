@@ -28,7 +28,11 @@ type Ollama struct {
 	Model     string
 	MaxTokens int    // completion length; small keeps latency low
 	KeepAlive string // how long Ollama keeps the model loaded, e.g. "30m"
-	Client    *http.Client
+	// Earlier returns the prompts sent earlier in the session, oldest
+	// first, so suggestions follow its topic (PRD Appendix 1, FR-6.2).
+	// Nil or empty means none.
+	Earlier func() []string
+	Client  *http.Client
 }
 
 // ErrNoFIM reports a model that can't do fill-in-the-middle completion.
@@ -53,7 +57,7 @@ func (o *Ollama) Suggest(ctx context.Context, text string, cursor int) (string, 
 	if cursor != utf8.RuneCountInString(text) || strings.TrimSpace(text) == "" {
 		return "", nil
 	}
-	out, err := o.generate(ctx, promptHeader+text, o.MaxTokens)
+	out, err := o.generate(ctx, o.header()+text, o.MaxTokens)
 	if err != nil {
 		return "", err
 	}
@@ -62,6 +66,28 @@ func (o *Ollama) Suggest(ctx context.Context, text string, cursor int) (string, 
 		return "", &RepeatError{Suggestion: out}
 	}
 	return out, nil
+}
+
+// earlierHeader introduces the earlier prompts, as comment lines like
+// promptHeader.
+const earlierHeader = "# Earlier requests from the same developer, oldest first:\n"
+
+// header returns promptHeader, after the earlier prompts if there are
+// any. Each is one line: a newline would end the completion early.
+func (o *Ollama) header() string {
+	if o.Earlier == nil {
+		return promptHeader
+	}
+	earlier := o.Earlier()
+	if len(earlier) == 0 {
+		return promptHeader
+	}
+	var b strings.Builder
+	b.WriteString(earlierHeader)
+	for _, e := range earlier {
+		b.WriteString("# - " + strings.Join(strings.Fields(e), " ") + "\n")
+	}
+	return b.String() + promptHeader
 }
 
 // RepeatError is returned instead of a suggestion that repeats the prompt

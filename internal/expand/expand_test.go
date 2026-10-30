@@ -150,7 +150,9 @@ func TestExpandOnlyContext(t *testing.T) {
 
 func TestExpandWithEarlierPrompts(t *testing.T) {
 	e, req := fakeChat(t, `{"message":{"content":"Add tests for the retry logic."}}`)
-	e.Earlier = func() []string { return []string{"add a retry to the client", "make it exponential"} }
+	e.Session = func() SessionContext {
+		return SessionContext{Prompts: []string{"add a retry to the client", "make it exponential"}}
+	}
 	if _, err := e.Expand(context.Background(), "now add tests for it"); err != nil {
 		t.Fatal(err)
 	}
@@ -163,12 +165,71 @@ func TestExpandWithEarlierPrompts(t *testing.T) {
 	}
 
 	// No earlier prompts: the request is sent as before, without the rule.
-	e.Earlier = func() []string { return nil }
+	e.Session = func() SessionContext { return SessionContext{} }
 	if _, err := e.Expand(context.Background(), "x"); err != nil {
 		t.Fatal(err)
 	}
 	if req.Messages[1].Content != "Request: x" || strings.Contains(req.Messages[0].Content, "Earlier requests") {
 		t.Errorf("without earlier prompts: %+v", req.Messages)
+	}
+}
+
+func TestExpandWithReplyAndSummary(t *testing.T) {
+	e, req := fakeChat(t, `{"message":{"content":"Fix the nil check in parser.go."}}`)
+	e.Session = func() SessionContext {
+		return SessionContext{
+			Prompts: []string{"what changed in the parser", "why does the parser crash"},
+			Reply:   "The crash comes from a missing nil check in parser.go.",
+			Summary: "Debugging a parser crash.",
+		}
+	}
+	if _, err := e.Expand(context.Background(), "fix that"); err != nil {
+		t.Fatal(err)
+	}
+	// The reply goes with the request it answers, after the earlier ones.
+	want := "Summary of the session so far:\nDebugging a parser crash.\n\n" +
+		"Earlier requests in this session (oldest first):\n- what changed in the parser\n\n" +
+		"The last request: why does the parser crash\n" +
+		"The assistant's last reply, which the request may point at:\nThe crash comes from a missing nil check in parser.go.\n\n" +
+		"Request: fix that"
+	if req.Messages[1].Content != want {
+		t.Errorf("request = %q\nwant      %q", req.Messages[1].Content, want)
+	}
+	if !strings.HasSuffix(req.Messages[0].Content, EarlierRule+"\n"+ReplyRule) {
+		t.Errorf("system prompt lacks the rules: %q", req.Messages[0].Content)
+	}
+
+	// A reply without earlier prompts gets only its own rule.
+	e.Session = func() SessionContext { return SessionContext{Reply: "Done."} }
+	if _, err := e.Expand(context.Background(), "thanks, now commit it"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(req.Messages[0].Content, EarlierRule) || !strings.HasSuffix(req.Messages[0].Content, ReplyRule) {
+		t.Errorf("reply only: system = %q", req.Messages[0].Content)
+	}
+}
+
+func TestSummarize(t *testing.T) {
+	e, req := fakeChat(t, `{"message":{"content":"Summary: Fixing a parser crash in parser.go; the nil check is missing."}}`)
+	got, err := e.Summarize(context.Background(), "", "why does the parser crash", "A nil check is missing in parser.go.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Fixing a parser crash in parser.go; the nil check is missing." {
+		t.Errorf("summary = %q", got)
+	}
+	if req.Messages[0].Content != SummarySystem || !strings.Contains(req.Messages[1].Content, "Summary so far:\n(none yet)") {
+		t.Errorf("request = %+v", req.Messages)
+	}
+	if got, err := e.Summarize(context.Background(), "kept", " ", ""); err != nil || got != "kept" {
+		t.Errorf("nothing new: %q, %v", got, err)
+	}
+}
+
+func TestSessionContextTexts(t *testing.T) {
+	s := SessionContext{Prompts: []string{"a", "b"}, Reply: "r"}
+	if got := strings.Join(s.Texts(), "|"); got != "a|b|r" {
+		t.Errorf("Texts = %q", got)
 	}
 }
 

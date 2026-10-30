@@ -46,6 +46,18 @@ func TestExampleMatchesDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadContextLevels(t *testing.T) {
+	for _, level := range []string{"none", "prompts", "reply", "session"} {
+		cfg, err := LoadFile(writeConfig(t, "expand:\n  context: "+level+"\nghost:\n  context: none\n  context_prompts: 5\n"))
+		if err != nil {
+			t.Fatalf("%s: %v", level, err)
+		}
+		if cfg.Expand.Context != level || cfg.Ghost.Context != "none" || cfg.Ghost.ContextPrompts != 5 {
+			t.Errorf("%s: got %+v %+v", level, cfg.Expand, cfg.Ghost)
+		}
+	}
+}
+
 func TestLoadFileEmptyReturnsDefaults(t *testing.T) {
 	cfg, err := LoadFile(writeConfig(t, ""))
 	if err != nil {
@@ -98,6 +110,8 @@ func TestLoadFileErrorsFallBackToDefaults(t *testing.T) {
 		"no pause":     "expand:\n  on_enter: preview\n  preview_pause: 0s\n",
 		"bad style":    "expand:\n  style: auto\n",
 		"bad ghost":    "ghost:\n  style: color:300\n",
+		"ghost level":  "ghost:\n  context: reply\n",
+		"ghost count":  "ghost:\n  context_prompts: 21\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

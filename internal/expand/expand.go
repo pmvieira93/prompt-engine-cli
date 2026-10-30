@@ -71,10 +71,9 @@ type Expander struct {
 	// Context returns the lines appended under "Context:", e.g. from
 	// GitContext. Nil appends nothing.
 	Context func(ctx context.Context) []string
-	// Earlier returns the prompts sent earlier in the session, oldest
-	// first, for the model to resolve references with ("add tests for
-	// it"). Nil or empty means none.
-	Earlier func() []string
+	// Session returns what the model is told about the session, to
+	// resolve references with ("add tests for it"). Nil means nothing.
+	Session func() SessionContext
 	// Style picks the instructions (StyleSystem); "" is StyleDefault.
 	Style string
 	// TypoOnly uses TypoSystem whatever the style: corrections, no
@@ -110,12 +109,10 @@ func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
 		// made the model translate English requests into it.
 		request = label + " (in " + lang + "; write the rewrite in " + lang + "): " + text
 	}
-	if e.Earlier != nil {
-		if earlier := e.Earlier(); len(earlier) > 0 {
-			system += "\n" + EarlierRule
-			request = "Earlier requests in this session (oldest first):\n- " +
-				strings.Join(earlier, "\n- ") + "\n\n" + request
-		}
+	if e.Session != nil {
+		var rule string
+		request, rule = e.Session().request(request)
+		system += rule
 	}
 	// Room for a corrected long prompt: about 1.5 tokens a word.
 	tokens := max(200, 2*len(strings.Fields(text)))
