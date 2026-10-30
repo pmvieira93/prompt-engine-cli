@@ -55,6 +55,22 @@ func TestBufferEditing(t *testing.T) {
 	}
 }
 
+func TestBufferRightInAnEmptyBox(t *testing.T) {
+	// → in an empty box may accept claude's suggested prompt, which only
+	// the screen shows.
+	b := NewBuffer()
+	feed(b, "\x1b[C")
+	if b.Synced() {
+		t.Error("→ in an empty box: still in sync")
+	}
+	// After text is typed, → only moves the cursor.
+	b = NewBuffer()
+	feed(b, "ab\x1b[D\x1b[C\x1b[C")
+	if !b.Synced() || b.Cursor() != 2 {
+		t.Errorf("→ over text: synced=%v cursor=%d", b.Synced(), b.Cursor())
+	}
+}
+
 func TestBufferIgnoresTerminalReplies(t *testing.T) {
 	b := NewBuffer()
 	var d Decoder
