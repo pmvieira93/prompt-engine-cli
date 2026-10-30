@@ -29,6 +29,38 @@ func TestOwnFlags(t *testing.T) {
 	}
 }
 
+func TestWantsVersion(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"--pe-version"}, true},
+		{[]string{"--resume", "--pe-version"}, true},
+		{[]string{"--", "--pe-version"}, false}, // for the child
+		{[]string{"--version"}, false},          // claude's own
+		{nil, false},
+	} {
+		if got := wantsVersion(tc.args); got != tc.want {
+			t.Errorf("wantsVersion(%q) = %v", tc.args, got)
+		}
+	}
+}
+
+func TestTilde(t *testing.T) {
+	t.Setenv("HOME", "/home/dev")
+	for in, want := range map[string]string{
+		"/home/dev/.config/prompt-engine/config.yaml": "~/.config/prompt-engine/config.yaml",
+		"/home/dev":         "~",
+		"/home/developer/x": "/home/developer/x", // not inside /home/dev
+		"/tmp/pe.yaml":      "/tmp/pe.yaml",
+		"":                  "",
+	} {
+		if got := tilde(in); got != want {
+			t.Errorf("tilde(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestGuardNotes(t *testing.T) {
 	got := guardNotes("Guard ", "added-task", "ensure, runs", "Ensure the code runs without errors.\nCheck for the same error message, code and environment.")
 	want := []string{"Guard added-task: ensure, runs", "Rejected: “Ensure the code runs without errors. Check for…”"}

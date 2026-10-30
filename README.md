@@ -1,5 +1,8 @@
 # prompt-engine
 
+[![CI](https://github.com/pmvieira93/prompt-engine-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/pmvieira93/prompt-engine-cli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/pmvieira93/prompt-engine-cli?include_prereleases)](https://github.com/pmvieira93/prompt-engine-cli/releases)
+
 **Better prompts for Claude Code, written as you type, without leaving your terminal.**
 
 `prompt-engine` wraps [Claude Code](https://claude.com/claude-code) in your terminal. You use `claude` exactly as before, and `prompt-engine` adds three things on top:
@@ -9,6 +12,8 @@
 - **Rules**: your standing guidelines are added to every prompt you send.
 
 Everything runs **locally** through [Ollama](https://ollama.com). Your prompts never leave your machine before they reach Claude Code.
+
+![A rough prompt with typos is rewritten with Ctrl+Q, e; once sent, the side panel shows what changed](docs/media/rewrite.gif)
 
 > New here? Start with **[Getting Started](docs/GETTING_STARTED.md)**: install, first run and a shortcut cheat sheet in five minutes.
 
@@ -21,6 +26,7 @@ Everything runs **locally** through [Ollama](https://ollama.com). Your prompts n
 - [Installation](#installation)
 - [Local models](#local-models)
 - [Configuration](#configuration)
+- [Flags](#flags)
 - [Environment variables](#environment-variables)
 - [Files and locations](#files-and-locations)
 - [Uninstall](#uninstall)
@@ -33,6 +39,8 @@ Everything runs **locally** through [Ollama](https://ollama.com). Your prompts n
 ### Ghost text
 
 Pause while typing, and a suggestion appears after the cursor in grey italics.
+
+![Typing "list the files in this dire", pausing, and accepting "ctory" with Tab](docs/media/ghost.gif)
 
 - **Tab** or **→** accepts it, and **Esc** dismisses it. Typing on also dismisses it.
 - It finishes half-typed words (`refa` → `refactor`) and continues sentences. This uses a fill-in-the-middle model.
@@ -52,6 +60,10 @@ A local model rewrites your prompt into a clearer one. It works in three modes (
 | `preview` | When you pause, a rewrite is prepared in the background and shown in the side panel. **Ctrl+Q, then e** applies it. **Enter** sends what you typed. |
 | `auto` | **Enter** rewrites the prompt, then sends it. Prompts shorter than 3 words (`yes`, `continue`) go as typed, and so does a prompt the model can't rewrite within 5 s. |
 
+In `preview` mode, the rewrite waits in the side panel while you type; **Ctrl+Q, then e** takes it:
+
+![A rewrite prepared while typing pauses, shown in the panel, then applied and sent](docs/media/preview.gif)
+
 Every rewrite follows the same rules:
 
 - **It keeps your intent.** It fixes typos and spells out abbreviations, but never adds goals, files or steps you didn't mention.
@@ -70,6 +82,8 @@ Every rewrite follows the same rules:
 ### Session context
 
 How much the rewrite model knows about the session is set by `expand.context`. Each level adds to the one before.
+
+![With context: reply, "tell me a fun fact about the second one" is rewritten to name the colour Claude listed second](docs/media/context.gif)
 
 | Level | The model sees | Resolves |
 |---|---|---|
@@ -170,6 +184,20 @@ The script asks before it changes anything. In order, it:
 | `--prefix DIR` | Install somewhere other than `~/.local/bin` |
 | `--skip-expand` | Don't offer the rewrite model |
 | `--dry-run` | Show what would be done, change nothing |
+
+### From a release
+
+Each [release](https://github.com/pmvieira93/prompt-engine-cli/releases) has a ready-built binary for macOS and Linux (Apple Silicon or Intel, arm64 or amd64), with `checksums.txt` to verify it:
+
+```sh
+# Pick your version and platform: darwin_arm64, darwin_amd64, linux_amd64 or linux_arm64.
+curl -fsSLO https://github.com/pmvieira93/prompt-engine-cli/releases/download/v1.0.0/prompt-engine_v1.0.0_darwin_arm64.tar.gz
+tar -xzf prompt-engine_v1.0.0_darwin_arm64.tar.gz
+mv prompt-engine_v1.0.0_darwin_arm64/prompt-engine ~/.local/bin/
+prompt-engine --pe-version
+```
+
+You still need Claude Code, Ollama and the models (steps 1 and 2 below). The binary isn't signed: if macOS blocks it, run `xattr -d com.apple.quarantine ~/.local/bin/prompt-engine`.
 
 ### Manual install
 
@@ -282,6 +310,15 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 Durations use Go's format: `150ms`, `2s`, `1m`.
 
 ---
+
+## Flags
+
+Every argument goes on to `claude`, except these two, which start with `--pe-`:
+
+| Flag | Purpose |
+|---|---|
+| `--pe-config <file>` | Use this config file (wins over `PROMPT_ENGINE_CONFIG`) |
+| `--pe-version` | Print `prompt-engine`'s version and exit (`--version` still gives Claude Code's) |
 
 ## Environment variables
 
