@@ -1,5 +1,8 @@
 # prompt-engine
 
+[![CI](https://github.com/pmvieira93/prompt-engine-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/pmvieira93/prompt-engine-cli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/pmvieira93/prompt-engine-cli?include_prereleases)](https://github.com/pmvieira93/prompt-engine-cli/releases)
+
 **Better prompts for Claude Code, written as you type, without leaving your terminal.**
 
 `prompt-engine` wraps [Claude Code](https://claude.com/claude-code) in your terminal. You use `claude` exactly as before, and `prompt-engine` adds three things on top:
@@ -21,6 +24,7 @@ Everything runs **locally** through [Ollama](https://ollama.com). Your prompts n
 - [Installation](#installation)
 - [Local models](#local-models)
 - [Configuration](#configuration)
+- [Flags](#flags)
 - [Environment variables](#environment-variables)
 - [Files and locations](#files-and-locations)
 - [Uninstall](#uninstall)
@@ -171,6 +175,20 @@ The script asks before it changes anything. In order, it:
 | `--skip-expand` | Don't offer the rewrite model |
 | `--dry-run` | Show what would be done, change nothing |
 
+### From a release
+
+Each [release](https://github.com/pmvieira93/prompt-engine-cli/releases) has a ready-built binary for macOS and Linux (Apple Silicon or Intel, arm64 or amd64), with `checksums.txt` to verify it:
+
+```sh
+# Pick your version and platform: darwin_arm64, darwin_amd64, linux_amd64 or linux_arm64.
+curl -fsSLO https://github.com/pmvieira93/prompt-engine-cli/releases/download/v1.0.0/prompt-engine_v1.0.0_darwin_arm64.tar.gz
+tar -xzf prompt-engine_v1.0.0_darwin_arm64.tar.gz
+mv prompt-engine_v1.0.0_darwin_arm64/prompt-engine ~/.local/bin/
+prompt-engine --pe-version
+```
+
+You still need Claude Code, Ollama and the models (steps 1 and 2 below). The binary isn't signed: if macOS blocks it, run `xattr -d com.apple.quarantine ~/.local/bin/prompt-engine`.
+
 ### Manual install
 
 ```sh
@@ -282,6 +300,15 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 Durations use Go's format: `150ms`, `2s`, `1m`.
 
 ---
+
+## Flags
+
+Every argument goes on to `claude`, except these two, which start with `--pe-`:
+
+| Flag | Purpose |
+|---|---|
+| `--pe-config <file>` | Use this config file (wins over `PROMPT_ENGINE_CONFIG`) |
+| `--pe-version` | Print `prompt-engine`'s version and exit (`--version` still gives Claude Code's) |
 
 ## Environment variables
 
