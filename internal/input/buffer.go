@@ -83,6 +83,14 @@ func (b *Buffer) Apply(k Key) (submitted string, ok bool) {
 	case KeyLeft:
 		b.moveTo(b.prevGrapheme())
 	case KeyRight:
+		if len(b.runes) == 0 {
+			// In an empty box, claude may be showing a suggested prompt
+			// (after a reply), which → accepts, as Tab does (recorded
+			// with claude 2.1.308; Ctrl+E and Ctrl+F don't): the prompt
+			// is then whatever it suggested, read from the screen.
+			b.desync()
+			break
+		}
 		b.moveTo(b.nextGrapheme())
 	case KeyHome:
 		b.moveTo(b.lineStart())
