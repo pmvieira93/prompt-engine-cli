@@ -113,6 +113,7 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	opt.Ctrl.SetScreen(a.promptText)
 	opt.Ctrl.SetPanelOpen(a.panel.Load)
 	opt.Ctrl.CanInsert = a.canInsert
+	opt.Ctrl.WaitScreen = a.waitScreen
 	opt.Ctrl.OnResizePanel = a.ResizePanel
 	opt.Ctrl.MouseOffset = a.mouseOffset
 	// Start the child at the size it will have: narrower if the panel opens
@@ -193,6 +194,7 @@ type app struct {
 	fallback      atomic.Bool
 	renderErr     atomic.Pointer[error]
 	wake          chan struct{}
+	lastOutput    atomic.Int64 // when the child last wrote, in Unix nanoseconds
 }
 
 func newApp(cols, rows int, opt Options) *app {
@@ -227,6 +229,7 @@ func (a *app) Write(p []byte) (int, error) {
 	if _, err := a.emu.Write(a.osc.Filter(p)); err != nil {
 		return 0, err
 	}
+	a.lastOutput.Store(time.Now().UnixNano())
 	a.Wake()
 	return len(p), nil
 }
@@ -334,6 +337,34 @@ func (a *app) firstContent(y, limit int) string {
 		}
 	}
 	return ""
+}
+
+// How long waitScreen waits: the screen is taken as current once the child
+// has written since the input and then been quiet for screenQuiet, and is
+// read anyway screenWait after the input.
+const (
+	screenQuiet = 10 * time.Millisecond
+	screenWait  = 100 * time.Millisecond
+	screenPoll  = 2 * time.Millisecond
+)
+
+// waitScreen waits until the emulator screen shows the effect of input sent
+// at since: the child has drawn since then and paused. A redraw can come in
+// several writes, hence the pause. It returns false after screenWait from
+// since, e.g. for a key that redraws nothing, so an Enter waiting on it is
+// held back at most that long.
+func (a *app) waitScreen(since time.Time) bool {
+	deadline := since.Add(screenWait)
+	for {
+		now := time.Now()
+		if last := time.Unix(0, a.lastOutput.Load()); last.After(since) && now.Sub(last) >= screenQuiet {
+			return true
+		}
+		if !now.Before(deadline) {
+			return false
+		}
+		time.Sleep(min(screenPoll, deadline.Sub(now)))
+	}
 }
 
 // promptText reads claude's prompt from the screen, and the cursor offset

@@ -432,3 +432,43 @@ func TestGhostStyle(t *testing.T) {
 		}
 	}
 }
+
+// TestWaitScreen: an Enter just after a key waits for the child's redraw
+// of it, and no longer than screenWait after the key.
+func TestWaitScreen(t *testing.T) {
+	a := newTestModel(40, 4).app
+
+	// The redraw comes 20 ms after the key, in two writes.
+	since := time.Now()
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_, _ = a.Write([]byte("❯ what's"))
+		time.Sleep(3 * time.Millisecond)
+		_, _ = a.Write([]byte(" in src?"))
+	}()
+	if !a.waitScreen(since) {
+		t.Fatal("waitScreen = false with a redraw after the key")
+	}
+	if waited := time.Since(since); waited < 23*time.Millisecond+screenQuiet {
+		t.Fatalf("returned after %s, before the redraw ended and paused", waited)
+	}
+	if !strings.Contains(a.emu.String(), "what's in src?") {
+		t.Fatalf("screen not current: %q", a.emu.String())
+	}
+
+	// Nothing redrawn: give up screenWait after the key.
+	since = time.Now()
+	if a.waitScreen(since) {
+		t.Fatal("waitScreen = true with no output since the key")
+	}
+	if waited := time.Since(since); waited < screenWait || waited > 2*screenWait {
+		t.Fatalf("gave up after %s, want about %s", waited, screenWait)
+	}
+
+	// A key long ago: no wait at all.
+	start := time.Now()
+	a.waitScreen(start.Add(-time.Second))
+	if waited := time.Since(start); waited > 20*time.Millisecond {
+		t.Fatalf("waited %s for a key sent a second ago", waited)
+	}
+}

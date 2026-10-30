@@ -66,6 +66,13 @@ type Controller struct {
 	// is in its prompt, not a dialog.
 	CanInsert func() bool
 
+	// WaitScreen, if set before use, waits until the child's screen shows
+	// the effect of input sent at since: it has drawn since then, then
+	// paused. It must return within a short bound, since an Enter waits on
+	// it, and must not call the controller. It reports whether the screen
+	// settled.
+	WaitScreen func(since time.Time) bool
+
 	// KeyHook, if set before use, sees each key that isn't a shortcut or a
 	// terminal report, with the prompt as it stands, and returns true to
 	// swallow it: e.g. to hold back an Enter while the prompt is expanded,
@@ -91,6 +98,7 @@ type Controller struct {
 	disabled  bool
 	armed     bool      // Leader was pressed; the next key is a command
 	repeat    time.Time // until when Wider/Narrower work without Leader
+	sentAt    time.Time // when Filter last passed input to the child
 }
 
 // Disable hides any suggestion and turns interception off for good, e.g.
@@ -358,8 +366,17 @@ func (c *Controller) Filter(p []byte) []byte {
 	toggles := 0
 	var actions []func() // OnExpand/OnUndo calls, run after unlocking
 	var res []byte       // input already fed to the tracker
+	keys := false        // res or out holds keys, not only terminal reports
 	out := make([]byte, 0, len(p))
 	for _, k := range c.dec.Decode(p) {
+		if k.Type == input.KeyEnter {
+			// Bring the tracker up to this Enter; if it lost track of the
+			// prompt, read it from the screen before the hook, the rules
+			// and the record look at it.
+			res = c.resyncForEnter(append(res, c.Tracker.Filter(out)...), keys)
+			out = out[:0]
+		}
+		keys = keys || k.Type != input.KeyReport
 		if c.KeyHook != nil && !c.armed && k.Type != input.KeyReport && !c.Keys.Leader.Matches(k) {
 			// Bring the tracker up to this key, so the hook sees text typed
 			// in the same read.
@@ -460,6 +477,9 @@ func (c *Controller) Filter(p []byte) []byte {
 	// Feed the tracker while still holding mu, so Show can't publish a
 	// suggestion for a buffer state this input is about to replace.
 	res = append(res, c.Tracker.Filter(out)...)
+	if keys {
+		c.sentAt = time.Now() // the caller sends res right away
+	}
 	changed := c.sug != before
 	c.mu.Unlock()
 
@@ -473,6 +493,44 @@ func (c *Controller) Filter(p []byte) []byte {
 	}
 	for _, act := range actions {
 		act()
+	}
+	return res
+}
+
+// resyncForEnter reads the prompt from the screen into the tracker if
+// replayed keys lost track of it, so an Enter's hook, rules and record see
+// the text being sent. The worker does this too, but only after its
+// debounce: in claude 2.1.308, Enter pressed 23 ms after → accepted
+// claude's suggested prompt sent it with no rules ("prompt text unknown").
+// It first waits, bounded by WaitScreen, for the screen to show the keys
+// sent before this Enter. res is the input this read has for the child so
+// far; if it holds keys (say → in the same read as Enter), it is sent
+// first, since the screen can't show them otherwise. It returns what is
+// left to send. With the tracker in sync it does nothing.
+func (c *Controller) resyncForEnter(res []byte, keys bool) []byte {
+	s := c.Tracker.Snapshot()
+	if s.Synced || c.screen == nil {
+		return res
+	}
+	if keys && c.output != nil {
+		if _, err := c.output.Write(res); err != nil {
+			return res // the caller's write will fail too
+		}
+		res, c.sentAt = res[:0], time.Now()
+	}
+	start := time.Now()
+	settled := c.WaitScreen == nil || c.WaitScreen(c.sentAt)
+	waited := time.Since(start).Round(time.Millisecond)
+	text, cur, slack, ok := c.screen()
+	switch {
+	case !ok:
+		c.logf("buffer not resynced at Enter: prompt not readable from the screen (waited %s)", waited)
+	case c.Tracker.Resync(s.Rev, text, cur, slack):
+		note := ""
+		if !settled {
+			note = ", screen not settled"
+		}
+		c.logf("buffer resynced from screen at Enter rev=%d %q (waited %s%s)", s.Rev, text, waited, note)
 	}
 	return res
 }
