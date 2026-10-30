@@ -1,0 +1,3 @@
+expand:
+  on_enter: off
+  context: reply

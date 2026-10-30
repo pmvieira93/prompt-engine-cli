@@ -419,7 +419,7 @@ ghost:
 
 | Value | Expected |
 |---|---|
-| `italic` (also the default, with no `ghost:` key) | Grey italic, so it can't be mistaken for `claude`'s own grey placeholder (`Try "…"`), which is upright and only shows in an empty box |
+| `italic` (also the default, with no `ghost:` key) | Grey italic, so it can't be mistaken for `claude`'s own grey text (a placeholder, or a suggested next prompt after a reply), which is upright and only shows in an empty box |
 | `faint` | Dimmed and upright (the look before `ghost.style`) |
 | `color:117` | Light blue |
 | `color:300` | Not applied; the previous style stays |
@@ -815,7 +815,7 @@ Open the panel (Ctrl+Q, then p), so the prompt box is narrower and long prompts 
 | In auto mode, typing while `⟳ expanding…` shows cancels the send, so you press Enter again (and it expands again) | Anything typed after Enter would otherwise go into a prompt that's about to be replaced |
 | Around a paste, a typo can come back wrong (seen: `what does this, just answr:` → `just ansr:`, every time) | Typo-only rewrites keep nearly every word, so no word check can tell a bad fix from a good one; with the missing word (`what does this print, just answr:`) it was fixed |
 | On short prompts, the rewrite styles often give the same text | The styles mostly change tone and length: a short request has little of either to change. Compare them on a polite or several-part prompt (N2, N5, N6) |
-| Grey text in an empty prompt (`Try "…"`) is `claude`'s placeholder, not a suggestion | Recorded with `claude` 2.1.308: it shows only while the box is empty, dim and upright, and → or Tab don't take it. After a reply, `claude` showed no suggestion of its own. `prompt-engine`'s ghost text shows only after you type, in grey italic, with a `suggestion shown` line in the log |
+| Grey text in an empty prompt is `claude`'s own, not `prompt-engine`'s | Recorded with `claude` 2.1.308: before the first prompt it's a placeholder (`Try "…"`), and → or Tab don't take it. After a reply it can be a suggested next prompt (`show me main.go`), seen in the README recordings, made in a plain terminal; in an earlier check, run from inside another Claude Code session, none showed. Both are upright and show only while the box is empty. `prompt-engine`'s ghost text shows only after you type, in grey italic, with a `suggestion shown` line in the log |
 | In preview mode, the expansion model runs after every pause in typing | That's what prepares the suggestion. It's cancelled as soon as you type again, but it uses CPU while it runs; use `off` or a longer `expand.preview_pause` to run it less |
 | A paste that you then edit counts as typed text, so it can be rewritten | The kept parts are found by their exact pasted text |
 | A long paste that `claude` shows as `[Pasted text #1 +N lines]` is never rewritten if the prompt was re-read from the screen | The screen only has the placeholder, not the text |

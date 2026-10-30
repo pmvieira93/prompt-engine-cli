@@ -1,0 +1,4 @@
+expand:
+  on_enter: preview
+panel:
+  visible: true
