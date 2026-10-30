@@ -113,6 +113,53 @@ func newWords(typed, rewritten string, stems []string) []string {
 	return added
 }
 
+// besidesTypos returns the words of ws that aren't a typed word with a
+// typo fixed. Seen in preview mode: "shuold i comit the chnages now?"
+// became "Should I commit the changes now?", and was stopped as a question
+// turned into an instruction ("changes, commit").
+func besidesTypos(typed string, ws []string) []string {
+	typedWords := words(strings.ToLower(typed))
+	var kept []string
+next:
+	for _, w := range ws {
+		for _, t := range typedWords {
+			if typoOf(t, w) {
+				continue next
+			}
+		}
+		kept = append(kept, w)
+	}
+	return kept
+}
+
+// typoOf reports whether t is w with one typo: a letter added, dropped or
+// changed, or two letters swapped. A word under four letters counts only
+// with a swap ("rnu"), since one changed letter makes another word ("and",
+// "add").
+func typoOf(t, w string) bool {
+	a, b := []rune(t), []rune(w)
+	if len(a) > len(b) {
+		a, b = b, a
+	}
+	i := 0
+	for i < len(a) && a[i] == b[i] {
+		i++
+	}
+	switch {
+	case i == len(b): // the same word
+		return false
+	case len(a) == len(b) && i+1 < len(a) && a[i] == b[i+1] && a[i+1] == b[i]:
+		return string(a[i+2:]) == string(b[i+2:]) // swapped
+	case len(a) < 4:
+		return false
+	case len(a) == len(b):
+		return string(a[i+1:]) == string(b[i+1:]) // changed
+	case len(a)+1 == len(b):
+		return string(a[i:]) == string(b[i+1:]) // added or dropped
+	}
+	return false
+}
+
 // fromEarlier returns words the rewrite took from earlier prompts when
 // typed doesn't refer back to them. Seen in testing: with "don't touch the
 // tests, just fix the config loader" as context, an unrelated "fix the
@@ -141,6 +188,9 @@ func fromEarlier(typed, rewritten string, sc SessionContext) []string {
 			seen[w] = true
 		}
 	}
+	// "shuold i comit the chnages now?", after "commit the changes…", took
+	// nothing from it.
+	leaked = besidesTypos(typed, leaked)
 	if len(leaked) < 2 { // one shared word is likely chance
 		return nil
 	}
@@ -181,7 +231,10 @@ func pointsAtReply(typed string, sc SessionContext) bool {
 
 // fromContext returns a filter keeping the words that aren't in the
 // session context, compared by their first four letters ("split" and
-// "splitting"), or nil when typed doesn't refer back to it.
+// "splitting"), or nil when typed doesn't refer back to it. A three-letter
+// word matches the words it starts: after "run the tests and fix any
+// failures", "is it ready?" → "…are the tests running…" took "running"
+// from the context, but was stopped for it.
 func fromContext(typed string, sc SessionContext) func([]string) []string {
 	earlier := sc.Texts()
 	if len(earlier) == 0 || !refersBack(typed, sc) {
@@ -194,17 +247,28 @@ func fromContext(typed string, sc SessionContext) func([]string) []string {
 		return w
 	}
 	seen := map[string]bool{}
+	var short []string // under four letters: "run" is "running"'s key
 	for _, e := range earlier {
 		for _, w := range words(strings.ToLower(e)) {
 			seen[key(w)] = true
+			if n := len([]rune(w)); n == 3 {
+				short = append(short, w)
+			}
 		}
 	}
 	return func(ws []string) []string {
 		var kept []string
+	next:
 		for _, w := range ws {
-			if !seen[key(w)] {
-				kept = append(kept, w)
+			if seen[key(w)] {
+				continue
 			}
+			for _, s := range short {
+				if isStem(w, s) {
+					continue next
+				}
+			}
+			kept = append(kept, w)
 		}
 		return kept
 	}
@@ -432,7 +496,7 @@ func CheckSession(typed, rewritten string, sc SessionContext) *Stop {
 		return stop("destructive", list(added, ", "), "the rewrite added a destructive action ("+list(added, ", ")+")")
 	}
 	if isQuestion(typed) {
-		if added := resolved(newWords(typed, rewritten, actions)); len(added) > 0 {
+		if added := resolved(besidesTypos(typed, newWords(typed, rewritten, actions))); len(added) > 0 {
 			return stop("question", list(added, ", "), "the rewrite turned your question into an instruction ("+list(added, ", ")+")")
 		}
 	} else if added := resolved(addedTasks(typed, rewritten)); len(added) > 0 {

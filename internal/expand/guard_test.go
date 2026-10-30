@@ -131,6 +131,10 @@ func TestLanguage(t *testing.T) {
 		"explica como funciona o buffer de entrada":                 "Portuguese",
 		"adiciona testes para o cliente ollama e trata os timeouts": "Portuguese",
 		"arregla el error en la configuracion":                      "Spanish",
+		"posso fazer commit das alterações agora?":                  "Portuguese",
+		"já está tudo bem?":                                         "Portuguese",
+		"consegues ver porque falha no linux?":                      "Portuguese",
+		"el error está en la configuracion":                         "Spanish",
 		"fix teh failing tst in config":                             "",
 		"refactor tracker to use chans":                             "",
 		"add tests":                                                 "",
@@ -257,6 +261,65 @@ func TestDoStartsAQuestionOnlyBeforeASubject(t *testing.T) {
 	} {
 		if got := isQuestion(text); got != want {
 			t.Errorf("isQuestion(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
+
+// Cases from the question guard evaluation (PRD Appendix 1, FR-7.4c,
+// 2026-10-30), with qwen2.5:7b and earlier prompts that run tests and
+// commit changes.
+func TestQuestionGuardInPreview(t *testing.T) {
+	en := SessionContext{Prompts: []string{"add a --verbose flag to the cli", "run the tests and fix any failures", "commit the changes with a short message"}}
+	en2 := SessionContext{Prompts: []string{"refactor the config loader to use the new parser", "run go test ./... and make sure everything passes, then commit the changes", "update the readme with the new flag"}}
+	for _, c := range []struct {
+		sc               SessionContext
+		typed, rewritten string
+		guard            string // "" for none
+	}{
+		// Fixed typos aren't new words.
+		{SessionContext{}, "shuold i comit the chnages now?", "Should I commit the changes now?", ""},
+		{en, "what chages are neded to rnu it on linux?", "What changes are needed to run it on Linux?", ""},
+		{en2, "can i commt now or are tests still failng?", "Can I commit now or are the tests still failing?", ""},
+		{en, "shuold i comit the chnages now?", "Should I commit the changes now?", ""}, // was earlier-prompts
+		{en, "why does the tets fail after the lst comit?", "Why do the tests fail after the last commit?", ""},
+		// "it" resolved from the context: "added" is "add" there.
+		{en, "is it ready to commit?", "Is the --verbose flag added to the CLI and ready to commit?", ""},
+		// Not typed, not resolved: an earlier prompt in place of the question.
+		{en2, "anything else before we merge?", "Run go test ./... and make sure everything passes, then commit the changes.", "question"},
+		{en2, "what would you do next", "Run go test ./... and make sure everything passes, then commit the changes.", "question"},
+		{en, "is everything ok now?", "Is everything ok now with the --verbose flag added, tests run, and changes committed?", "question"},
+		{SessionContext{}, "why does the panel flicker", "Fix the panel flicker.", "question"},
+		// Short Portuguese questions were missed, and came back in English.
+		{SessionContext{}, "posso fazer commit das alterações agora?", "Can I commit the changes now?", "language"},
+		{SessionContext{}, "consegues ver porque falha no linux?", "Can you check why it fails on Linux?", "language"},
+	} {
+		got := ""
+		if st := CheckSession(c.typed, c.rewritten, c.sc); st != nil {
+			got = st.Guard
+		}
+		if got != c.guard {
+			t.Errorf("%q → %q: guard %q, want %q", c.typed, c.rewritten, got, c.guard)
+		}
+	}
+}
+
+func TestTypoOf(t *testing.T) {
+	for _, c := range []struct {
+		typed, word string
+		want        bool
+	}{
+		{"comit", "commit", true},
+		{"commt", "commit", true},
+		{"chnages", "changes", true},
+		{"chages", "changes", true},
+		{"rnu", "run", true},
+		{"commit", "commit", false},
+		{"and", "add", false}, // another word
+		{"common", "commit", false},
+		{"chnage", "changes", false}, // two typos
+	} {
+		if got := typoOf(c.typed, c.word); got != c.want {
+			t.Errorf("typoOf(%q, %q) = %v, want %v", c.typed, c.word, got, c.want)
 		}
 	}
 }

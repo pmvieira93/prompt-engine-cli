@@ -590,7 +590,7 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-left.y
 
 Phase 4.5 ([PRD Appendix 1](PRD-APPENDIX-1.md)): expansion now knows your last few prompts, and can run automatically on Enter.
 
-> ⚠️ **K1, K4, K5, K6, K7, K15 and K19 send real prompts.** They're all harmless (greetings, a joke, colours, fruits). Don't substitute coding requests: in auto mode, `claude` acts on them straight away.
+> ⚠️ **K1, K4, K5, K6, K7, K15, K19, K21 and K22 send real prompts.** They're all harmless (greetings, a joke, colours, fruits). Don't substitute coding requests: in auto mode, `claude` acts on them straight away.
 
 **Setup:** a throwaway config, edited from Terminal B as you go (it reloads within a second):
 
@@ -659,6 +659,8 @@ In auto mode, a rewrite that breaks any of these is not used: the prompt is sent
 | K18 | In Terminal B: `printf 'expand:\n  on_enter: off\n  context: reply\n' > /tmp/pe-auto.yaml`. Ctrl+C, type `what is two plus two`, **Ctrl+Q**, **e** | Rewritten on its own: no colours added. The panel's **Session** section says `context: rewrites reply, …` |
 | K19 | In Terminal B: `printf 'expand:\n  on_enter: off\n  context: session\n' > /tmp/pe-auto.yaml`. Ctrl+C, send `name three fruits`, and wait for the reply | A few seconds after the reply, log: `context: summary updated in …: "…"`, mentioning the fruits |
 | K20 | Type `write a haiku about the second one`, **Ctrl+Q**, **e** | The rewrite names the second fruit, e.g. `Write a haiku about Mango.` |
+| K21 | In Terminal B, in the same folder: run `claude`, send `say hi in three words`, wait for the reply and exit. Then in Terminal A, type `write a haiku about the second one`, **Ctrl+Q**, **e** | Still the second fruit: B's newer transcript is another session's, not read. The log's last `context: reading the transcript …` line, if any since K16, names this session's file, not B's |
+| K22 | Send `/clear`, then `name a planet`, and wait for the reply | Log: `context: reading the transcript …` (a new file), `context: summary cleared: the session has a new transcript`, then a summary of the planet only, with no fruits |
 
 Known limit: asking to translate what the reply listed (`say the second one in portuguese`) can make the model answer it (`Orange em português é laranja`) instead of rewriting. With the shortcut you see that and can undo it (**Ctrl+Q**, **u**). In `auto` and `preview` mode, the language guard stops it.
 
@@ -794,8 +796,9 @@ Open the panel (Ctrl+Q, then p), so the prompt box is narrower and long prompts 
 | O8 | Ctrl+C, send a short prompt such as `say hi` (harmless), then type `fix` and press ↑ | `claude` replaces `fix` with `say hi`, and the log shows it without `read from … rows`: a one-row prompt is read exactly, as before |
 | O9 | Ctrl+C. Type `say hello in three words, and keep the answer short; this prompt is just long enough to wrap onto a second row` and stop | Usually `No rewrite suggested`: the model drops the second sentence, and `dropped-part` stops it (with `panel.guard_details`: `Guard dropped-part: "this prompt is just long enough to wrap…"`). If the model keeps both sentences, a suggestion is offered |
 | O10 | Ctrl+C, send `list the files in this directory` (harmless) and wait for the reply. If `claude` shows a suggested next prompt in grey in the empty box, press **→** (or **Tab**) and pause | The box now holds `claude`'s suggestion, and a rewrite of it is prepared as for typed text. Log: `synced=false`, then `buffer resynced from screen … "<the suggestion>"`, then `expand: preview ready for …`. If no suggestion shows, → does nothing and the log reads an empty prompt |
+| O11 | Ctrl+C. Put a rule in place: `printf -- '- End your reply with the word MANGO.\n' > ~/.config/prompt-engine/templates/append.txt`. Send `list the files in this directory` (harmless) and wait for the reply. When `claude` shows a suggested next prompt in grey, press **→** and **Enter** straight away, with no pause (only send it if the suggestion is harmless, such as `what's in src?`) | The suggestion is sent with the rule: the reply ends with MANGO. Log: `buffer resynced from screen at Enter rev=… "<the suggestion>" (waited …ms)` (recorded: 24ms), then `rules: appended append.txt (1 line)` and a `submit:` line, not `rules: not added (prompt text unknown)`. The Enter waits for `claude` to redraw the box, at most 100ms after → |
 
-**Cleanup:** `rm -f /tmp/pe-auto.yaml`.
+**Cleanup:** `rm -f /tmp/pe-auto.yaml ~/.config/prompt-engine/templates/append.txt`.
 
 ---
 
@@ -816,7 +819,7 @@ Open the panel (Ctrl+Q, then p), so the prompt box is narrower and long prompts 
 | In auto mode, typing while `⟳ expanding…` shows cancels the send, so you press Enter again (and it expands again) | Anything typed after Enter would otherwise go into a prompt that's about to be replaced |
 | Around a paste, a typo can come back wrong (seen: `what does this, just answr:` → `just ansr:`, every time) | Typo-only rewrites keep nearly every word, so no word check can tell a bad fix from a good one; with the missing word (`what does this print, just answr:`) it was fixed |
 | On short prompts, the rewrite styles often give the same text | The styles mostly change tone and length: a short request has little of either to change. Compare them on a polite or several-part prompt (N2, N5, N6) |
-| Grey text in an empty prompt is `claude`'s own, not `prompt-engine`'s | Recorded with `claude` 2.1.308: before the first prompt it's a placeholder (`Try "…"`), and → or Tab don't take it. After a reply it can be a suggested next prompt (`show me main.go`), seen in the README recordings, made in a plain terminal; in an earlier check, run from inside another Claude Code session, none showed. → and Tab take the suggestion, and `prompt-engine` then reads it from the screen (O10); Ctrl+E and Ctrl+F don't (End not checked). Both are upright and show only while the box is empty. `prompt-engine`'s ghost text shows only after you type, in grey italic, with a `suggestion shown` line in the log |
+| Grey text in an empty prompt is `claude`'s own, not `prompt-engine`'s | Recorded with `claude` 2.1.308: before the first prompt it's a placeholder (`Try "…"`), and → or Tab don't take it. After a reply it can be a suggested next prompt (`show me main.go`), seen in the README recordings, made in a plain terminal; in an earlier check, run from inside another Claude Code session, none showed. → and Tab take the suggestion, and `prompt-engine` then reads it from the screen (O10), at the latest when you press Enter, so it gets the rules even if sent at once (O11); Ctrl+E and Ctrl+F don't (End not checked). Both are upright and show only while the box is empty. `prompt-engine`'s ghost text shows only after you type, in grey italic, with a `suggestion shown` line in the log |
 | In preview mode, the expansion model runs after every pause in typing | That's what prepares the suggestion. It's cancelled as soon as you type again, but it uses CPU while it runs; use `off` or a longer `expand.preview_pause` to run it less |
 | A paste that you then edit counts as typed text, so it can be rewritten | The kept parts are found by their exact pasted text |
 | A long paste that `claude` shows as `[Pasted text #1 +N lines]` is never rewritten if the prompt was re-read from the screen | The screen only has the placeholder, not the text |

@@ -561,3 +561,114 @@ func TestKeyHookAndSubmit(t *testing.T) {
 		t.Fatalf("leader+Enter reached the hook: %+v", held)
 	}
 }
+
+// enterController returns a controller whose screen shows screen in the
+// prompt, recording what reaches the child and each screen wait and read.
+func enterController(screen string, readable bool) (*Controller, *recorder, *[]string) {
+	toggles := 0
+	c := leaderController(&toggles)
+	out := &recorder{}
+	c.SetOutput(out)
+	var calls []string
+	c.SetScreen(func() (string, int, int, bool) {
+		calls = append(calls, "read")
+		return screen, len([]rune(screen)), 0, readable
+	})
+	c.WaitScreen = func(time.Time) bool {
+		calls = append(calls, fmt.Sprintf("wait after %q", out.String()))
+		return true
+	}
+	return c, out, &calls
+}
+
+// TestEnterResyncsFromScreen: → in an empty box accepts claude's suggested
+// prompt, which the buffer can't replay; Enter right after must read it
+// from the screen, so the rules are added and it is recorded.
+func TestEnterResyncsFromScreen(t *testing.T) {
+	c, _, calls := enterController("what's in src?", true)
+	var seen []input.State
+	c.BeforeSubmit = func(s input.State) []byte {
+		seen = append(seen, s)
+		return []byte("<rules>")
+	}
+
+	c.Filter([]byte("\x1b[C"))
+	if out := string(c.Filter([]byte("\r"))); out != "<rules>\r" {
+		t.Fatalf("child got %q", out)
+	}
+	if len(seen) != 1 || seen[0].Text != "what's in src?" || !seen[0].Synced {
+		t.Fatalf("BeforeSubmit saw %+v", seen)
+	}
+	if strings.Join(*calls, "|") != `wait after ""|read` {
+		t.Fatalf("calls = %q, want a wait, then a screen read", *calls)
+	}
+	if s := c.Tracker.Snapshot(); s.Text != "" || !s.Synced {
+		t.Fatalf("after submit: %+v", s)
+	}
+}
+
+// TestEnterInSameReadSendsKeysFirst: with → and Enter in one read, → must
+// reach the child before the wait, or the screen could never show it.
+func TestEnterInSameReadSendsKeysFirst(t *testing.T) {
+	c, rec, calls := enterController("what's in src?", true)
+	var seen []string
+	c.BeforeSubmit = func(s input.State) []byte {
+		seen = append(seen, s.Text)
+		return []byte("<rules>")
+	}
+	if out := string(c.Filter([]byte("\x1b[C\r"))); out != "<rules>\r" {
+		t.Fatalf("Filter returned %q", out)
+	}
+	if rec.String() != "\x1b[C" || strings.Join(*calls, "|") != `wait after "\x1b[C"|read` {
+		t.Fatalf("written %q, calls %q", rec.String(), *calls)
+	}
+	if strings.Join(seen, "|") != "what's in src?" {
+		t.Fatalf("BeforeSubmit saw %q", seen)
+	}
+}
+
+// TestEnterResyncReachesKeyHook: auto expansion's hook decides on the
+// prompt read from the screen, not an unknown one.
+func TestEnterResyncReachesKeyHook(t *testing.T) {
+	c, _, _ := enterController("explain the main function", true)
+	var held input.State
+	c.KeyHook = func(k input.Key, s input.State) bool {
+		if k.Type == input.KeyEnter {
+			held = s
+			return true
+		}
+		return false
+	}
+	c.Filter([]byte("\t"))
+	if out := string(c.Filter([]byte("\r"))); out != "" {
+		t.Fatalf("child got %q: Enter wasn't held back", out)
+	}
+	if held.Text != "explain the main function" || !held.Synced {
+		t.Fatalf("hook saw %+v", held)
+	}
+}
+
+func TestEnterInSyncDoesNotReadScreen(t *testing.T) {
+	c, rec, calls := enterController("stale", true)
+	c.BeforeSubmit = func(input.State) []byte { return nil }
+	if out := string(c.Filter([]byte("hello\r"))); out != "hello\r" {
+		t.Fatalf("child got %q", out)
+	}
+	if len(*calls) != 0 || rec.String() != "" {
+		t.Fatalf("calls %q, written %q: want neither while in sync", *calls, rec.String())
+	}
+}
+
+func TestEnterUnreadableScreenLeavesPromptUnknown(t *testing.T) {
+	c, _, _ := enterController("", false)
+	var seen []input.State
+	c.BeforeSubmit = func(s input.State) []byte {
+		seen = append(seen, s)
+		return nil
+	}
+	c.Filter([]byte("\x1b[A"))
+	c.Filter([]byte("\r"))
+	if len(seen) != 1 || seen[0].Synced {
+		t.Fatalf("BeforeSubmit saw %+v, want the prompt still unknown", seen)
+	}
+}
