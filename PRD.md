@@ -3,12 +3,13 @@
 ## Project Name: `prompt-engine-cli` (Working Title)
 **Target Execution Language:** Go (Golang)  
 **Primary Integration (MVP):** Claude Code CLI  
-**Document Version:** 1.2.4  
+**Document Version:** 1.2.5  
 **Last Updated:** 2026-10-30  
 **Appendices:**  
 * [Appendix 1: Session Context and Automatic Enhancement](docs/PRD-APPENDIX-1.md): built (Phase 4.5, then FR-6.2 and FR-6.3)
 * [Appendix 2: Rewrite Styles](docs/PRD-APPENDIX-2.md): built (FR-8.1 to FR-8.5); FR-8.6 is a later candidate
 * [Appendix 3: Installing from a Release](docs/PRD-APPENDIX-3.md): proposed, deferred
+* [Appendix 4: Guard Rails from a File](docs/PRD-APPENDIX-4.md): proposed
 
 ---
 
@@ -142,6 +143,7 @@ The primary goal is to lower developer friction and improve the quality of AI in
 ### Phase 4.5: Session Context & Automatic Enhancement
 * Give the local model session context, and optionally apply enhancement automatically on Enter. See [PRD Appendix 1](docs/PRD-APPENDIX-1.md).
 * Then (built): choose who the rewrite's wording is tuned for (the model, people, or both). See [PRD Appendix 2](docs/PRD-APPENDIX-2.md).
+* Proposed: let the developer extend, loosen or turn off the guard rails from a file, without a code change. See [PRD Appendix 4](docs/PRD-APPENDIX-4.md).
 
 ### Distribution
 * Releases are built and published on each tag (since v0.1.0). Proposed, deferred: installing from a release with the install script, including a one-line install. See [PRD Appendix 3](docs/PRD-APPENDIX-3.md).
