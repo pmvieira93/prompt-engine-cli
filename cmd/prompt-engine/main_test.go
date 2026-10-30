@@ -29,6 +29,23 @@ func TestOwnFlags(t *testing.T) {
 	}
 }
 
+func TestWantsVersion(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"--pe-version"}, true},
+		{[]string{"--resume", "--pe-version"}, true},
+		{[]string{"--", "--pe-version"}, false}, // for the child
+		{[]string{"--version"}, false},          // claude's own
+		{nil, false},
+	} {
+		if got := wantsVersion(tc.args); got != tc.want {
+			t.Errorf("wantsVersion(%q) = %v", tc.args, got)
+		}
+	}
+}
+
 func TestGuardNotes(t *testing.T) {
 	got := guardNotes("Guard ", "added-task", "ensure, runs", "Ensure the code runs without errors.\nCheck for the same error message, code and environment.")
 	want := []string{"Guard added-task: ensure, runs", "Rejected: “Ensure the code runs without errors. Check for…”"}

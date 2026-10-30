@@ -64,11 +64,18 @@ const (
 	envDebugOutput = "PROMPT_ENGINE_DEBUG_OUTPUT"
 )
 
+// version is set when a release is built (-ldflags "-X main.version=v1.2.3").
+var version = "dev"
+
 func main() {
 	os.Exit(run())
 }
 
 func run() int {
+	if wantsVersion(os.Args[1:]) {
+		fmt.Println("prompt-engine", version)
+		return 0
+	}
 	cliArgs, cfgPath, err := ownFlags(os.Args[1:])
 	if err != nil {
 		warn("%v", err)
@@ -1063,6 +1070,20 @@ func ownFlags(args []string) (rest []string, cfgPath string, err error) {
 		}
 	}
 	return rest, cfgPath, nil
+}
+
+// wantsVersion reports whether args ask for prompt-engine's version
+// (--pe-version), before any "--" that leaves the rest to the child.
+func wantsVersion(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "--":
+			return false
+		case "--pe-version":
+			return true
+		}
+	}
+	return false
 }
 
 func warn(format string, a ...any) {
