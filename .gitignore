@@ -35,3 +35,6 @@ go.work.sum
 # Build output
 /prompt-engine
 /bin/
+
+# Claude Code agent worktrees
+/.claude/worktrees/

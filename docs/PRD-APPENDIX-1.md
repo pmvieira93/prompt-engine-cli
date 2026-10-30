@@ -1,7 +1,7 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](../PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.10.0  
+**Appendix Version:** 1.11.0  
 **Date:** 2026-10-30  
 **Status:** Built: FR-6.1 and FR-7.1 to FR-7.6 (with FR-7.4f) in Phase 4.5; FR-6.2 and FR-6.3 after it (2.5)
 
@@ -75,6 +75,12 @@ Before choosing a default, compare L0 and L1 on a fixed set of follow-up prompts
   * subagent (`isSidechain`) and `isMeta` records are skipped, and so are prompts starting with `<` (task notifications, slash command output, shell mode).
 * **Which transcript.** The most recently written transcript that holds the last prompt sent, among those written since `prompt-engine` started (newest first, so after `/clear` the new one wins). Before the first prompt, none is used. Anything unreadable falls back to L1.
   * *Seen in manual testing:* the first version took the newest transcript when nothing had been sent yet. That was another Claude Code session in the same project folder, and its conversation went into the L3 summary. It stayed on the machine (the local model wrote the summary), but it was the wrong session.
+  * *After `/clear`*, the summary starts again: `claude` keeps none of the earlier conversation, so neither does L3. The `/clear` command is recorded at the start of the new transcript.
+  * *Checked live (2026-10-30)*, with VHS, Claude Code 2.1.308 and a plain `claude` sent "say hi in three words" in the same folder while `prompt-engine` ran:
+    * before the first prompt, Ctrl+Q e read no transcript, both before and after the other session wrote its newer one;
+    * after "name two colours…", the transcript read was this session's, and "tell me a fun fact about the second one" became "…about Red" (the reply was Blue, Red);
+    * at the `session` level, the summaries held only colours and fruits, nothing of "say hi";
+    * after `/clear`, the new transcript was read once a prompt was sent ("…about it" became "…about Mars"). But the summary kept "three fruits … still open", which `claude` no longer knew: fixed as above, and checked again.
 * **What is used.** The reply is the text after the assistant's last tool call (its answer, not "Now I'll read…"). It's shortened to 150 words: the first quarter and the end, where options and closing questions are.
 * **L3.** After each finished reply, the rewrite model updates an 80-word summary from the summary so far, the prompt and the reply. A rewrite cancels a summary in progress, which runs again afterwards, so rewrites never wait for it.
 * **Guard rails.** A prompt **refers back** when it has "it", "that", "same"… or, only when a reply or summary was given, "the first one", "option 2", "yes, go ahead". When it does, the words a rewrite takes from the context are not counted as added by these guards:
@@ -160,6 +166,14 @@ A setting for when expansion runs:
   * brings in details from earlier prompts when the request doesn't refer back to them. Seen: "Don't touch the tests or the config loader." added to an unrelated request;
   * is far longer than what was typed (more than about 3× + 15 words);
   * lacks most of the typed words, compared in any order (more than 60%).
+
+  **Seen in real use (2026-10-30).** In `preview` mode (style `default`, `expand.context: prompts`) the panel often showed "No rewrite suggested … the rewrite turned your question into an instruction (changes, run, commit)". We had none of the typed prompts, so we replayed 45 prompts with `qwen2.5:7b`: questions about changes, tests and commits, polite requests ("can you proceed"), questions ending with a request ("…, can you take a look"), typo'd and Portuguese ones. Each ran with no earlier prompts and with three sets of three (two in English, one in Portuguese, all running tests and committing changes), 2 tries each: 360 rewrites. Before the fix, 149 passed and the `question` guard stopped 161. The causes:
+  * **Fixed typos counted as new words** (32 stops, false positives). "shuold i comit the chnages now?" → "Should I commit the changes now?" was stopped for "changes, commit", and "what chages are neded to rnu it on linux?" for "changes, run". With earlier prompts, the same rewrites were stopped by `earlier-prompts` instead ("comit" isn't "commit").
+  * **Short Portuguese questions weren't recognised** (24 stops). "posso fazer commit das alterações agora?" has one known word ("das"), so the model wasn't told the language and wrote "Can I commit the changes now?", stopped for "changes". "consegues ver porque falha no linux?" was also stopped as a lost negation, since "no" counted as English.
+  * **Earlier prompts in place of the question** (most of the rest; the guard is right). After "run go test ./… then commit the changes", "anything else before we merge?" and "what would you do next" became "Run go test ./… and make sure everything passes, then commit the changes.": exactly "changes, run, commit". "is everything ok now?" became "Is everything ok now with the --verbose flag added, tests run, and changes committed?". Telling the model "a question stays the same question: never answer it, and never replace it with an earlier request" changed nothing (63 → 59 stops on the same 120 tries), so it wasn't kept.
+  * **A context word under four letters didn't match its other forms** (about 9 stops). "is it ready to commit?" refers back, but "Is the --verbose flag added to the CLI and ready to commit?" was stopped for "added", since "add" and "added" have different four-letter keys.
+
+  Fixed: a rewrite word one typo away from a typed word (a letter added, dropped or changed, or two swapped; only a swap under four letters, since "and" → "add" is another word) isn't new for `question` and `earlier-prompts`; common Portuguese words ("está", "já", "posso", "consegues", "agora", "alterações"…) are known; and a three-letter context word matches the words it starts ("run", "running"). After the fix, 210 of 360 passed and `question` stopped 103: all 40 typo'd tries passed, 38 of 56 Portuguese tries passed (12 before), and every question replaced by an earlier prompt or answered is still stopped. *Left as is:* "can you do the same for the server package" refers back ("same"), so its rewrite may take all three earlier prompts (both tries, one before the fix); 7 tries without context use an action word as a synonym ("which files did we touch" → "Which files did we modify?"); and statements whose second word is "is", "are" or "can" ("tests are failing on ci…") count as questions, so a task added to them is named `question` rather than `added-task`. The developer's own typed text would show which of these causes they hit.
 * **FR-7.4d:** `auto` holds Enter for at most `expand.auto_timeout` (default 5 s), plus time for long prompts (FR-7.4e). *Originally it also left prompts that looked pasted (over 400 characters, 6+ lines, or a code block) unexpanded; FR-7.4e replaced that.*
 * **FR-7.4e:** Fix what the developer typed, and keep what they pasted. This replaces FR-7.4d's all-or-nothing skip, and applies to expansion by shortcut too:
 
