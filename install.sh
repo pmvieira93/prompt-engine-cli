@@ -5,10 +5,10 @@
 # Checks the system, installs what is missing (with your consent), builds
 # prompt-engine, downloads the local models it uses, and runs a health check.
 #
-#   scripts/install.sh                 install, asking before each change
-#   scripts/install.sh --expand-model  add the prompt-rewrite model later
-#   scripts/install.sh --check         only run the health check
-#   scripts/install.sh --help          every option
+#   ./install.sh                 install, asking before each change
+#   ./install.sh --expand-model  add the prompt-rewrite model later
+#   ./install.sh --check         only run the health check
+#   ./install.sh --help          every option
 #
 # Supports macOS and Linux. Works with bash 3.2 (the macOS default).
 
@@ -26,7 +26,10 @@ readonly RAM_MIN_GB=8       # ghost text plus Claude Code
 readonly RAM_EXPAND_GB=16   # comfortable with the 7B rewrite model loaded too
 readonly DISK_MIN_GB=3      # Go build cache, the binary and the ghost model
 
-# AI coding CLIs we look for: "command|name". Only Claude Code is supported.
+# AI coding CLIs we look for: "command|name". Only those in SUPPORTED_CLIS
+# can be chosen; the others are listed as found, not supported yet, until
+# they're tested (PRD Phase 5).
+readonly SUPPORTED_CLIS="claude"
 readonly AI_CLIS="claude|Claude Code
 gemini|Gemini CLI
 copilot|GitHub Copilot CLI
@@ -50,7 +53,7 @@ usage() {
 	cat <<EOF
 prompt-engine installer
 
-Usage: scripts/install.sh [options]
+Usage: ./install.sh [options]
 
 Options:
   -y, --yes          Answer yes to every question (unattended install)
@@ -338,39 +341,46 @@ AI_DEFAULT=claude
 
 check_ai_cli() {
 	step "AI coding CLI"
-	local found=() labels=() cmd name v
+	local supported=() labels=() others=0 cmd name v
 	while IFS='|' read -r cmd name; do
-		if have "$cmd"; then
+		have "$cmd" || continue
+		case " $SUPPORTED_CLIS " in
+		*" $cmd "*)
 			v="$("$cmd" --version 2>/dev/null | head -n 1 || true)"
-			found+=("$cmd")
+			supported+=("$cmd")
 			labels+=("$name ($cmd${v:+, $v})")
 			ok "$name ${D}$(command -v "$cmd")${N}"
-		fi
+			;;
+		*)
+			info "$name ($cmd): found, not supported yet"
+			others=$((others + 1))
+			;;
+		esac
 	done <<EOF
 $AI_CLIS
 EOF
 	if have gh && gh extension list 2>/dev/null | grep -q 'gh-copilot'; then
-		found+=("gh copilot")
-		labels+=("GitHub Copilot in the GitHub CLI (gh copilot)")
-		ok "GitHub Copilot ${D}gh copilot${N}"
+		info "GitHub Copilot in the GitHub CLI (gh copilot): found, not supported yet"
+		others=$((others + 1))
+	fi
+	if [ "$others" -gt 0 ]; then
+		note "prompt-engine wraps Claude Code today; support for other CLIs is planned."
 	fi
 
-	if [ ${#found[@]} -eq 0 ]; then
-		warn "No AI coding CLI found. prompt-engine wraps Claude Code; it is offered below."
-	elif [ ${#found[@]} -gt 1 ]; then
+	if [ ${#supported[@]} -eq 0 ]; then
+		warn "Claude Code isn't installed. prompt-engine wraps it; it is offered below."
+	elif [ ${#supported[@]} -gt 1 ]; then
 		local pick
-		pick="$(choose "Several AI CLIs are installed. Which should prompt-engine wrap by default?" "${labels[@]}")"
-		AI_DEFAULT="${found[$((pick - 1))]}"
+		pick="$(choose "Several supported AI CLIs are installed. Which should prompt-engine wrap by default?" "${labels[@]}")"
+		AI_DEFAULT="${supported[$((pick - 1))]}"
 	else
-		AI_DEFAULT="${found[0]}"
+		AI_DEFAULT="${supported[0]}"
 	fi
-	if [ "$AI_DEFAULT" != claude ]; then
-		warn "prompt-engine supports only Claude Code today; '$AI_DEFAULT' isn't supported yet."
-		note "It will wrap Claude Code (command: claude). Support for other CLIs is planned."
-		AI_DEFAULT=claude
-	fi
-	ok "Default: Claude Code (claude)"
+	ok "Default: $(cli_name "$AI_DEFAULT") ($AI_DEFAULT)"
 }
+
+# cli_name returns the name AI_CLIS gives a command.
+cli_name() { sed -n "s/^$1|//p" <<<"$AI_CLIS"; }
 
 # ─── Step 3: dependencies ─────────────────────────────────────────────────────
 
@@ -514,7 +524,7 @@ install_go_tarball() {
 
 # ─── Step 4: build and install ────────────────────────────────────────────────
 
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)" || SRC_DIR="$PWD"
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" || SRC_DIR="$PWD"
 PATH_HINTS=""
 
 install_binary() {
@@ -593,7 +603,7 @@ install_models() {
 	if ask "Download the rewrite model $EXPAND_MODEL ($EXPAND_MODEL_SIZE) now? You can do it later." N; then
 		pull_model "$EXPAND_MODEL" "$EXPAND_MODEL_SIZE"
 	else
-		note "Later: scripts/install.sh --expand-model"
+		note "Later: ./install.sh --expand-model"
 	fi
 }
 
@@ -623,7 +633,7 @@ health_check() {
 
 	if [ -x "$bin" ]; then ok "prompt-engine installed: $bin"
 	elif have prompt-engine; then bin="$(command -v prompt-engine)"; ok "prompt-engine installed: $bin"
-	else fail_check "prompt-engine is not installed" "scripts/install.sh"; fi
+	else fail_check "prompt-engine is not installed" "./install.sh"; fi
 
 	if have claude; then ok "Claude Code $(claude --version 2>/dev/null | awk '{print $1}')"
 	else fail_check "Claude Code is not installed" "curl -fsSL https://claude.ai/install.sh | bash"; fi
@@ -657,7 +667,7 @@ health_check() {
 				"use a model that supports fill-in-the-middle (llm.model), e.g. $GHOST_MODEL_DEFAULT"
 		fi
 		if ! model_installed "$EXPAND_MODEL"; then
-			warn_check "Rewrite model $EXPAND_MODEL not installed (optional)" "Add it later: scripts/install.sh --expand-model"
+			warn_check "Rewrite model $EXPAND_MODEL not installed (optional)" "Add it later: ./install.sh --expand-model"
 		elif ms="$(timed_post /api/chat 120 "{\"model\":\"$EXPAND_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK.\"}],\"stream\":false,\"options\":{\"num_predict\":4}}")"; then
 			ok "Rewrite model $EXPAND_MODEL answers (${ms} ms, including loading)"
 		else
@@ -713,7 +723,7 @@ main() {
 		STEPS=2
 		detect_system
 		resolve_settings
-		have ollama || die "Ollama isn't installed. Run scripts/install.sh first."
+		have ollama || die "Ollama isn't installed. Run ./install.sh first."
 		step "Rewrite model"
 		ensure_ollama_running
 		if model_installed "$EXPAND_MODEL"; then
