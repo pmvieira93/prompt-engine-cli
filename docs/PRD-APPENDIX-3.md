@@ -11,7 +11,7 @@
 
 Since v0.1.0, each tag publishes a release with a ready-built binary for macOS and Linux (arm64 and amd64) and `checksums.txt` (`.github/workflows/release.yml`). Installing still means one of two things:
 
-* **`scripts/install.sh`**, which builds from source, so it needs Go and a clone of the repository; or
+* **`install.sh`** (at the repository root since v0.1.2), which builds from source, so it needs Go and a clone of the repository; or
 * **by hand**, following the README's "From a release" steps: download, extract, move the binary, and clear the macOS quarantine flag.
 
 The script already does everything else a new user needs:
@@ -30,7 +30,7 @@ Only getting the binary is tied to building it.
 
 One install script, with two ways to get the binary. A second script would repeat about 90% of the first and drift from it.
 
-* **FR-9.1: Two sources.** `scripts/install.sh --from release | source`:
+* **FR-9.1: Two sources.** `install.sh --from release | source`:
   * `release` is the default when the script isn't run from a clone, as in the one-line install;
   * `source` stays the default inside a clone, so building from a checkout works as today;
   * Go is needed only for `source`.
@@ -44,7 +44,7 @@ One install script, with two ways to get the binary. A second script would repea
 * **FR-9.4: One-line install.**
 
   ```sh
-  curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/scripts/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/install.sh | bash
   ```
 
   The README also shows the URL pinned to a tag, for a reproducible install. The script already asks its questions on the terminal (`/dev/tty`) when it's piped in, so consent still works.

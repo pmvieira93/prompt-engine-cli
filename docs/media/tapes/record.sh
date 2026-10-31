@@ -29,14 +29,12 @@ if [ ! -d "$demo/weather-app/.git" ]; then
 fi
 cp "$tapes"/*.yaml "$demo/"
 
-# Run outside any Claude Code session: variables inherited from one stop
-# claude from saving its transcript, which the context demo reads.
-unset_args=()
-for v in $(env | sed -n 's/^\(CLAUDE[A-Z_]*\)=.*/\1/p'); do unset_args+=(-u "$v"); done
-
+# A clean environment (scripts/test-env.sh): Claude Code's variables would
+# stop claude from saving the transcript the context demo reads, and
+# prompt-engine's would make the one recorded hand over to claude.
 names=("$@")
 [ ${#names[@]} -gt 0 ] || names=(ghost rewrite context preview)
 for name in "${names[@]}"; do
 	echo "recording $name"
-	env ${unset_args[@]+"${unset_args[@]}"} vhs "$tapes/$name.tape"
+	scripts/test-env.sh vhs "$tapes/$name.tape"
 done

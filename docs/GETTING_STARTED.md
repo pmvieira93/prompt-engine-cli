@@ -9,7 +9,7 @@ From install to your first rewritten prompt in five minutes. For every setting a
 ```sh
 git clone https://github.com/pmvieira93/prompt-engine-cli.git
 cd prompt-engine-cli
-scripts/install.sh
+./install.sh
 ```
 
 The script checks your system and installs what's missing, asking first. It downloads the ghost text model and ends with a health check. When it says **✓ prompt-engine is ready**, you're set.
@@ -35,7 +35,7 @@ You'll see Claude Code as usual. Now try each feature:
 2. **The side panel.**
    - Press **Ctrl+Q**, then **p**. A panel opens next to Claude Code, showing what you typed against what was sent.
    - Press the same keys again to close it.
-3. **A rewrite.** This needs the rewrite model; if you skipped it, run `scripts/install.sh --expand-model` first.
+3. **A rewrite.** This needs the rewrite model; if you skipped it, run `./install.sh --expand-model` first.
    - Type `explain waht the confg loader does` (typos included).
    - Press **Ctrl+Q**, then **e**. The prompt is rewritten in place, with the typos fixed.
    - Press **Ctrl+Q**, then **u** to undo it, or **Enter** to send it.
@@ -138,7 +138,7 @@ echo 'alias claude=prompt-engine' >> ~/.zshrc
 
 | Symptom | Check | Fix |
 |---|---|---|
-| No ghost text | `scripts/install.sh --check` | Start Ollama (`brew services start ollama` or `ollama serve`), or pull the model it names |
+| No ghost text | `./install.sh --check` | Start Ollama (`brew services start ollama` or `ollama serve`), or pull the model it names |
 | Ghost text is slow | Ollama runs both models at once | Close other heavy apps, or try `llm.model: qwen2.5-coder:0.5b` |
 | A setting is ignored | The panel's **Session** section shows the error | Fix the key or value it names; the template is [`config.example.yaml`](config.example.yaml) |
 | `ghost.style` rejected | The value must be on one line | `style: color:117`, not a nested `color:` key |
@@ -150,7 +150,7 @@ echo 'alias claude=prompt-engine' >> ~/.zshrc
 The health check is safe to run at any time and changes nothing:
 
 ```sh
-scripts/install.sh --check
+./install.sh --check
 ```
 
 ---

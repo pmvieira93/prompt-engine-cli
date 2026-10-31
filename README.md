@@ -160,16 +160,16 @@ Each prompt you send adds one JSON line to `~/.local/state/prompt-engine/history
 ```sh
 git clone https://github.com/pmvieira93/prompt-engine-cli.git
 cd prompt-engine-cli
-scripts/install.sh
+./install.sh
 ```
 
 The script asks before it changes anything. In order, it:
 
 1. **Checks your system:** OS, memory, disk and package manager.
-2. **Finds your AI coding CLIs:** Claude Code, Gemini, GitHub Copilot, Codex and others. If you have several, it asks which one to use by default. Only Claude Code is supported today.
+2. **Finds your AI coding CLIs.** Claude Code is the one supported today. Others it finds (Gemini, GitHub Copilot, Codex…) are listed as "found, not supported yet" and can't be chosen until they're tested.
 3. **Lists missing dependencies** (Homebrew on macOS, Go, Ollama, Claude Code) and offers to install them all.
 4. **Builds `prompt-engine`** into `~/.local/bin`, and writes a commented config file if you have none.
-5. **Downloads the models.** The ghost text model is required. The rewrite model is optional: download it now, or later with `scripts/install.sh --expand-model`.
+5. **Downloads the models.** The ghost text model is required. The rewrite model is optional: download it now, or later with `./install.sh --expand-model`.
 6. **Runs a health check:**
    - the binary starts Claude Code;
    - your config is valid;
@@ -238,7 +238,7 @@ Then run `prompt-engine` where you would run `claude`. To make it your default, 
 |---|---|---|
 | Ghost text | `qwen2.5-coder:0.5b` | Faster, on smaller machines, with weaker suggestions |
 | Ghost text | `qwen2.5-coder:3b` | Better suggestions, at a higher latency |
-| Ghost text | Other fill-in-the-middle coders (`deepseek-coder`, `starcoder2`, `codegemma`) | Not tested with `prompt-engine`. The model **must** support fill-in-the-middle; `scripts/install.sh --check` verifies it. |
+| Ghost text | Other fill-in-the-middle coders (`deepseek-coder`, `starcoder2`, `codegemma`) | Not tested with `prompt-engine`. The model **must** support fill-in-the-middle; `./install.sh --check` verifies it. |
 | Rewrites | `qwen2.5:14b` | Closer rewrites if you have the memory (~9 GB). Not yet tested. |
 | Rewrites | Other 7–9B instruction models (`llama3.1:8b`, `gemma2:9b`) | Not tested. The guard rails catch rewrites that drift. |
 
@@ -337,7 +337,7 @@ Every argument goes on to `claude`, except these two, which start with `--pe-`:
 | `PROMPT_ENGINE_FAKE_DELAY` | A delay for the fake suggester, such as `300ms`, to mimic a model |
 | `PROMPT_ENGINE_TEST_RENDER_PANIC` | `1` makes the display layer fail, to test the pass-through fallback |
 | **Internal** | |
-| `PROMPT_ENGINE_ACTIVE` | Set for the wrapped CLI, so a nested `prompt-engine` doesn't wrap twice |
+| `PROMPT_ENGINE_ACTIVE` | Set for the wrapped CLI, so a nested `prompt-engine` doesn't wrap twice. To test `prompt-engine` from such a session, use `scripts/test-env.sh` ([testing guide](docs/TESTING.md), 1.2b) |
 
 ---
 
@@ -370,7 +370,7 @@ ollama rm qwen2.5-coder:1.5b qwen2.5:7b                      # the models, if no
 |---|---|
 | [Getting Started](docs/GETTING_STARTED.md) | First run, the shortcut cheat sheet, common recipes and troubleshooting |
 | [Config template](docs/config.example.yaml) | Every setting, commented |
-| [Testing guide](docs/TESTING.md) | The manual test plan, feature by feature |
+| [Testing guide](docs/TESTING.md) | The manual test plan, feature by feature, and the automated end-to-end and live smoke tests (1.2b) |
 | [PRD](PRD.md), [Appendix 1](docs/PRD-APPENDIX-1.md), [Appendix 2](docs/PRD-APPENDIX-2.md) | Requirements, design decisions and what testing showed |
 
 ## License
