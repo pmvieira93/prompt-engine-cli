@@ -48,6 +48,9 @@ jobs:
       - name: Build
         run: go build -o bin/prompt-engine ./cmd/prompt-engine
 
+      - name: End-to-end tests
+        run: scripts/e2e.sh
+
       - name: Lint shell scripts
         if: runner.os == 'Linux'
-        run: shellcheck -s bash scripts/*.sh
+        run: shellcheck -s bash install.sh scripts/*.sh
