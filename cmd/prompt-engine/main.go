@@ -107,6 +107,9 @@ func run() int {
 	// pipe or file. Replace ourselves with the child instead.
 	interactive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 	if !interactive || os.Getenv(envActive) != "" {
+		if interactive {
+			noteNested(cfg.Command)
+		}
 		err := syscall.Exec(bin, append([]string{cfg.Command}, args...), env)
 		warn("exec %s: %v", bin, err)
 		return 126
@@ -1098,6 +1101,25 @@ func tilde(path string) string {
 		return "~" + string(os.PathSeparator) + rest
 	}
 	return path
+}
+
+// noteNested writes to the debug log, if there is one, that prompt-engine
+// runs inside another prompt-engine ($PROMPT_ENGINE_ACTIVE is set), so it
+// hands over to the child instead of wrapping it. Run from a session that
+// is itself under prompt-engine, a test of prompt-engine otherwise tests
+// plain claude without a sign of it.
+func noteNested(command string) {
+	path := os.Getenv(envDebugLog)
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s session start: %s is set (already inside prompt-engine), so %s runs without prompt-engine\n",
+		time.Now().Format("15:04:05.000"), envActive, command)
 }
 
 // wantsVersion reports whether args ask for prompt-engine's version

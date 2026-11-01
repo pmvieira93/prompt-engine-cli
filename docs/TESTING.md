@@ -33,6 +33,18 @@ go build -o bin/prompt-engine ./cmd/prompt-engine
 
 **Expected:** `ok` for `config`, `input` and `pty`, and a binary at `bin/prompt-engine`.
 
+### 1.2b Automated end-to-end and smoke tests
+
+Three scripts check whole flows, so a change can be tested in one command before this guide is used:
+
+| Script | What it runs | Needs |
+|---|---|---|
+| `scripts/e2e.sh [case]…` | The whole wrapper in a test terminal, around a stand-in for `claude` (`tools/fakeclaude`), with the fake suggester. Cases: ghost text and Tab, rules, the panel, preview, auto mode, `claude`'s suggestion taken with → and sent at once, and running nested. CI runs it on every push | Go only: no account, network or model |
+| `scripts/smoke.sh [--keep]` | The same flows against the real `claude` and the local models, driven by [VHS](https://github.com/charmbracelet/vhs) in a throwaway project (`~/pe-demo/smoke-app`). It sends three harmless prompts, then checks the debug log for each flow and prints ✓, ✗, or – (skipped, e.g. when `claude` offered no suggestion). The log, screenshots and a GIF are kept | `vhs`, `claude` signed in, Ollama with both models |
+| `scripts/test-env.sh [NAME=value]… command` | Any command in a clean environment. It removes every `PROMPT_ENGINE_*` and `CLAUDE*` variable, and keeps the history and config in a throwaway folder. The other two scripts use it | — |
+
+**From a session that runs under `prompt-engine`**, always test through `scripts/test-env.sh` (or the two scripts above). That session sets `PROMPT_ENGINE_ACTIVE` for everything it runs, and a `prompt-engine` started with it hands over to `claude` without wrapping it, which looks like a broken feature. With a debug log, that case logs `… is set (already inside prompt-engine), so claude runs without prompt-engine`.
+
 ### 1.3 Two terminals side by side
 
 You need two terminal windows (or split panes) open at the same time. `claude` takes over the whole of the window it runs in, so the log has to be shown somewhere else. With both visible, you type in one and see the log update in the other.
