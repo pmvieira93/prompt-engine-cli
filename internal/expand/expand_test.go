@@ -303,3 +303,14 @@ func TestStyleGivesWayToTyposAndTemplate(t *testing.T) {
 		t.Errorf("template: system = %q, StyleName = %q", req.Messages[0].Content, e.StyleName())
 	}
 }
+
+func TestNextStyle(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{StyleDefault, StyleLLM}, {StyleLLM, StyleHuman}, {StyleHuman, StyleBoth},
+		{StyleBoth, StyleDefault}, {"", StyleDefault}, {"other", StyleDefault},
+	} {
+		if got := NextStyle(c.in); got != c.want {
+			t.Errorf("NextStyle(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

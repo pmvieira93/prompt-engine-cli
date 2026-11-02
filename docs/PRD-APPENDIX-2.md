@@ -1,9 +1,9 @@
 # PRD Appendix 2: Rewrite Styles
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.0 (section 4.3, prompt enhancement) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7)  
-**Appendix Version:** 1.3.0  
+**Appendix Version:** 1.4.0  
 **Date:** 2026-11-02  
-**Status:** Built (FR-8.1 to FR-8.5). FR-8.6 (a style for one prompt) is proposed, with its scope and decisions in section 4 (2026-11-02)
+**Status:** Built (FR-8.1 to FR-8.6). FR-8.6, a style for one prompt, was built on 2026-11-02 (section 4.7)
 
 ---
 
@@ -54,7 +54,7 @@ Every style follows five principles. A 7B model can't act on the principle names
 * **FR-8.3:** The style applies only to rewrites. Typo-only rewrites (around a paste, or over 60 words; Appendix 1, FR-7.4e) are unchanged.
 * **FR-8.4:** A developer's own `templates/system.txt` still replaces the instructions, whatever the style.
 * **FR-8.5:** The history (FR-5.4) records the style used for each expanded prompt.
-* **FR-8.6 (proposed):** Choose the style for a single prompt with a leader key. See section 4.
+* **FR-8.6:** Choose the style for a single prompt with a leader key. See section 4.
 
 As built:
 
@@ -142,11 +142,11 @@ After `preview` mode (Appendix 1, FR-7.6), since preview shows the rewrite befor
 2. ~~`expand.style` (FR-8.1 to FR-8.5).~~ Done.
 3. ~~A manual test part in `docs/TESTING.md`.~~ Done (Part N).
 
-Later: a style for one prompt (FR-8.6, section 4).
+4. ~~A style for one prompt (FR-8.6, section 4).~~ Done.
 
 ---
 
-## 4. FR-8.6: a style for one prompt (proposed)
+## 4. FR-8.6: a style for one prompt
 
 ### 4.1 The idea
 
@@ -231,4 +231,22 @@ The order of styles is always the same, starting after the one in use. For examp
   * Before it's built, record how Claude Code redraws its box around the note, rather than guess.
   * If the note can't be drawn safely there, fall back to the log line alone.
 * **The order of styles:** the fixed cycle `default` → `llm` → `human` → `both`, starting after the style in use (4.2).
+
+### 4.7 As built (2026-11-02)
+
+As proposed in 4.2 and decided in 4.6, with these details:
+
+* **The faint note** is a new kind of notice: it's drawn at the cursor like the existing "⟳ expanding…" notice, never typed into the prompt, and the next key clears it (a terminal report doesn't).
+  * Recorded with Claude Code 2.1.309: the note sits after the text in the box, and it's gone 1.5 s later.
+  * The note shows only while the side panel is closed.
+* **While rewriting again,** the expanding notice names the style: `⟳ expanding… (human, for this prompt)`. Otherwise it would hide the note at once.
+* **The panel names the style** in both of its rewrite titles: `Suggested rewrite (llm, for this prompt)` in `preview` mode, and `Ready to send (llm, for this prompt)` for a rewrite in the box. With no rewrite to show, the last prompt's entry gets a line `Next rewrite: style llm, for this prompt.`
+* **When the style isn't used,** the note says so: `style: llm (not used: typos only)` around a paste or over 60 words, or `(not used: templates/system.txt)`. Nothing is rewritten again in that case.
+* **Only the last style is kept.** A press while a rewrite is running doesn't start another request. When the rewrite finishes in a style that's no longer the one chosen, it's done again from the original text.
+* **A stale preview is never shown.** In `preview` mode, a new style cancels the rewrite being prepared, and a result in the old style is dropped.
+* **The reset** happens whenever the box is empty: after a prompt is sent, after Ctrl+C, or when everything is deleted. The log says `style: back to default (the prompt was sent or cleared)`.
+* **Tests:**
+  * unit tests for the cycle (`expand.NextStyle`), the shortcut, and the note going at the next key;
+  * `scripts/e2e.sh style`, five runs and 13 checks, with the fake rewriter tagging each rewrite with its style;
+  * Part N, steps N12 to N18, in the testing guide.
 

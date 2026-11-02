@@ -57,10 +57,11 @@ type Controller struct {
 	// Keys.Wider, and -1 after Leader then Keys.Narrower. It must not block.
 	OnResizePanel func(delta int)
 
-	// OnExpand and OnUndo, if set before use, are called after Leader then
-	// ExpandKey or UndoKey, with the prompt as it stands. They must not
-	// block: start the work and apply it later with Replace.
-	OnExpand, OnUndo func(s input.State)
+	// OnExpand, OnUndo and OnStyle, if set before use, are called after
+	// Leader then Keys.Expand, Keys.Undo or Keys.Style, with the prompt as
+	// it stands. They must not block: start the work and apply it later
+	// with Replace.
+	OnExpand, OnUndo, OnStyle func(s input.State)
 
 	// CanInsert, if set, must approve every Replace: e.g. the child's cursor
 	// is in its prompt, not a dialog.
@@ -91,6 +92,7 @@ type Controller struct {
 	mu        sync.Mutex
 	output    io.Writer // to the child, for Replace
 	notice    string    // shown at the cursor, e.g. "expanding…"
+	brief     bool      // the notice goes at the next key
 	screen    func() (text string, cursor, slack int, ok bool)
 	panelOpen func() bool
 	dec       input.Decoder
@@ -162,7 +164,7 @@ const RepeatTime = time.Second
 
 // Keys are prompt-engine's shortcuts: Leader, then one of the others.
 type Keys struct {
-	Leader, Panel, Expand, Undo, Wider, Narrower input.Binding
+	Leader, Panel, Expand, Undo, Style, Wider, Narrower input.Binding
 }
 
 // SetKeys replaces the shortcut keys, e.g. after the config is edited. It
@@ -183,10 +185,16 @@ func (c *Controller) SetOutput(w io.Writer) {
 
 // SetNotice sets a short message shown at the cursor, like ghost text but
 // not acceptable with Tab; "" clears it.
-func (c *Controller) SetNotice(msg string) {
+func (c *Controller) SetNotice(msg string) { c.setNotice(msg, false) }
+
+// SetBriefNotice is SetNotice for a notice that the next key clears, e.g.
+// what a shortcut just did.
+func (c *Controller) SetBriefNotice(msg string) { c.setNotice(msg, true) }
+
+func (c *Controller) setNotice(msg string, brief bool) {
 	c.mu.Lock()
 	changed := c.notice != msg || (msg != "" && c.sug != "")
-	c.notice = msg
+	c.notice, c.brief = msg, brief && msg != ""
 	if msg != "" {
 		c.sug = "" // the notice replaces any suggestion, so Tab can't take it
 	}
@@ -363,6 +371,7 @@ func (c *Controller) Filter(p []byte) []byte {
 		return c.Tracker.Filter(p)
 	}
 	before := c.sug
+	cleared := false // a brief notice
 	toggles := 0
 	var actions []func() // OnExpand/OnUndo calls, run after unlocking
 	var res []byte       // input already fed to the tracker
@@ -377,6 +386,9 @@ func (c *Controller) Filter(p []byte) []byte {
 			out = out[:0]
 		}
 		keys = keys || k.Type != input.KeyReport
+		if c.brief && k.Type != input.KeyReport {
+			c.notice, c.brief, cleared = "", false, true
+		}
 		if c.KeyHook != nil && !c.armed && k.Type != input.KeyReport && !c.Keys.Leader.Matches(k) {
 			// Bring the tracker up to this key, so the hook sees text typed
 			// in the same read.
@@ -423,6 +435,13 @@ func (c *Controller) Filter(p []byte) []byte {
 					rest = c.Keys.Expand.Rest(k)
 				}
 				out = append(out, rest...)
+			case c.Keys.Style.MatchesHeld(k) && c.OnStyle != nil:
+				c.logf("leader: next style")
+				res = append(res, c.Tracker.Filter(out)...)
+				out = out[:0]
+				s, fn := c.Tracker.Snapshot(), c.OnStyle
+				actions = append(actions, func() { fn(s) })
+				out = append(out, c.Keys.Style.Rest(k)...)
 			case c.Keys.Leader.Matches(k):
 				c.logf("leader: sent %s to child", c.Keys.Leader)
 				out = append(out, k.Raw...)
@@ -480,7 +499,7 @@ func (c *Controller) Filter(p []byte) []byte {
 	if keys {
 		c.sentAt = time.Now() // the caller sends res right away
 	}
-	changed := c.sug != before
+	changed := c.sug != before || cleared
 	c.mu.Unlock()
 
 	if changed && c.OnChange != nil {

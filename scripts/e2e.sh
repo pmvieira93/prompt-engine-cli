@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept nested
+#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept style nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -66,7 +66,9 @@ check() {
 }
 logged() { grep -qF -- "$1" "$dir/pe.log"; }
 sent() { [ "$(tail -n 1 "$dir/sent.jsonl")" = "$1" ]; }
+first_sent() { [ "$(head -n 1 "$dir/sent.jsonl")" = "$1" ]; }
 shown() { grep -qF -- "$1" "$dir/screen.txt"; }
+fails_shown() { ! shown "$1"; }
 
 case_ghost() {
 	echo "ghost: a suggestion, accepted with Tab, is sent"
@@ -165,6 +167,100 @@ exit'
 	check "claude received its suggestion with the rules" sent '"show me main.go\n\n- Run the tests before saying it works."'
 }
 
+case_style() {
+	echo "style: Ctrl+Q, s picks the style for one prompt, and rewrites a rewrite again"
+	run_case style 'reply on
+wait "❯" 5s
+send "fix the parser now"
+sleep 300ms
+send "\x11s"
+wait "style: llm" 2s
+dump
+send "\x11e"
+wait "(llm)" 3s
+send "\x11s"
+wait "(human)" 3s
+send "\r"
+sleep 500ms
+send "fix the lexer too"
+sleep 300ms
+send "\x11e"
+wait "Please fix the lexer too." 3s
+sleep 200ms
+send "\r"
+sleep 500ms
+send "\x04"
+exit' 'expand:
+  context: none'
+	check "the style is chosen for this prompt" logged 'style: llm for this prompt (was default)'
+	check "a faint note shows it" shown 'style: llm'
+	check "the rewrite uses it" logged 'expand: replaced "fix the parser now" with "Please fix the parser now. (llm)"'
+	check "a second press rewrites the original text again" logged 'expand: rewrote "fix the parser now" again: replaced "Please fix the parser now. (llm)" with "Please fix the parser now. (human)"'
+	check "claude received the last style" first_sent '"Please fix the parser now. (human)"'
+	check "the next prompt is back to expand.style" sent '"Please fix the lexer too."'
+
+	echo "style in preview mode: the suggestion is prepared again in the new style"
+	run_case style-preview 'reply on
+wait "❯" 5s
+send "fix the parser now"
+wait "Suggested rewrite (not used yet)" 5s
+send "\x11s"
+wait "Suggested rewrite (llm, for this prompt)" 5s
+dump
+send "\x11e"
+sleep 500ms
+send "\r"
+sleep 500ms
+send "\x04"
+exit' 'expand:
+  on_enter: preview
+  preview_pause: 300ms
+  context: none
+panel:
+  visible: true'
+	check "the panel names the style" shown 'Suggested rewrite (llm, for this prompt)'
+	check "no note over the open panel" fails_shown 'style: llm'
+	check "claude received the new style" sent '"Please fix the parser now. (llm)"'
+
+	echo "style in auto mode: Enter rewrites in the chosen style"
+	run_case style-auto 'reply on
+wait "❯" 5s
+send "fix the parser now"
+sleep 300ms
+send "\x11s"
+sleep 200ms
+send "\r"
+sleep 800ms
+send "\x04"
+exit' 'expand:
+  on_enter: auto
+  context: none'
+	check "claude received the chosen style" sent '"Please fix the parser now. (llm)"'
+	check "the history records it" grep -q '"style":"llm"' "$dir/state/prompt-engine/history.jsonl"
+
+	echo "style, then Ctrl+C: clearing the box resets the style"
+	run_case style-clear 'reply on
+wait "❯" 5s
+send "fix the parser now"
+sleep 300ms
+send "\x11s"
+sleep 200ms
+send "\x03"
+sleep 300ms
+send "fix the lexer too"
+sleep 300ms
+send "\x11e"
+wait "Please fix the lexer too." 3s
+sleep 200ms
+send "\r"
+sleep 500ms
+send "\x04"
+exit' 'expand:
+  context: none'
+	check "the log says the style is back" logged 'style: back to default (the prompt was sent or cleared)'
+	check "claude received the default style" sent '"Please fix the lexer too."'
+}
+
 case_nested() {
 	echo "nested: inside prompt-engine already, it hands over and says so"
 	NESTED=1 run_case nested 'reply on
@@ -175,7 +271,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept style nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

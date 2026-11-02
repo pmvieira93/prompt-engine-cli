@@ -56,7 +56,7 @@ A local model rewrites your prompt into a clearer one. It works in three modes (
 
 | Mode | What happens |
 |---|---|
-| `off` (default) | **Ctrl+Q, then e** rewrites the prompt in place. You review it, edit it or undo it (**Ctrl+Q, then u**), and press Enter yourself. |
+| `off` (default) | **Ctrl+Q, then e** rewrites the prompt in place. You review it, edit it or undo it (**Ctrl+Q, then u**), try another style (**Ctrl+Q, then s**), and press Enter yourself. |
 | `preview` | When you pause, a rewrite is prepared in the background and shown in the side panel. **Ctrl+Q, then e** applies it. **Enter** sends what you typed. |
 | `auto` | **Enter** rewrites the prompt, then sends it. Prompts shorter than 3 words (`yes`, `continue`) go as typed, and so does a prompt the model can't rewrite within 5 s. |
 
@@ -105,6 +105,11 @@ How much the rewrite model knows about the session is set by `expand.context`. E
 | `llm` | Terse and imperative, for the assistant to act on |
 | `human` | Natural, in your own voice |
 | `both` | Natural sentences, with bullets when there are several parts |
+
+**A style for one prompt:** **Ctrl+Q, then s** picks the next style for the prompt you're writing, in the order `default` → `llm` → `human` → `both`, starting after the one in use. The choice lasts until the prompt is sent or cleared; `expand.style` stays your setting.
+- Before a rewrite, the next rewrite uses that style: Ctrl+Q, then e, the preview, or Enter in `auto` mode.
+- On a rewrite, it rewrites **your original text** again in the next style, so you can compare styles without retyping. Undo still brings back your text.
+- With the side panel closed, a faint `style: llm` shows in the box for a moment. With it open, the panel's title names the style: `Suggested rewrite (llm, for this prompt)`.
 
 To use your own instructions instead, write them in `templates/system.txt`.
 
@@ -329,6 +334,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | `keys.leader` | `ctrl+q` | `ctrl+a`…`ctrl+z`, or `ctrl+\ ] ^ _` |
 | `keys.expand` | `e` | Rewrite the prompt, or apply the preview |
 | `keys.undo` | `u` | Put back the prompt from before the last rewrite |
+| `keys.style` | `s` | The next rewrite style, for this prompt only |
 | `keys.panel` | `p` | Toggle the side panel |
 | `keys.panel_wider` | `+` | Widen the panel by 5% |
 | `keys.panel_narrower` | `-` | Narrow the panel by 5% |

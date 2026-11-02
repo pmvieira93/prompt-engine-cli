@@ -85,6 +85,7 @@ type KeysConfig struct {
 	Panel    string `yaml:"panel"`
 	Expand   string `yaml:"expand"` // rewrite the prompt with llm.expand_model
 	Undo     string `yaml:"undo"`   // put back the prompt from before the last expansion
+	Style    string `yaml:"style"`  // the next rewrite style, for this prompt only
 	Wider    string `yaml:"panel_wider"`
 	Narrower string `yaml:"panel_narrower"`
 }
@@ -178,6 +179,7 @@ func Default() Config {
 			Panel:    "p",
 			Expand:   "e",
 			Undo:     "u",
+			Style:    "s",
 			Wider:    "+",
 			Narrower: "-",
 		},
@@ -304,7 +306,7 @@ func (c Config) Validate() error {
 	seen := map[input.Binding]string{}
 	for _, k := range []struct{ name, value string }{
 		{"keys.leader", c.Keys.Leader}, {"keys.panel", c.Keys.Panel},
-		{"keys.expand", c.Keys.Expand}, {"keys.undo", c.Keys.Undo},
+		{"keys.expand", c.Keys.Expand}, {"keys.undo", c.Keys.Undo}, {"keys.style", c.Keys.Style},
 		{"keys.panel_wider", c.Keys.Wider}, {"keys.panel_narrower", c.Keys.Narrower},
 	} {
 		b, err := input.ParseBinding(k.value)

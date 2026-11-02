@@ -428,6 +428,39 @@ func TestReplaceRefusesStale(t *testing.T) {
 	}
 }
 
+func TestLeaderStyle(t *testing.T) {
+	c, _, got := expandController(t)
+	c.Keys.Style, _ = input.ParseBinding("s")
+	c.OnStyle = func(s input.State) { *got = append(*got, "style:"+s.Text) }
+	if out := string(c.Filter([]byte("fix teh bug\x1ds"))); out != "fix teh bug" {
+		t.Fatalf("child got %q", out)
+	}
+	if strings.Join(*got, "|") != "style:fix teh bug" {
+		t.Fatalf("actions = %q", *got)
+	}
+}
+
+func TestBriefNoticeGoesAtNextKey(t *testing.T) {
+	c := &Controller{Tracker: input.NewTracker()}
+	c.Filter([]byte("fix"))
+	c.SetBriefNotice("style: llm")
+	c.Filter([]byte("\x1b[I")) // a focus report isn't a key
+	if c.Notice() != "style: llm" {
+		t.Fatalf("a terminal report cleared the notice: %q", c.Notice())
+	}
+	if out := string(c.Filter([]byte(" "))); out != " " {
+		t.Fatalf("child got %q", out)
+	}
+	if c.Notice() != "" {
+		t.Fatalf("the next key didn't clear the notice: %q", c.Notice())
+	}
+	c.SetNotice("⟳ expanding…")
+	c.Filter([]byte("x"))
+	if c.Notice() != "⟳ expanding…" {
+		t.Fatal("a key cleared a notice that isn't brief")
+	}
+}
+
 func TestNoticeBlocksSuggestions(t *testing.T) {
 	c := &Controller{Tracker: input.NewTracker()}
 	c.Filter([]byte("refa"))

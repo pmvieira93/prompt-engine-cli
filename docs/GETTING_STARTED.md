@@ -54,6 +54,7 @@ You'll see Claude Code as usual. Now try each feature:
 | **Esc** | Dismiss the ghost text (Claude Code doesn't see this Esc) |
 | **Ctrl+Q**, then **e** | Rewrite the prompt, or apply the prepared preview |
 | **Ctrl+Q**, then **u** | Undo the last rewrite |
+| **Ctrl+Q**, then **s** | The next rewrite style for this prompt (`default` → `llm` → `human` → `both`); on a rewrite, rewrite it again in that style |
 | **Ctrl+Q**, then **p** | Open or close the side panel |
 | **Ctrl+Q**, then **+** / **−** | Widen or narrow the panel |
 | **Ctrl+Q**, then **Esc** | Cancel the leader key |
@@ -100,6 +101,8 @@ After Claude Code replies with a list or options, `tell me more about the second
 expand:
   style: llm      # terse and direct; or human, both, default
 ```
+
+For a single prompt, **Ctrl+Q, then s** picks the next style instead, until that prompt is sent.
 
 **See why a rewrite was stopped:**
 
