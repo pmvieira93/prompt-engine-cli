@@ -80,7 +80,7 @@ func contextNegations(typed string, sc SessionContext) int {
 // former, or the latter to a question.
 var (
 	destructive = []string{"delet", "remov", "drop", "reset", "forc", "rm", "overwrit", "revert", "push", "wip", "truncat", "destroy", "purg", "eras", "discard", "uninstal"}
-	actions     = []string{"fix", "chang", "updat", "add", "remov", "delet", "refactor", "implement", "handl", "writ", "creat", "renam", "replac", "modif", "mov", "run", "commit", "push", "instal", "build"}
+	actions     = []string{"fix", "chang", "updat", "add", "remov", "delet", "refactor", "implement", "handl", "writ", "creat", "renam", "replac", "modif", "mov", "run", "commit", "push", "instal", "build", "show"}
 )
 
 // tasks are word stems of what a rewrite must not ask for when typed is
