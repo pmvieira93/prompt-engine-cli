@@ -175,6 +175,9 @@ func TestCheckNamesTheGuard(t *testing.T) {
 		{"tidy the branch", "Tidy the branch and force push it.", "destructive"},
 		{"now using code-reviewer look into MR !110", "Review the code in MR !110.", "names"},
 		{"why does it flicker", "Fix the flicker.", "question"},
+		// Seen in a live run (2026-10-31): "show me" taken from an earlier
+		// prompt passed, since "show" wasn't an action word.
+		{"explain waht the main.go file dose", "Show me the contents of `main.go` and explain what it does.", "question"},
 		{"fix it", "", "empty"},
 	}
 	for _, tc := range cases {
@@ -193,8 +196,13 @@ func TestCheckNamesTheGuard(t *testing.T) {
 			t.Errorf("Check(%q, %q) = %+v, want detail %q", tc.typed, tc.rewritten, stop, tc.detail)
 		}
 	}
-	if stop := Check("fix teh bug", "Fix the bug."); stop != nil {
-		t.Errorf("a good rewrite was stopped: %+v", stop)
+	for typed, rewritten := range map[string]string{
+		"fix teh bug":             "Fix the bug.",
+		"can you show me main.go": "Show me main.go.",
+	} {
+		if stop := Check(typed, rewritten); stop != nil {
+			t.Errorf("a good rewrite was stopped: %q → %q: %+v", typed, rewritten, stop)
+		}
 	}
 }
 

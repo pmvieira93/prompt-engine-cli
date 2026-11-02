@@ -1,7 +1,7 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](../PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.11.0  
+**Appendix Version:** 1.12.0  
 **Date:** 2026-10-30  
 **Status:** Built: FR-6.1 and FR-7.1 to FR-7.6 (with FR-7.4f) in Phase 4.5; FR-6.2 and FR-6.3 after it (2.5)
 
@@ -174,6 +174,8 @@ A setting for when expansion runs:
   * **A context word under four letters didn't match its other forms** (about 9 stops). "is it ready to commit?" refers back, but "Is the --verbose flag added to the CLI and ready to commit?" was stopped for "added", since "add" and "added" have different four-letter keys.
 
   Fixed: a rewrite word one typo away from a typed word (a letter added, dropped or changed, or two swapped; only a swap under four letters, since "and" → "add" is another word) isn't new for `question` and `earlier-prompts`; common Portuguese words ("está", "já", "posso", "consegues", "agora", "alterações"…) are known; and a three-letter context word matches the words it starts ("run", "running"). After the fix, 210 of 360 passed and `question` stopped 103: all 40 typo'd tries passed, 38 of 56 Portuguese tries passed (12 before), and every question replaced by an earlier prompt or answered is still stopped. *Left as is:* "can you do the same for the server package" refers back ("same"), so its rewrite may take all three earlier prompts (both tries, one before the fix); 7 tries without context use an action word as a synonym ("which files did we touch" → "Which files did we modify?"); and statements whose second word is "is", "are" or "can" ("tests are failing on ci…") count as questions, so a task added to them is named `question` rather than `added-task`. The developer's own typed text would show which of these causes they hit.
+
+  **Seen in a live run (2026-10-31).** With `expand.context: reply`, "explain waht the main.go file dose" became "Show me the contents of `main.go` and explain what it does.", taking "show me" from an earlier prompt, and passed: "show" wasn't an action word, and one leaked word is below `earlier-prompts`' threshold. "show" is now an action word. Replayed on the 360 rewrites above, no verdict changed.
 * **FR-7.4d:** `auto` holds Enter for at most `expand.auto_timeout` (default 5 s), plus time for long prompts (FR-7.4e). *Originally it also left prompts that looked pasted (over 400 characters, 6+ lines, or a code block) unexpanded; FR-7.4e replaced that.*
 * **FR-7.4e:** Fix what the developer typed, and keep what they pasted. This replaces FR-7.4d's all-or-nothing skip, and applies to expansion by shortcut too:
 
