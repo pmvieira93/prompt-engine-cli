@@ -1,7 +1,9 @@
 # On a new tag: test, build prompt-engine for macOS and Linux, and publish
 # a release named after the tag, with the archives, their checksums, and
 # notes listing what was merged since the previous tag. A tag with a
-# hyphen (v1.2.0-rc.1) makes a pre-release.
+# hyphen (v1.2.0-rc.1) makes a pre-release. Then the new release is
+# installed with install.sh on Linux and macOS, so a release that can't be
+# installed fails here.
 name: Release
 
 on:
@@ -43,3 +45,21 @@ jobs:
             --notes-file release-notes.md \
             --verify-tag \
             "${prerelease[@]}"
+
+  check-install:
+    name: Install check (${{ matrix.os }})
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the release
+        run: |
+          ./install.sh --from release --binary-only --version "$GITHUB_REF_NAME" --prefix "$RUNNER_TEMP/bin"
+          got="$("$RUNNER_TEMP/bin/prompt-engine" --pe-version)"
+          echo "$got"
+          [ "$got" = "prompt-engine $GITHUB_REF_NAME" ]

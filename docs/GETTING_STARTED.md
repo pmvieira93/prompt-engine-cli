@@ -7,14 +7,18 @@ From install to your first rewritten prompt in five minutes. For every setting a
 ## 1. Install
 
 ```sh
-git clone https://github.com/pmvieira93/prompt-engine-cli.git
-cd prompt-engine-cli
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/install.sh | bash
 ```
+
+This installs the latest release; Go isn't needed. To build from source instead, clone the repository and run `./install.sh` in it.
 
 The script checks your system and installs what's missing, asking first. It downloads the ghost text model and ends with a health check. When it says **✓ prompt-engine is ready**, you're set.
 
 If it says `~/.local/bin is not on your PATH`, add the line it prints to `~/.zshrc` or `~/.bashrc`, then open a new terminal.
+
+To upgrade later, run the same line again: it keeps your config.
+
+The commands below write `./install.sh`, as in a clone. Without one, use `curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/install.sh | bash -s --` followed by the option, e.g. `… | bash -s -- --check`.
 
 ---
 

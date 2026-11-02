@@ -2,13 +2,18 @@
 #
 # prompt-engine installer
 #
-# Checks the system, installs what is missing (with your consent), builds
-# prompt-engine, downloads the local models it uses, and runs a health check.
+# Checks the system, installs what is missing (with your consent), installs
+# prompt-engine from a release or builds it from source, downloads the local
+# models it uses, and runs a health check.
 #
 #   ./install.sh                 install, asking before each change
 #   ./install.sh --expand-model  add the prompt-rewrite model later
 #   ./install.sh --check         only run the health check
 #   ./install.sh --help          every option
+#
+# Without a clone, in one line (the latest release):
+#
+#   curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/install.sh | bash
 #
 # Supports macOS and Linux. Works with bash 3.2 (the macOS default).
 
@@ -16,7 +21,12 @@ set -euo pipefail
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-readonly REPO_URL="https://github.com/pmvieira93/prompt-engine-cli.git"
+readonly REPO="pmvieira93/prompt-engine-cli"
+readonly REPO_URL="https://github.com/$REPO.git"
+# Where releases are downloaded from; another value is for tests and mirrors,
+# laid out like GitHub's: <url>/download/<tag>/<file>.
+readonly ONE_LINE="curl -fsSL https://raw.githubusercontent.com/$REPO/master/install.sh | bash -s --"
+readonly RELEASES_URL="${PROMPT_ENGINE_RELEASES_URL:-https://github.com/$REPO/releases}"
 readonly GO_MIN="1.26"
 readonly GHOST_MODEL_DEFAULT="qwen2.5-coder:1.5b"
 readonly GHOST_MODEL_SIZE="1.0 GB"
@@ -42,7 +52,9 @@ opencode|OpenCode"
 
 ASSUME_YES=0
 DRY_RUN=0
-MODE=install           # install | check | expand-model
+MODE=install           # install | binary | check | expand-model
+FROM=""                # release | source; "" picks source in a clone, else release
+VERSION=""             # a release tag; "" is the latest
 OFFER_EXPAND=1
 PREFIX="${PREFIX:-$HOME/.local/bin}"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/prompt-engine"
@@ -54,10 +66,17 @@ usage() {
 prompt-engine installer
 
 Usage: ./install.sh [options]
+       curl -fsSL https://raw.githubusercontent.com/$REPO/master/install.sh | bash -s -- [options]
 
 Options:
   -y, --yes          Answer yes to every question (unattended install)
+      --from WHERE   release: download a ready-built binary (the default
+                     outside a clone); source: build it with Go (the
+                     default in a clone)
+      --version TAG  The release to install, e.g. v0.1.2 (default: the latest)
       --prefix DIR   Where to install the binary (default: ~/.local/bin)
+      --binary-only  Only install or upgrade the binary; skip the
+                     dependencies, the models and the health check
       --check        Only run the health check; change nothing
       --expand-model Only download the prompt-rewrite model ($EXPAND_MODEL_DEFAULT)
       --skip-expand  Don't offer the prompt-rewrite model
@@ -67,10 +86,12 @@ Options:
 
 Environment:
   PREFIX, XDG_CONFIG_HOME and PROMPT_ENGINE_CONFIG are honoured. NO_COLOR
-  turns colours off.
+  turns colours off. PROMPT_ENGINE_RELEASES_URL replaces
+  https://github.com/$REPO/releases (for tests and mirrors).
 
-The installer asks before installing anything. Command output goes to a
-log file, shown at the end.
+The installer asks before installing anything. Running it again upgrades
+prompt-engine and keeps your config. Command output goes to a log file,
+shown at the end.
 EOF
 }
 
@@ -84,6 +105,19 @@ while [ $# -gt 0 ]; do
 		shift
 		;;
 	--prefix=*) PREFIX="${1#--prefix=}" ;;
+	--from)
+		[ $# -ge 2 ] || { echo "--from needs release or source" >&2; exit 2; }
+		FROM="$2"
+		shift
+		;;
+	--from=*) FROM="${1#--from=}" ;;
+	--version)
+		[ $# -ge 2 ] || { echo "--version needs a release tag, e.g. v0.1.2" >&2; exit 2; }
+		VERSION="$2"
+		shift
+		;;
+	--version=*) VERSION="${1#--version=}" ;;
+	--binary-only) MODE=binary ;;
 	--check) MODE=check ;;
 	--expand-model) MODE=expand-model ;;
 	--skip-expand) OFFER_EXPAND=0 ;;
@@ -94,6 +128,14 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
+case "$FROM" in
+'' | release | source) ;;
+*) echo "--from takes release or source, not: $FROM" >&2; exit 2 ;;
+esac
+case "$VERSION" in
+'' | v*) ;;
+*) VERSION="v$VERSION" ;;
+esac
 
 # ─── Output ───────────────────────────────────────────────────────────────────
 
@@ -397,17 +439,19 @@ check_dependencies() {
 	step "Dependencies"
 	local v
 	# Homebrew is how Go and Ollama are installed on macOS.
-	if [ "$OS" = macos ] && ! have brew && { ! have go || ! have ollama; }; then
+	if [ "$OS" = macos ] && ! have brew && { { [ "$FROM" = source ] && ! have go; } || ! have ollama; }; then
 		need brew "Homebrew" "official installer from brew.sh"
 	fi
-	if ! in_repo; then
-		if have git; then ok "git $(git --version | awk '{print $3}')"; else need git "git (to download the source)" "$(pkg_how git)"; fi
-	fi
-	if have go; then
-		v="$(go_version)"
-		if version_ge "$v" "$GO_MIN"; then ok "Go $v"; else need go "Go $GO_MIN+ (found $v)" "$(go_how)"; fi
-	else
-		need go "Go $GO_MIN+" "$(go_how)"
+	if [ "$FROM" = source ]; then
+		if ! in_repo; then
+			if have git; then ok "git $(git --version | awk '{print $3}')"; else need git "git (to download the source)" "$(pkg_how git)"; fi
+		fi
+		if have go; then
+			v="$(go_version)"
+			if version_ge "$v" "$GO_MIN"; then ok "Go $v"; else need go "Go $GO_MIN+ (found $v)" "$(go_how)"; fi
+		else
+			need go "Go $GO_MIN+" "$(go_how)"
+		fi
 	fi
 	if have ollama; then
 		ok "Ollama $(ollama --version 2>/dev/null | awk '{print $NF}' | head -n 1)"
@@ -522,26 +566,31 @@ install_go_tarball() {
 "
 }
 
-# ─── Step 4: build and install ────────────────────────────────────────────────
+# ─── Step 4: install prompt-engine ────────────────────────────────────────────
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" || SRC_DIR="$PWD"
 PATH_HINTS=""
+SELF=./install.sh    # how to run this script again: from the clone, or the one line
+CONFIG_TEMPLATE=""   # docs/config.example.yaml, from the source or the release
+WORK_DIR=""          # downloads, removed on exit
+
+cleanup() { if [ -n "$WORK_DIR" ]; then rm -rf "$WORK_DIR"; fi; }
+trap cleanup EXIT
+
+# The version an installed binary reports ("" if none, or too old to say).
+binary_version() {
+	[ -x "$1" ] || return 0
+	"$1" --pe-version </dev/null 2>/dev/null | sed -n 's/^prompt-engine \([^ ]*\)$/\1/p' | head -n 1
+}
 
 install_binary() {
-	step "Build and install prompt-engine"
-	if ! in_repo; then
-		SRC_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/prompt-engine/src"
-		if [ -d "$SRC_DIR/.git" ]; then
-			quietly "Updating the source in $SRC_DIR" git -C "$SRC_DIR" pull --ff-only || die "Couldn't update the source."
-		else
-			quietly "Downloading the source to $SRC_DIR" git clone --depth 1 "$REPO_URL" "$SRC_DIR" || die "Couldn't download the source."
-		fi
+	if [ "$FROM" = release ]; then
+		step "Install prompt-engine"
+		install_from_release
+	else
+		step "Build and install prompt-engine"
+		install_from_source
 	fi
-	info "Source: $SRC_DIR"
-	if [ "$DRY_RUN" = 0 ]; then mkdir -p "$PREFIX"; fi
-	quietly "Building into $PREFIX/prompt-engine" \
-		sh -c "cd '$SRC_DIR' && go build -trimpath -o '$PREFIX/prompt-engine' ./cmd/prompt-engine" ||
-		die "The build failed."
 
 	case ":$PATH:" in
 	*":$PREFIX:"*) ok "$PREFIX is on your PATH" ;;
@@ -553,11 +602,102 @@ install_binary() {
 		ok "Config kept: $CONFIG_FILE"
 	elif [ "$DRY_RUN" = 1 ]; then
 		info "would write the config template to $CONFIG_FILE"
+	elif [ -z "$CONFIG_TEMPLATE" ]; then
+		info "No config file at $CONFIG_FILE: the built-in defaults apply"
 	else
 		mkdir -p "$(dirname "$CONFIG_FILE")"
-		cp "$SRC_DIR/docs/config.example.yaml" "$CONFIG_FILE"
+		cp "$CONFIG_TEMPLATE" "$CONFIG_FILE"
 		ok "Config written: $CONFIG_FILE ${D}(every setting, at its default)${N}"
 	fi
+}
+
+install_from_source() {
+	if ! in_repo; then
+		SRC_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/prompt-engine/src"
+		if [ -d "$SRC_DIR/.git" ]; then
+			quietly "Updating the source in $SRC_DIR" git -C "$SRC_DIR" pull --ff-only || die "Couldn't update the source."
+		else
+			quietly "Downloading the source to $SRC_DIR" git clone --depth 1 "$REPO_URL" "$SRC_DIR" || die "Couldn't download the source."
+		fi
+	fi
+	info "Source: $SRC_DIR"
+	local version
+	version="$(git -C "$SRC_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
+	if [ "$DRY_RUN" = 0 ]; then mkdir -p "$PREFIX"; fi
+	quietly "Building $version into $PREFIX/prompt-engine" \
+		sh -c "cd '$SRC_DIR' && go build -trimpath -ldflags '-X main.version=$version' -o '$PREFIX/prompt-engine' ./cmd/prompt-engine" ||
+		die "The build failed."
+	CONFIG_TEMPLATE="$SRC_DIR/docs/config.example.yaml"
+}
+
+# latest_release prints the newest release's tag, from where
+# <releases>/latest redirects to.
+latest_release() {
+	curl -fsSLI -o /dev/null -w '%{url_effective}' "$RELEASES_URL/latest" 2>>"$LOG_FILE" |
+		sed -n 's#.*/tag/\([^/?]*\)$#\1#p'
+}
+
+sha256_of() {
+	if have sha256sum; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'
+}
+
+install_from_release() {
+	local os installed tag name want got bin="$PREFIX/prompt-engine"
+	case "$OS" in macos) os=darwin ;; *) os=linux ;; esac
+	case "$ARCH" in
+	arm64 | amd64) ;;
+	*) die "There's no release for $ARCH. Build from source instead: --from source" ;;
+	esac
+
+	tag="$VERSION"
+	if [ -z "$tag" ]; then
+		tag="$(latest_release)"
+		[ -n "$tag" ] || die "Couldn't find the latest release at $RELEASES_URL. Pick one with --version, or build with --from source."
+	fi
+	installed="$(binary_version "$bin")"
+	if [ -n "$installed" ]; then info "Installed: $installed ${D}($bin)${N}"; fi
+	if [ -n "$VERSION" ]; then info "Release: $tag"; else info "Release: $tag ${D}(the latest)${N}"; fi
+	if [ "$installed" = "$tag" ]; then
+		ok "prompt-engine $tag is already installed"
+		CONFIG_TEMPLATE=""
+		return 0
+	fi
+
+	name="prompt-engine_${tag}_${os}_${ARCH}"
+	if [ "$DRY_RUN" = 1 ]; then
+		info "would download $RELEASES_URL/download/$tag/$name.tar.gz, check it against checksums.txt and install it to $bin"
+		return 0
+	fi
+	WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/prompt-engine-install.XXXXXX")"
+	quietly "Downloading $name.tar.gz" \
+		curl -fsSL -o "$WORK_DIR/$name.tar.gz" "$RELEASES_URL/download/$tag/$name.tar.gz" ||
+		die "Couldn't download $tag for $os/$ARCH. Check the version, or build with --from source."
+	quietly "Downloading checksums.txt" \
+		curl -fsSL -o "$WORK_DIR/checksums.txt" "$RELEASES_URL/download/$tag/checksums.txt" ||
+		die "Couldn't download the checksums of $tag."
+
+	want="$(awk -v f="$name.tar.gz" '$2 == f {print $1}' "$WORK_DIR/checksums.txt")"
+	got="$(sha256_of "$WORK_DIR/$name.tar.gz")"
+	[ -n "$want" ] || die "checksums.txt of $tag doesn't list $name.tar.gz."
+	if [ "$want" != "$got" ]; then
+		bad "Checksum mismatch for $name.tar.gz"
+		note "expected $want"
+		note "got      $got"
+		die "The download doesn't match the release's checksum; nothing was installed."
+	fi
+	ok "Checksum verified ${D}(SHA-256)${N}"
+
+	tar -xzf "$WORK_DIR/$name.tar.gz" -C "$WORK_DIR" 2>>"$LOG_FILE" || die "Couldn't unpack $name.tar.gz."
+	[ -x "$WORK_DIR/$name/prompt-engine" ] || die "$name.tar.gz has no prompt-engine binary."
+	# The copy is moved over the old binary in one step, so a running
+	# prompt-engine keeps working and a failed copy leaves the old one.
+	mkdir -p "$PREFIX"
+	cp "$WORK_DIR/$name/prompt-engine" "$PREFIX/.prompt-engine.new"
+	chmod 755 "$PREFIX/.prompt-engine.new"
+	if [ "$OS" = macos ]; then xattr -d com.apple.quarantine "$PREFIX/.prompt-engine.new" 2>/dev/null || true; fi
+	mv -f "$PREFIX/.prompt-engine.new" "$bin"
+	ok "Installed $tag${installed:+ (was $installed)}: $bin"
+	CONFIG_TEMPLATE="$WORK_DIR/$name/config.example.yaml"
 }
 
 # ─── Step 5: models ───────────────────────────────────────────────────────────
@@ -603,7 +743,7 @@ install_models() {
 	if ask "Download the rewrite model $EXPAND_MODEL ($EXPAND_MODEL_SIZE) now? You can do it later." N; then
 		pull_model "$EXPAND_MODEL" "$EXPAND_MODEL_SIZE"
 	else
-		note "Later: ./install.sh --expand-model"
+		note "Later: $SELF --expand-model"
 	fi
 }
 
@@ -633,7 +773,7 @@ health_check() {
 
 	if [ -x "$bin" ]; then ok "prompt-engine installed: $bin"
 	elif have prompt-engine; then bin="$(command -v prompt-engine)"; ok "prompt-engine installed: $bin"
-	else fail_check "prompt-engine is not installed" "./install.sh"; fi
+	else fail_check "prompt-engine is not installed" "$SELF"; fi
 
 	if have claude; then ok "Claude Code $(claude --version 2>/dev/null | awk '{print $1}')"
 	else fail_check "Claude Code is not installed" "curl -fsSL https://claude.ai/install.sh | bash"; fi
@@ -667,7 +807,7 @@ health_check() {
 				"use a model that supports fill-in-the-middle (llm.model), e.g. $GHOST_MODEL_DEFAULT"
 		fi
 		if ! model_installed "$EXPAND_MODEL"; then
-			warn_check "Rewrite model $EXPAND_MODEL not installed (optional)" "Add it later: ./install.sh --expand-model"
+			warn_check "Rewrite model $EXPAND_MODEL not installed (optional)" "Add it later: $SELF --expand-model"
 		elif ms="$(timed_post /api/chat 120 "{\"model\":\"$EXPAND_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK.\"}],\"stream\":false,\"options\":{\"num_predict\":4}}")"; then
 			ok "Rewrite model $EXPAND_MODEL answers (${ms} ms, including loading)"
 		else
@@ -689,6 +829,8 @@ summary() {
 	fi
 	if [ "$DRY_RUN" = 1 ]; then
 		printf '  %sDry run finished: nothing was changed.%s\n' "$B" "$N"
+	elif [ "$MODE" = binary ]; then
+		printf '  %s✓ prompt-engine is installed.%s Check everything else with:\n    %s --check\n' "$G" "$N" "$SELF"
 	elif [ "$PROBLEMS" -gt 0 ]; then
 		printf '  %s✗ %d problem(s) to fix%s (see "Fix:" above).\n' "$R" "$PROBLEMS" "$N"
 	else
@@ -701,7 +843,8 @@ summary() {
 
   Then: type and pause for ghost text (Tab or → accepts it, Esc dismisses it).
   Ctrl+Q, then e rewrites the prompt · Ctrl+Q, then p opens the side panel.
-  Guide: docs/GETTING_STARTED.md · Settings: $CONFIG_FILE
+  Guide: https://github.com/$REPO/blob/master/docs/GETTING_STARTED.md
+  Settings: $CONFIG_FILE
 EOF
 	fi
 	[ -s "$LOG_FILE" ] && printf '\n  %sLog: %s%s\n' "$D" "$LOG_FILE" "$N"
@@ -711,8 +854,18 @@ EOF
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
+	if in_repo; then SELF=./install.sh; else SELF="$ONE_LINE"; fi
+	if [ -z "$FROM" ]; then
+		if in_repo; then FROM=source; else FROM=release; fi
+	fi
 	banner
 	case "$MODE" in
+	binary)
+		STEPS=1
+		detect_system
+		have curl || die "curl is required to run this installer."
+		install_binary
+		;;
 	check)
 		STEPS=1
 		detect_system
@@ -723,7 +876,7 @@ main() {
 		STEPS=2
 		detect_system
 		resolve_settings
-		have ollama || die "Ollama isn't installed. Run ./install.sh first."
+		have ollama || die "Ollama isn't installed. Run $SELF first."
 		step "Rewrite model"
 		ensure_ollama_running
 		if model_installed "$EXPAND_MODEL"; then
