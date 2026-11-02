@@ -196,7 +196,7 @@ Options go after `bash -s --` when the script is piped in, or after `./install.s
 |---|---|
 | `--from release` | Install a ready-built binary (the default outside a clone) |
 | `--from source` | Build with Go (the default in a clone) |
-| `--version TAG` | Install that release, e.g. `v0.1.2` (default: the latest) |
+| `--version TAG` | Install that release, e.g. `v0.1.2` (default: the latest); implies `--from release` |
 | `--binary-only` | Only install or upgrade the binary: no dependencies, models or health check |
 | `--check` | Only run the health check |
 | `--expand-model` | Only download the rewrite model |

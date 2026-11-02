@@ -118,14 +118,16 @@ FR-9.7 doesn't depend on the others. It can be done on its own, as soon as there
 FR-9.1 to FR-9.6 as proposed, with these details:
 
 * **The latest release** comes from where `<releases>/latest` redirects to, not from GitHub's API, so it has no rate limit.
-* **Same version:** when the installed binary already reports the release's version (`--pe-version`), nothing is downloaded.
+* **Same version:** when the installed binary already reports the release's version (`--pe-version`), nothing is downloaded. The one exception is a missing config file: the archive is downloaded again for its template.
+* **An older binary:** one that can't report its version (built before `--pe-version`) is simply replaced.
+* **`--version` implies `--from release`,** even in a clone; with `--from source` it's an error.
 * **The binary is replaced in one step:** the new one is copied next to the old one, then moved over it. A running `prompt-engine` keeps working, and a failed install leaves the old binary.
 * **`--binary-only`:** installs or upgrades only the binary, with no dependencies, models or health check. It's the quickest upgrade, and what the tests use.
 * **Source builds report a version:** `--from source` builds with `git describe` as the version (e.g. `v0.1.2-5-g343ef94`), so an upgrade can show both versions.
 * **Hints:** without a clone, the script's hints show the one-line command (`… | bash -s -- --check`) in place of `./install.sh`.
 * **`PROMPT_ENGINE_RELEASES_URL`** replaces `https://github.com/pmvieira93/prompt-engine-cli/releases`, for tests and mirrors (`file://` works).
 * **Tests:**
-  * `scripts/install-test.sh` builds releases on the spot and serves them from a folder. It covers a pinned version, the same version again, an upgrade that keeps the config, a bad checksum and a missing version. `--latest` adds the real latest release.
+  * `scripts/install-test.sh` builds releases on the spot and serves them from a folder. It covers a pinned version, the same version again, an upgrade that keeps the config, a bad checksum, a missing config file, an old binary without `--pe-version`, the script piped in outside a clone, and a missing version. `--latest` adds the real latest release.
   * CI runs it on Linux and macOS on every push. The release workflow then installs each new release on both (FR-9.6).
   * The testing guide's Part P checks the same by hand against GitHub.
 * **Checked on macOS:** a binary downloaded with `curl` has no quarantine flag. On Linux, only CI checks it.

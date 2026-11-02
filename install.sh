@@ -73,7 +73,8 @@ Options:
       --from WHERE   release: download a ready-built binary (the default
                      outside a clone); source: build it with Go (the
                      default in a clone)
-      --version TAG  The release to install, e.g. v0.1.2 (default: the latest)
+      --version TAG  The release to install, e.g. v0.1.2 (default: the
+                     latest); implies --from release
       --prefix DIR   Where to install the binary (default: ~/.local/bin)
       --binary-only  Only install or upgrade the binary; skip the
                      dependencies, the models and the health check
@@ -577,10 +578,11 @@ WORK_DIR=""          # downloads, removed on exit
 cleanup() { if [ -n "$WORK_DIR" ]; then rm -rf "$WORK_DIR"; fi; }
 trap cleanup EXIT
 
-# The version an installed binary reports ("" if none, or too old to say).
+# The version an installed binary reports ("" if none, or too old to say:
+# before --pe-version, the flag went on to claude, which fails on it).
 binary_version() {
 	[ -x "$1" ] || return 0
-	"$1" --pe-version </dev/null 2>/dev/null | sed -n 's/^prompt-engine \([^ ]*\)$/\1/p' | head -n 1
+	{ "$1" --pe-version </dev/null 2>/dev/null || true; } | sed -n 's/^prompt-engine \([^ ]*\)$/\1/p' | head -n 1
 }
 
 install_binary() {
@@ -602,8 +604,6 @@ install_binary() {
 		ok "Config kept: $CONFIG_FILE"
 	elif [ "$DRY_RUN" = 1 ]; then
 		info "would write the config template to $CONFIG_FILE"
-	elif [ -z "$CONFIG_TEMPLATE" ]; then
-		info "No config file at $CONFIG_FILE: the built-in defaults apply"
 	else
 		mkdir -p "$(dirname "$CONFIG_FILE")"
 		cp "$CONFIG_TEMPLATE" "$CONFIG_FILE"
@@ -657,9 +657,10 @@ install_from_release() {
 	installed="$(binary_version "$bin")"
 	if [ -n "$installed" ]; then info "Installed: $installed ${D}($bin)${N}"; fi
 	if [ -n "$VERSION" ]; then info "Release: $tag"; else info "Release: $tag ${D}(the latest)${N}"; fi
-	if [ "$installed" = "$tag" ]; then
+	# The same version is only downloaded again for a missing config file,
+	# whose template is in the archive.
+	if [ "$installed" = "$tag" ] && [ -f "$CONFIG_FILE" ]; then
 		ok "prompt-engine $tag is already installed"
-		CONFIG_TEMPLATE=""
 		return 0
 	fi
 
@@ -696,7 +697,8 @@ install_from_release() {
 	chmod 755 "$PREFIX/.prompt-engine.new"
 	if [ "$OS" = macos ]; then xattr -d com.apple.quarantine "$PREFIX/.prompt-engine.new" 2>/dev/null || true; fi
 	mv -f "$PREFIX/.prompt-engine.new" "$bin"
-	ok "Installed $tag${installed:+ (was $installed)}: $bin"
+	if [ "$installed" = "$tag" ]; then ok "Reinstalled $tag, for the config template: $bin"
+	else ok "Installed $tag${installed:+ (was $installed)}: $bin"; fi
 	CONFIG_TEMPLATE="$WORK_DIR/$name/config.example.yaml"
 }
 
@@ -856,7 +858,11 @@ EOF
 main() {
 	if in_repo; then SELF=./install.sh; else SELF="$ONE_LINE"; fi
 	if [ -z "$FROM" ]; then
-		if in_repo; then FROM=source; else FROM=release; fi
+		if [ -n "$VERSION" ] || ! in_repo; then FROM=release; else FROM=source; fi
+	fi
+	if [ "$FROM" = source ] && [ -n "$VERSION" ]; then
+		echo "--version picks a release; it can't be used with --from source" >&2
+		exit 2
 	fi
 	banner
 	case "$MODE" in

@@ -3,7 +3,9 @@
 # Tests install.sh's release install (--from release --binary-only)
 # against releases built here and served from a folder, so no network is
 # needed: a pinned version, a rerun of the same version, an upgrade that
-# keeps the config, and a bad checksum that installs nothing. Everything
+# keeps the config, a bad checksum that installs nothing, a missing config
+# file, an old binary without --pe-version, the script piped in outside a
+# clone, and a missing version. Everything
 # runs through scripts/test-env.sh, in a throwaway folder.
 #
 #   scripts/install-test.sh            the local cases
@@ -42,9 +44,9 @@ release() {
 	TARGETS="$os/$arch" scripts/build-release.sh "$1" "$work/releases/download/$1" >/dev/null
 }
 
-# install name [options]: runs install.sh with the releases folder, its
+# run_install name [options]: runs install.sh with the releases folder, its
 # output in $work/name.out.
-install() {
+run_install() {
 	local name="$1"
 	shift
 	PE_TEST_HOME="$work/home" scripts/test-env.sh \
@@ -65,18 +67,18 @@ release v9.9.1
 release v9.9.2
 
 echo "pinned version"
-check "installs" install pinned --version v9.9.1
+check "installs" run_install pinned --version v9.9.1
 check "the binary reports v9.9.1" is_version v9.9.1
 check "writes the config template" cmp -s "$config" docs/config.example.yaml
 check "says the checksum was verified" says pinned "Checksum verified"
 
 echo "same version again"
 echo "# mine" >>"$config"
-check "succeeds" install again --version 9.9.1
+check "succeeds" run_install again --version 9.9.1
 check "says it is already installed" says again "v9.9.1 is already installed"
 
 echo "upgrade"
-check "succeeds" install upgrade --version v9.9.2
+check "succeeds" run_install upgrade --version v9.9.2
 check "the binary reports v9.9.2" is_version v9.9.2
 check "shows both versions" says upgrade "Installed v9.9.2 (was v9.9.1)"
 check "keeps the config" config_kept
@@ -86,12 +88,46 @@ release v9.9.3
 sums="$work/releases/download/v9.9.3/checksums.txt"
 sed -E 's/^[0-9a-f]+/0000000000000000000000000000000000000000000000000000000000000000/' "$sums" >"$sums.bad"
 mv "$sums.bad" "$sums"
-check "fails" fails install badsum --version v9.9.3
+check "fails" fails run_install badsum --version v9.9.3
 check "says the checksum doesn't match" says badsum "Checksum mismatch"
 check "leaves v9.9.2 installed" is_version v9.9.2
 
+echo "no config file, same version"
+rm "$config"
+check "succeeds" run_install noconfig --version v9.9.2
+check "says it reinstalled for the template" says noconfig "Reinstalled v9.9.2, for the config template"
+check "writes the config template" cmp -s "$config" docs/config.example.yaml
+
+echo "an installed binary without --pe-version"
+printf '#!/bin/sh\nexit 1\n' >"$bin"
+check "succeeds" run_install oldbin --version v9.9.2
+check "the binary reports v9.9.2" is_version v9.9.2
+
+echo "--version with --from source"
+source_with_version() {
+	local out status=0
+	out="$(bash install.sh --from source --version v9.9.2 2>&1)" || status=$?
+	[ "$status" -eq 2 ] && grep -q "can.t be used with --from source" <<<"$out"
+}
+check "fails, saying why" source_with_version
+
+echo "piped in, outside a clone, without --from"
+mkdir -p "$work/cwd"
+rm -f "$bin"
+if (cd "$work/cwd" && PE_TEST_HOME="$work/home" "$root/scripts/test-env.sh" \
+	PROMPT_ENGINE_RELEASES_URL="file://$work/releases" NO_COLOR=1 \
+	bash -s -- --binary-only --version v9.9.1 --prefix "$work/bin" \
+	<"$root/install.sh" >"$work/piped.out" 2>&1); then
+	pass "installs"
+else
+	fail "installs"
+fi
+check "installs from the release" says piped "Checksum verified"
+check "the binary reports v9.9.1" is_version v9.9.1
+check "its hints show the one-line command" says piped "install.sh | bash -s -- --check"
+
 echo "missing version"
-check "fails" fails install missing --version v9.9.9
+check "fails" fails run_install missing --version v9.9.9
 check "says it couldn't download" says missing "Couldn.t download v9.9.9"
 
 if [ "$latest" = 1 ]; then
