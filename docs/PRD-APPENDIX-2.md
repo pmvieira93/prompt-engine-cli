@@ -1,9 +1,9 @@
 # PRD Appendix 2: Rewrite Styles
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.0 (section 4.3, prompt enhancement) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7)  
-**Appendix Version:** 1.2.0  
-**Date:** 2026-10-29  
-**Status:** Built (FR-8.1 to FR-8.5); FR-8.6 is a later candidate
+**Appendix Version:** 1.3.0  
+**Date:** 2026-11-02  
+**Status:** Built (FR-8.1 to FR-8.5). FR-8.6 (a style for one prompt) is proposed, with its scope and decisions in section 4 (2026-11-02)
 
 ---
 
@@ -54,7 +54,7 @@ Every style follows five principles. A 7B model can't act on the principle names
 * **FR-8.3:** The style applies only to rewrites. Typo-only rewrites (around a paste, or over 60 words; Appendix 1, FR-7.4e) are unchanged.
 * **FR-8.4:** A developer's own `templates/system.txt` still replaces the instructions, whatever the style.
 * **FR-8.5:** The history (FR-5.4) records the style used for each expanded prompt.
-* **FR-8.6 (later, optional):** Choose the style for a single prompt with a leader key.
+* **FR-8.6 (proposed):** Choose the style for a single prompt with a leader key. See section 4.
 
 As built:
 
@@ -142,4 +142,93 @@ After `preview` mode (Appendix 1, FR-7.6), since preview shows the rewrite befor
 2. ~~`expand.style` (FR-8.1 to FR-8.5).~~ Done.
 3. ~~A manual test part in `docs/TESTING.md`.~~ Done (Part N).
 
-Later: per-prompt style (FR-8.6).
+Later: a style for one prompt (FR-8.6, section 4).
+
+---
+
+## 4. FR-8.6: a style for one prompt (proposed)
+
+### 4.1 The idea
+
+`expand.style` sets one style for every rewrite. But the right style depends on the prompt more than on the developer:
+
+* a request in several parts reads best to Claude Code as `llm`;
+* a message you'll read again later, or show to someone, reads best as `human`.
+
+Today, changing the style for one prompt means editing the config and changing it back.
+
+FR-8.6 lets you pick the style for the prompt you're writing, with one leader key, and try another style on the same prompt without retyping it. The config stays as it is: the choice lasts only for that prompt.
+
+### 4.2 How it works
+
+One new shortcut, **Ctrl+Q, then s** (`keys.style`). What it does depends on what's in the box:
+
+| The box holds | Ctrl+Q, then s |
+|---|---|
+| Your own text, not rewritten yet | Picks the next style for this prompt: `default` → `llm` → `human` → `both` → back to the config's style. Nothing is rewritten yet. The next rewrite uses that style: **Ctrl+Q, then e**, the background rewrite in `preview` mode, or Enter in `auto` mode |
+| A rewrite (Ctrl+Q, then u would undo it) | Rewrites **your original text** again in the next style, and replaces the rewrite. Undo still puts your original text back, not the previous rewrite |
+| Nothing | Nothing happens: there's no prompt to choose for |
+
+The order of styles is always the same, starting after the one in use. For example, with `expand.style: default`, pressing s three times gives `llm`, then `human`, then `both`.
+
+**How long the choice lasts:** until the prompt is sent, or the box is cleared (Ctrl+C, or deleting everything). The next prompt uses `expand.style` again.
+
+**Per mode:**
+
+* **`off`:** pick, then Ctrl+Q, e. Or Ctrl+Q, e first, then Ctrl+Q, s to compare styles on the same text.
+* **`preview`:** changing the style drops the suggestion that's ready and prepares one in the new style. A reload already does this (as built, 2.3).
+* **`auto`:** the automatic rewrite on Enter uses the chosen style. To check it first, use Ctrl+Q, e, then Ctrl+Q, s, before Enter.
+
+**Feedback:**
+
+* **A faint note** in the box when the side panel is closed: `style: llm`, for about 1.5 s or until the next key (4.6).
+* **The panel**, when it's open, shows the prompt's style next to the suggestion: `Suggested rewrite (llm, for this prompt)`. The Session section keeps showing the config's style.
+* **The debug log** gets a line for each change: `style: llm for this prompt (was default)`.
+* **The history** already records each rewrite's style (FR-8.5), so a per-prompt choice is recorded with nothing new needed.
+
+**Typo-only rewrites** (around a paste, or over 60 words; FR-8.3) are unchanged by any style. Ctrl+Q, s still records the choice, and the panel says `typos only: style not used`.
+
+### 4.3 Scope
+
+**In:**
+
+* `keys.style` (default `s`), with the same leader rules as the other shortcuts; it's shown in the panel's help line;
+* the per-prompt style and its reset;
+* rewriting a rewrite again from the original text;
+* the panel label, the faint note in the box when the side panel is closed, the log line and the history;
+* unit tests, an end-to-end case with the fake rewriter, and a Part N addition in the testing guide.
+
+**Out:**
+
+* **Changing `expand.style` from the keyboard.** The config stays the only lasting setting.
+* **Typing the style into the prompt**, such as a `#llm` prefix. It would have to be removed before sending, and it could clash with what Claude Code reads.
+* **Picking the style automatically** from the prompt (several parts → `llm`). That could come later, if the evaluation shows a clear rule.
+* **A style per project or per folder.** That belongs with config layering, not with this shortcut.
+* **New styles,** or changes to the instructions in 2.6.
+
+### 4.4 Risks
+
+* **Latency.** Each Ctrl+Q, s on a rewrite is a new request to the rewrite model, about 2 s (2.6). Presses that come before the answer don't start more requests: only the last style chosen is sent.
+* **Keeping the original text.** Rewriting a rewrite must start from the developer's text, never from the previous rewrite. Otherwise each style drifts further from what was typed. The text that undo restores is the source.
+* **Guard rails.** A style can be stopped where another passes (2.6: `human` passed 20 of 22). A stopped rewrite leaves the box as it was and says which guard stopped it, as today.
+* **One more key to learn.** It's optional: without it, nothing changes.
+
+### 4.5 Acceptance
+
+* With `expand.style: default`: type a prompt, press Ctrl+Q, s, then Ctrl+Q, e. The rewrite uses `llm`, the panel says `llm, for this prompt`, and the history's `style` is `llm`.
+* Press Ctrl+Q, s again on that rewrite. It's replaced by a `human` rewrite of the original text, and Ctrl+Q, u brings back the original text.
+* Send it. The next prompt is rewritten in `default`.
+* `preview` mode: Ctrl+Q, s drops the ready suggestion, and a new one is offered with the new label.
+* `auto` mode: Enter sends the rewrite in the chosen style.
+* With the side panel closed, Ctrl+Q, s shows `style: llm` faintly in the box. It disappears after about 1.5 s or at the next key, and it's never part of what's sent.
+* Typo-only rewrites and `templates/system.txt` are unchanged (FR-8.3, FR-8.4).
+
+### 4.6 Decisions (2026-11-02)
+
+* **The key:** `s` (`keys.style`). The other keys in use are p, e, u, + and −, Enter, Esc, and Ctrl+Q itself.
+* **Feedback with the side panel closed:** a short faint note in the box, such as `style: llm`, drawn like ghost text. It goes after about 1.5 s or at the next key. With the side panel open, its label is enough (4.2).
+  * The note must never be sent or typed into the prompt.
+  * Before it's built, record how Claude Code redraws its box around the note, rather than guess.
+  * If the note can't be drawn safely there, fall back to the log line alone.
+* **The order of styles:** the fixed cycle `default` → `llm` → `human` → `both`, starting after the style in use (4.2).
+
