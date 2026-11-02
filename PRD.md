@@ -3,11 +3,11 @@
 ## Project Name: `prompt-engine-cli` (Working Title)
 **Target Execution Language:** Go (Golang)  
 **Primary Integration (MVP):** Claude Code CLI  
-**Document Version:** 1.2.8  
+**Document Version:** 1.2.9  
 **Last Updated:** 2026-11-02  
 **Appendices:**  
 * [Appendix 1: Session Context and Automatic Enhancement](docs/PRD-APPENDIX-1.md): built (Phase 4.5, then FR-6.2 and FR-6.3)
-* [Appendix 2: Rewrite Styles](docs/PRD-APPENDIX-2.md): built (FR-8.1 to FR-8.5); FR-8.6 is a later candidate
+* [Appendix 2: Rewrite Styles](docs/PRD-APPENDIX-2.md): built (FR-8.1 to FR-8.5); FR-8.6 (a style for one prompt) proposed
 * [Appendix 3: Installing from a Release](docs/PRD-APPENDIX-3.md): built (FR-9.1 to FR-9.6); signed macOS releases (FR-9.7) wait for an Apple Developer account
 * [Appendix 4: Guard Rails from a File](docs/PRD-APPENDIX-4.md): proposed
 * [Appendix 5: Cost-Aware Local Assistance](docs/PRD-APPENDIX-5.md): proposed, spike first
