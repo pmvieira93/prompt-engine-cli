@@ -866,8 +866,8 @@ func (m *model) panelView(w int) string {
 	keys := m.app.opt.Ctrl.CurrentKeys()
 	lines := []string{
 		panelTitle.Render("Prompt diff"),
-		panelDim.Render(fmt.Sprintf("%s then %s: hide · %s/%s: width · %s: expand · %s: undo",
-			keys.Leader, keys.Panel, keys.Wider, keys.Narrower, keys.Expand, keys.Undo)),
+		panelDim.Render(fmt.Sprintf("%s then %s: hide · %s/%s: width · %s: expand · %s: undo · %s: style",
+			keys.Leader, keys.Panel, keys.Wider, keys.Narrower, keys.Expand, keys.Undo, keys.Style)),
 		"",
 	}
 	var d *Diff

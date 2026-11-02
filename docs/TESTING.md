@@ -39,7 +39,7 @@ Four scripts check whole flows, so a change can be tested in one command before 
 
 | Script | What it runs | Needs |
 |---|---|---|
-| `scripts/e2e.sh [case]…` | The whole wrapper in a test terminal, around a stand-in for `claude` (`tools/fakeclaude`), with the fake suggester. Cases: ghost text and Tab, rules, the panel, preview, auto mode, `claude`'s suggestion taken with → and sent at once, and running nested. CI runs it on every push | Go only: no account, network or model |
+| `scripts/e2e.sh [case]…` | The whole wrapper in a test terminal, around a stand-in for `claude` (`tools/fakeclaude`), with the fake suggester. Cases: ghost text and Tab, rules, the panel, preview, auto mode, `claude`'s suggestion taken with → and sent at once, a style for one prompt (Ctrl+Q, s), and running nested. CI runs it on every push | Go only: no account, network or model |
 | `scripts/smoke.sh [--keep]` | The same flows against the real `claude` and the local models, driven by [VHS](https://github.com/charmbracelet/vhs) in a throwaway project (`~/pe-demo/smoke-app`). It sends three harmless prompts, then checks the debug log for each flow and prints ✓, ✗, or – (skipped, e.g. when `claude` offered no suggestion). The log, screenshots and a GIF are kept | `vhs`, `claude` signed in, Ollama with both models |
 | `scripts/install-test.sh [--latest]` | `install.sh`'s release install against releases built on the spot and served from a folder (`PROMPT_ENGINE_RELEASES_URL=file://…`): a pinned version, the same version again, an upgrade that keeps the config, a bad checksum, a missing config file, an old binary without `--pe-version`, the script piped in outside a clone, and a missing version. `--latest` also installs the latest release from GitHub. CI runs it on every push | Go; the network only for `--latest` |
 | `scripts/test-env.sh [NAME=value]… command` | Any command in a clean environment. It removes every `PROMPT_ENGINE_*` and `CLAUDE*` variable, and keeps the history and config in a throwaway folder. The other scripts use it | — |
@@ -779,6 +779,18 @@ Open the panel (Ctrl+Q, then p). Change the style **in another terminal tab** wi
 | N11 | `printf 'panel:\n  guard_details: true\n' >> /tmp/pe-auto.yaml`. Type `it still fails, same error message, same code, same environment, same machine, same OS, same version of the AI coding assistant, same` and stop | Usually `No rewrite suggested` (the model sometimes gets it right), then two short lines: `Guard added-task: ensure, …` and `Rejected: "Ensure the code runs…"`, the start of what the model wrote. Log: `no preview for …; guard added-task rejected "Ensure …"`, in full |
 
 A `templates/system.txt` replaces every style; the history then says `"style":"custom"`.
+
+**A style for one prompt (FR-8.6).** `scripts/e2e.sh style` checks these with the fake rewriter, which tags each rewrite with its style (`Please … (llm).`). By hand, with the real model, start without the config above (style `default`, rewrites on request) and the panel closed. Don't send unless a step says so.
+
+| # | Do this | Expected |
+|---|---|---|
+| N12 | Type `explain waht the main.go file dose and dont change it`, then **Ctrl+Q**, **s** | A faint `style: llm` after your text, gone after about 1.5 s or at the next key. Log: `style: llm for this prompt (was default)` |
+| N13 | **Ctrl+Q**, **e** | Rewritten in `llm`. Log: `expand: replaced … (…, style llm)` |
+| N14 | **Ctrl+Q**, **s** | `⟳ expanding… (human, for this prompt)`, then **your original text** rewritten in `human`, not N13's rewrite rewritten again. Log: `expand: rewrote "explain waht …" again: replaced … (…, style human)` (recorded: 2.3 s) |
+| N15 | **Ctrl+Q**, **u** | Your original text, with the typos |
+| N16 | **Ctrl+Q**, **p**, then **Ctrl+Q**, **e** | The panel says `Ready to send (human, for this prompt)`; its help line ends with `s: style`. No faint note while the panel is open |
+| N17 | **Ctrl+C**, then type `say helo in thre words` and **Ctrl+Q**, **e** | Rewritten in `default`: clearing the box reset the style. Log: `style: back to default (the prompt was sent or cleared)` |
+| N18 | Type `waht does thsi do: `, paste **A** from Part L, then **Ctrl+Q**, **s** | `style: llm (not used: typos only)`: only typos are fixed around a paste |
 
 **Cleanup:** `rm -f /tmp/pe-auto.yaml`.
 

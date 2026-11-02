@@ -56,6 +56,7 @@ keys:                  # shortcuts are leader-prefixed, like tmux: press leader,
   panel: p             # toggle the side panel
   expand: e            # rewrite the prompt in place (or apply the preview)
   undo: u              # put back the prompt from before the last rewrite
+  style: s             # the next rewrite style, for this prompt only: default → llm → human → both
   panel_wider: "+"     # widen the panel by 5%
   panel_narrower: "-"  # narrow it by 5%
 

@@ -305,12 +305,126 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		sync.Mutex
 		running            bool
 		original, expanded string
-		style              string // of expanded, for the history
+		pastes             []string // original's
+		style              string   // of expanded, for the history
 	}
+	// The style for the prompt being written (PRD Appendix 2, FR-8.6):
+	// keys.style picks it, and it lasts until the prompt is sent or
+	// cleared. "" is expand.style.
+	var promptStyle struct {
+		sync.Mutex
+		style string
+	}
+	styleFor := func(cfg config.Config) string {
+		promptStyle.Lock()
+		defer promptStyle.Unlock()
+		if promptStyle.style != "" {
+			return promptStyle.style
+		}
+		return cfg.Expand.Style
+	}
+	withStyle := func(cfg config.Config) config.Config {
+		cfg.Expand.Style = styleFor(cfg)
+		return cfg
+	}
+	// chosen is how the panel and notices name the style for this prompt
+	// when keys.style picked one; plain otherwise.
+	chosen := func(plain string) string {
+		promptStyle.Lock()
+		defer promptStyle.Unlock()
+		if promptStyle.style == "" {
+			return plain
+		}
+		return promptStyle.style + ", for this prompt"
+	}
+	go func() {
+		for range tracker.Subscribe() {
+			if tracker.Snapshot().Text != "" {
+				continue
+			}
+			promptStyle.Lock()
+			was := promptStyle.style
+			promptStyle.style = ""
+			promptStyle.Unlock()
+			if was != "" {
+				logf("style: back to %s (the prompt was sent or cleared)", live.Load().Expand.Style)
+			}
+		}
+	}()
 	var autoExpand func(context.Context, context.CancelFunc, config.Config, input.State, expand.Plan)
 	var readyPreview func(input.State) (string, string) // a prepared rewrite for the prompt and its style, or
+	var preparePreview func()
 	if cfg.Expand.OnEnter != "off" {
 		go warmExpander(ctx, cfg, logf) // so the first rewrite isn't slowed by loading it
+	}
+	// rewrite rewrites src (its text and pastes) in the style for this
+	// prompt and puts the result in place of s, the prompt as it stands:
+	// src itself, or an earlier rewrite of it. The caller has checked the
+	// plan and set expansion.running. If the style was changed meanwhile,
+	// it rewrites src again in that style, so only the last one chosen
+	// stays.
+	var rewrite func(s, src input.State, plan expand.Plan)
+	rewrite = func(s, src input.State, plan expand.Plan) {
+		var after string // a notice to show briefly once done
+		var used string  // the style the rewrite in place has, if it's done
+		defer func() {
+			expansion.Lock()
+			now := tracker.Snapshot()
+			again := used != "" && slices.Contains(expand.Styles, used) && used != styleFor(*live.Load()) &&
+				now.Synced && now.Text == expansion.expanded
+			if !again {
+				expansion.running = false
+			}
+			expansion.Unlock()
+			ctrl.SetNotice("")
+			if after != "" {
+				flashNotice(ctrl, after)
+			}
+			if again {
+				logf("expand: the style changed to %s while rewriting; rewriting again", styleFor(*live.Load()))
+				go rewrite(now, src, plan)
+			}
+		}()
+		cfg := withStyle(*live.Load())
+		if c := chosen(""); c != "" {
+			ctrl.SetNotice("⟳ expanding… (" + c + ")")
+		} else {
+			ctrl.SetNotice("⟳ expanding…")
+		}
+		ectx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
+		defer cancel()
+		start := time.Now()
+		release := sess.hold()
+		masked, style, err := expandPrompt(ectx, cfg, plan, sessionContext())
+		release()
+		if err != nil {
+			logf("expand: failed: %v", err)
+			return
+		}
+		if lost := append(expand.LostNames(plan.Masked, masked), expand.LostQuotes(plan.Masked, masked)...); len(lost) > 0 {
+			logf("expand: not applied: the rewrite %q dropped or changed %s", masked, strings.Join(lost, ", "))
+			after = "kept your text: the rewrite changed " + strings.Join(lost, ", ")
+			return
+		}
+		out, err := plan.Restore(masked)
+		if err != nil {
+			logf("expand: not applied: %v: %q", err, masked)
+			after = "kept your text: " + err.Error()
+			return
+		}
+		if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
+			logf("expand: not applied: %v", err)
+			return
+		}
+		expansion.Lock()
+		expansion.original, expansion.pastes, expansion.expanded, expansion.style = src.Text, src.Pastes, out, style
+		expansion.Unlock()
+		used = style
+		if s.Text != src.Text {
+			logf("expand: rewrote %q again: replaced %q with %q (%s, style %s)", src.Text, s.Text, out, time.Since(start).Round(time.Millisecond), style)
+			return
+		}
+		logf("expand: replaced %q with %q (%s, style %s)", s.Text, out, time.Since(start).Round(time.Millisecond), style)
 	}
 	ctrl.OnExpand = func(s input.State) {
 		if !s.Synced || strings.TrimSpace(s.Text) == "" {
@@ -330,7 +444,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				return
 			}
 			expansion.Lock()
-			expansion.original, expansion.expanded, expansion.style = s.Text, out, style
+			expansion.original, expansion.pastes, expansion.expanded, expansion.style = s.Text, s.Pastes, out, style
 			expansion.Unlock()
 			logf("expand: used the preview: replaced %q with %q", s.Text, out)
 			return
@@ -344,50 +458,56 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		}
 		expansion.running = true
 		expansion.Unlock()
+		go rewrite(s, s, plan)
+	}
+	// keys.style: the next style for this prompt. On a rewrite, it
+	// rewrites the original text again in that style.
+	ctrl.OnStyle = func(s input.State) {
+		if !s.Synced || strings.TrimSpace(s.Text) == "" {
+			logf("style: nothing to choose a style for (empty prompt, or its text is unknown)")
+			return
+		}
+		cfg := *live.Load()
+		was := styleFor(cfg)
+		next := expand.NextStyle(was)
+		promptStyle.Lock()
+		promptStyle.style = next
+		if next == cfg.Expand.Style {
+			promptStyle.style = ""
+		}
+		promptStyle.Unlock()
+		logf("style: %s for this prompt (was %s)", next, was)
 
-		go func() {
-			var after string // a notice to show briefly once done
-			defer func() {
-				expansion.Lock()
-				expansion.running = false
-				expansion.Unlock()
-				ctrl.SetNotice("")
-				if after != "" {
-					flashNotice(ctrl, after)
-				}
-			}()
-			cfg := live.Load()
-			ctrl.SetNotice("⟳ expanding…")
-			ectx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
-			defer cancel()
-			start := time.Now()
-			release := sess.hold()
-			masked, style, err := expandPrompt(ectx, *cfg, plan, sessionContext())
-			release()
-			if err != nil {
-				logf("expand: failed: %v", err)
-				return
-			}
-			if lost := append(expand.LostNames(plan.Masked, masked), expand.LostQuotes(plan.Masked, masked)...); len(lost) > 0 {
-				logf("expand: not applied: the rewrite %q dropped or changed %s", masked, strings.Join(lost, ", "))
-				after = "kept your text: the rewrite changed " + strings.Join(lost, ", ")
-				return
-			}
-			out, err := plan.Restore(masked)
-			if err != nil {
-				logf("expand: not applied: %v: %q", err, masked)
-				after = "kept your text: " + err.Error()
-				return
-			}
-			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
-				logf("expand: not applied: %v", err)
-				return
-			}
-			expansion.Lock()
-			expansion.original, expansion.expanded, expansion.style = s.Text, out, style
-			expansion.Unlock()
-			logf("expand: replaced %q with %q (%s, style %s)", s.Text, out, time.Since(start).Round(time.Millisecond), style)
-		}()
+		expansion.Lock()
+		held := expansion.expanded != "" && s.Text == expansion.expanded
+		src := input.State{Text: s.Text, Pastes: s.Pastes}
+		if held {
+			src.Text, src.Pastes = expansion.original, expansion.pastes
+		}
+		plan := expand.PlanRewrite(src.Text, src.Pastes)
+		note := "style: " + next
+		used := styleName(withStyle(cfg), plan.TypoOnly)
+		switch used {
+		case "typos":
+			note += " (not used: typos only)"
+		case "custom":
+			note += " (not used: templates/system.txt)"
+		}
+		start := held && !expansion.running && plan.Skip == "" && used == next
+		if start {
+			expansion.running = true
+		}
+		expansion.Unlock()
+		if !ctrl.PanelOpen() {
+			briefNotice(ctrl, note)
+		}
+		switch {
+		case start:
+			go rewrite(s, src, plan)
+		case cfg.Expand.OnEnter == "preview" && !held:
+			go preparePreview() // the ready suggestion has the old style
+		}
+		ctrl.Redraw()
 	}
 	ctrl.OnUndo = func(s input.State) {
 		expansion.Lock()
@@ -425,14 +545,15 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 	readyPreview = func(s input.State) (string, string) {
 		preview.Lock()
 		defer preview.Unlock()
-		// A style changed by a reload since makes it stale.
-		if !s.Synced || preview.pending || preview.text != s.Text || preview.asked != live.Load().Expand.Style {
+		// A style changed since, by a reload or keys.style, makes it stale.
+		if !s.Synced || preview.pending || preview.text != s.Text || preview.asked != styleFor(*live.Load()) {
 			return "", ""
 		}
 		return preview.out, preview.style
 	}
-	preparePreview := func() {
-		cfg := live.Load()
+	preparePreview = func() {
+		c := withStyle(*live.Load())
+		cfg := &c
 		s := tracker.Snapshot()
 		expansion.Lock()
 		expanded := expansion.expanded != "" && s.Text == expansion.expanded
@@ -444,6 +565,10 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		}
 		show := s.Synced && !expanded && rules.SkipReason(s) == "" && len(strings.Fields(s.Text)) >= cfg.Expand.MinWords
 		plan := expand.PlanRewrite(s.Text, s.Pastes)
+		if preview.cancel != nil {
+			preview.cancel() // a rewrite in another style
+			preview.cancel = nil
+		}
 		preview.text, preview.out, preview.reason, preview.pending = s.Text, "", "", false
 		preview.style, preview.asked = "", cfg.Expand.Style
 		preview.guard, preview.detail, preview.rejected = "", "", ""
@@ -498,7 +623,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		}
 		cancel()
 		preview.Lock()
-		if preview.text != s.Text || !preview.pending {
+		if preview.text != s.Text || !preview.pending || preview.asked != cfg.Expand.Style {
 			preview.Unlock()
 			return
 		}
@@ -590,7 +715,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		actx, cancel := context.WithTimeout(ctx, cfg.Expand.AutoTimeout+wordsTime(plan.Words))
 		auto.pending, auto.escaped, auto.cancel = true, false, cancel
 		logf("expand: Enter held while expanding %q (Esc sends it as typed)", plan.Masked)
-		go autoExpand(actx, cancel, *cfg, s, plan)
+		go autoExpand(actx, cancel, withStyle(*cfg), s, plan)
 		return true
 	}
 	autoExpand = func(actx context.Context, cancel context.CancelFunc, cfg config.Config, s input.State, plan expand.Plan) {
@@ -629,7 +754,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				reason = "couldn't replace the prompt: " + err.Error()
 			} else {
 				expansion.Lock()
-				expansion.original, expansion.expanded, expansion.style = s.Text, out, style
+				expansion.original, expansion.pastes, expansion.expanded, expansion.style = s.Text, s.Pastes, out, style
 				expansion.Unlock()
 				auto.Lock()
 				auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected = true, "", "", "", ""
@@ -677,7 +802,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		if expansion.expanded != "" && s.Text == expansion.expanded {
 			sub.Raw, sub.Expanded, sub.Style = expansion.original, true, expansion.style
 		}
-		expansion.original, expansion.expanded, expansion.style = "", "", ""
+		expansion.original, expansion.pastes, expansion.expanded, expansion.style = "", nil, "", ""
 		expansion.Unlock()
 		auto.Lock()
 		sub.Auto, sub.Stopped, sub.Guard, sub.GuardDetail, sub.Rejected = auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected
@@ -706,7 +831,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		text, out, reason, pending, asked := preview.text, preview.out, preview.reason, preview.pending, preview.asked
 		guard, detail, rejected := preview.guard, preview.detail, preview.rejected
 		preview.Unlock()
-		if ec := live.Load().Expand; ec.OnEnter != "preview" || ec.Style != asked || !s.Synced || text == "" || text != s.Text {
+		if ec := live.Load().Expand; ec.OnEnter != "preview" || styleFor(*live.Load()) != asked || !s.Synced || text == "" || text != s.Text {
 			return nil
 		}
 		k := ctrl.CurrentKeys()
@@ -722,7 +847,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				Notes: append(notes, "Enter sends what you typed.")}
 		}
 		return &tui.Diff{
-			Title: "Suggested rewrite (not used yet)",
+			Title: "Suggested rewrite (" + chosen("not used yet") + ")",
 			Ops:   diff.Prompt(text, out),
 			Notes: []string{fmt.Sprintf("%s then %s uses it; Enter sends what you typed.", k.Leader, k.Expand)},
 		}
@@ -740,7 +865,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 				}
 			}
 			return &tui.Diff{
-				Title: "Ready to send (not sent yet)",
+				Title: "Ready to send (" + chosen("not sent yet") + ")",
 				Ops:   diff.Prompt(original, preview),
 				Notes: []string{"Enter sends it; the undo key puts your text back."},
 			}
@@ -765,6 +890,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 			note += " · rules added"
 		}
 		notes := []string{note}
+		if c := chosen(""); c != "" {
+			notes = append(notes, "Next rewrite: style "+c+".")
+		}
 		switch {
 		case sub.Guard != "" && live.Load().Panel.GuardDetails:
 			notes = append(notes, guardNotes("Sent as typed · guard ", sub.Guard, sub.GuardDetail, sub.Rejected)...)
@@ -859,6 +987,24 @@ func recordHistory(h config.HistoryConfig, sub history.Submission, logf func(str
 func wordsTime(n int) time.Duration { return time.Duration(n) * 60 * time.Millisecond }
 
 // flashNotice shows msg at the cursor for a few seconds.
+// styleName is the style a rewrite would use: the style, "typos" for a
+// typo-only rewrite, or "custom" for templates/system.txt.
+func styleName(cfg config.Config, typoOnly bool) string {
+	templates, _ := cfg.TemplatesDir()
+	e := &expand.Expander{TemplatesDir: templates, Style: cfg.Expand.Style, TypoOnly: typoOnly}
+	return e.StyleName()
+}
+
+// briefNotice shows msg at the cursor for a moment, or until the next key.
+func briefNotice(ctrl *ghost.Controller, msg string) {
+	ctrl.SetBriefNotice(msg)
+	time.AfterFunc(1500*time.Millisecond, func() {
+		if ctrl.Notice() == msg {
+			ctrl.SetNotice("")
+		}
+	})
+}
+
 func flashNotice(ctrl *ghost.Controller, msg string) {
 	ctrl.SetNotice(msg)
 	time.AfterFunc(4*time.Second, func() {
@@ -889,7 +1035,7 @@ func bindings(k config.KeysConfig) ghost.Keys {
 	parse := func(s string) input.Binding { b, _ := input.ParseBinding(s); return b }
 	return ghost.Keys{
 		Leader: parse(k.Leader), Panel: parse(k.Panel),
-		Expand: parse(k.Expand), Undo: parse(k.Undo),
+		Expand: parse(k.Expand), Undo: parse(k.Undo), Style: parse(k.Style),
 		Wider: parse(k.Wider), Narrower: parse(k.Narrower),
 	}
 }
@@ -959,6 +1105,9 @@ func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, sc e
 	if provider == "fake" {
 		lines := e.Context(ctx)
 		out := "Please " + expand.StripContext(text) + "."
+		if style != expand.StyleDefault && slices.Contains(expand.Styles, style) {
+			out += " (" + style + ")" // so tests can tell the styles apart
+		}
 		if len(sc.Prompts) > 0 {
 			out += " (Following: " + sc.Prompts[len(sc.Prompts)-1] + ")"
 		}

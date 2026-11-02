@@ -10,8 +10,20 @@ const (
 	StyleBoth    = "both"    // natural, structured when there are several parts
 )
 
-// Styles are the values of expand.style.
+// Styles are the values of expand.style, in the order keys.style cycles
+// through them (FR-8.6).
 var Styles = []string{StyleDefault, StyleLLM, StyleHuman, StyleBoth}
+
+// NextStyle returns the style after style in Styles, wrapping around; an
+// unknown style gives the first.
+func NextStyle(style string) string {
+	for i, s := range Styles {
+		if s == style {
+			return Styles[(i+1)%len(Styles)]
+		}
+	}
+	return Styles[0]
+}
 
 // styleRules are kept by every style but StyleDefault (FR-8.2). The last
 // rule is there because "conversational" gave "Can you…?" requests, which
