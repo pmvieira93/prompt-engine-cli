@@ -3,7 +3,7 @@
 **Extends:** [PRD.md](../PRD.md) version 1.2.0 (section 4.3, prompt enhancement) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7)  
 **Appendix Version:** 1.3.0  
 **Date:** 2026-11-02  
-**Status:** Built (FR-8.1 to FR-8.5). FR-8.6 (a style for one prompt) is proposed: scope in section 4, 2026-11-02
+**Status:** Built (FR-8.1 to FR-8.5). FR-8.6 (a style for one prompt) is proposed, with its scope and decisions in section 4 (2026-11-02)
 
 ---
 
@@ -181,6 +181,7 @@ The order of styles is always the same, starting after the one in use. For examp
 
 **Feedback:**
 
+* **A faint note** in the box when the side panel is closed: `style: llm`, for about 1.5 s or until the next key (4.6).
 * **The panel**, when it's open, shows the prompt's style next to the suggestion: `Suggested rewrite (llm, for this prompt)`. The Session section keeps showing the config's style.
 * **The debug log** gets a line for each change: `style: llm for this prompt (was default)`.
 * **The history** already records each rewrite's style (FR-8.5), so a per-prompt choice is recorded with nothing new needed.
@@ -194,7 +195,7 @@ The order of styles is always the same, starting after the one in use. For examp
 * `keys.style` (default `s`), with the same leader rules as the other shortcuts; it's shown in the panel's help line;
 * the per-prompt style and its reset;
 * rewriting a rewrite again from the original text;
-* the panel label, the log line and the history;
+* the panel label, the faint note in the box when the side panel is closed, the log line and the history;
 * unit tests, an end-to-end case with the fake rewriter, and a Part N addition in the testing guide.
 
 **Out:**
@@ -219,11 +220,15 @@ The order of styles is always the same, starting after the one in use. For examp
 * Send it. The next prompt is rewritten in `default`.
 * `preview` mode: Ctrl+Q, s drops the ready suggestion, and a new one is offered with the new label.
 * `auto` mode: Enter sends the rewrite in the chosen style.
+* With the side panel closed, Ctrl+Q, s shows `style: llm` faintly in the box. It disappears after about 1.5 s or at the next key, and it's never part of what's sent.
 * Typo-only rewrites and `templates/system.txt` are unchanged (FR-8.3, FR-8.4).
 
-### 4.6 Open decisions
+### 4.6 Decisions (2026-11-02)
 
-* **The key:** `s`, or another free letter? In use today: p, e, u, + and −, Enter, Esc, and Ctrl+Q itself.
-* **Feedback with the panel closed.** Should the box show the choice for a moment, for example as faint text, or is the log enough? Before choosing, record how Claude Code redraws its box, rather than guess.
-* **The order of styles:** a fixed cycle (proposed), or starting with the style most often chosen?
+* **The key:** `s` (`keys.style`). The other keys in use are p, e, u, + and −, Enter, Esc, and Ctrl+Q itself.
+* **Feedback with the side panel closed:** a short faint note in the box, such as `style: llm`, drawn like ghost text. It goes after about 1.5 s or at the next key. With the side panel open, its label is enough (4.2).
+  * The note must never be sent or typed into the prompt.
+  * Before it's built, record how Claude Code redraws its box around the note, rather than guess.
+  * If the note can't be drawn safely there, fall back to the log line alone.
+* **The order of styles:** the fixed cycle `default` → `llm` → `human` → `both`, starting after the style in use (4.2).
 
