@@ -818,6 +818,7 @@ Open the panel (Ctrl+Q, then p), so the prompt box is narrower and long prompts 
 
 | What you'll see | Why |
 |---|---|
+| A preview or rewrite takes 5–7 s instead of 1–2 s | The Mac is busy, not `prompt-engine`. Ollama's log (`/opt/homebrew/var/log/ollama.log` with Homebrew) shows the model's speed: in normal use `qwen2.5:7b` generated about 20 tokens/s; while evaluations or VHS recordings ran (2026-10-30/31) it fell to 6–8 tokens/s. Ghost text was ruled out: its request ends before a preview starts |
 | Keys typed in permission dialogs or menus (e.g. `1`, arrows) briefly show up in the log as prompt text or `synced=false` | The input buffer replays keys. When it loses track, it resyncs from `claude`'s screen within ~150ms (`buffer resynced from screen`). Ghost text is kept out of dialogs (E17). |
 | **Backslash + Enter** (`claude`'s way to add a new line) resets the log to `""`, while `claude` keeps the text | The buffer treats every Enter as "send". Use Option+Enter for multi-line text while testing. |
 | A prompt read from several rows of the screen (after ↑ history) can have a space less than `claude`'s: before a line break, or where a row wraps after two spaces | The screen doesn't show those spaces (`claude` moves the cursor past them). The log says `read from N rows; may lack a space at each break`, and a rewrite deletes one more character per break to cover them; ghost text and the panel may just show a space less |
