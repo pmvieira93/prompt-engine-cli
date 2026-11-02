@@ -51,6 +51,9 @@ jobs:
       - name: End-to-end tests
         run: scripts/e2e.sh
 
+      - name: Install tests
+        run: scripts/install-test.sh
+
       - name: Lint shell scripts
         if: runner.os == 'Linux'
         run: shellcheck -s bash install.sh scripts/*.sh

@@ -5,12 +5,14 @@
 # plus checksums.txt.
 #
 #   scripts/build-release.sh v1.2.3 [dist]
+#
+# TARGETS="darwin/arm64" builds only the platforms listed (for tests).
 
 set -euo pipefail
 
 version="${1:?usage: scripts/build-release.sh <version> [output dir]}"
 out="${2:-dist}"
-targets="darwin/arm64 darwin/amd64 linux/amd64 linux/arm64"
+targets="${TARGETS:-darwin/arm64 darwin/amd64 linux/amd64 linux/arm64}"
 
 cd "$(dirname "$0")/.."
 rm -rf "$out"

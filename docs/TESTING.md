@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O), and **installing from a release** (PRD Appendix 3, Part P). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -35,13 +35,14 @@ go build -o bin/prompt-engine ./cmd/prompt-engine
 
 ### 1.2b Automated end-to-end and smoke tests
 
-Three scripts check whole flows, so a change can be tested in one command before this guide is used:
+Four scripts check whole flows, so a change can be tested in one command before this guide is used:
 
 | Script | What it runs | Needs |
 |---|---|---|
 | `scripts/e2e.sh [case]…` | The whole wrapper in a test terminal, around a stand-in for `claude` (`tools/fakeclaude`), with the fake suggester. Cases: ghost text and Tab, rules, the panel, preview, auto mode, `claude`'s suggestion taken with → and sent at once, and running nested. CI runs it on every push | Go only: no account, network or model |
 | `scripts/smoke.sh [--keep]` | The same flows against the real `claude` and the local models, driven by [VHS](https://github.com/charmbracelet/vhs) in a throwaway project (`~/pe-demo/smoke-app`). It sends three harmless prompts, then checks the debug log for each flow and prints ✓, ✗, or – (skipped, e.g. when `claude` offered no suggestion). The log, screenshots and a GIF are kept | `vhs`, `claude` signed in, Ollama with both models |
-| `scripts/test-env.sh [NAME=value]… command` | Any command in a clean environment. It removes every `PROMPT_ENGINE_*` and `CLAUDE*` variable, and keeps the history and config in a throwaway folder. The other two scripts use it | — |
+| `scripts/install-test.sh [--latest]` | `install.sh`'s release install against releases built on the spot and served from a folder (`PROMPT_ENGINE_RELEASES_URL=file://…`): a pinned version, the same version again, an upgrade that keeps the config, a bad checksum, a missing config file, an old binary without `--pe-version`, the script piped in outside a clone, and a missing version. `--latest` also installs the latest release from GitHub. CI runs it on every push | Go; the network only for `--latest` |
+| `scripts/test-env.sh [NAME=value]… command` | Any command in a clean environment. It removes every `PROMPT_ENGINE_*` and `CLAUDE*` variable, and keeps the history and config in a throwaway folder. The other scripts use it | — |
 
 **From a session that runs under `prompt-engine`**, always test through `scripts/test-env.sh` (or the two scripts above). That session sets `PROMPT_ENGINE_ACTIVE` for everything it runs, and a `prompt-engine` started with it hands over to `claude` without wrapping it, which looks like a broken feature. With a debug log, that case logs `… is set (already inside prompt-engine), so claude runs without prompt-engine`.
 
@@ -814,7 +815,35 @@ Open the panel (Ctrl+Q, then p), so the prompt box is narrower and long prompts 
 
 ---
 
-## 17. Known limitations (expected, not bugs)
+## 17. Part P: Installing from a release
+
+`install.sh` installs a ready-built binary from a release (`--from release`, the default outside a clone) or builds one (`--from source`, the default in a clone). `scripts/install-test.sh` covers the release install without the network; these steps check it by hand against GitHub, including the one-line install. Each uses a throwaway folder, so your own install, config and history are untouched.
+
+**Setup**, from a folder outside the clone, as a new user would:
+
+```sh
+T=$(mktemp -d); mkdir -p "$T/cwd"; cd "$T/cwd"
+URL=https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/install.sh
+PE=~/Workspace/GitHub/prompt-engine-cli   # your clone, for test-env.sh
+```
+
+| # | Do this | Expected |
+|---|---|---|
+| P1 | `curl -fsSL $URL \| PE_TEST_HOME=$T/home $PE/scripts/test-env.sh bash -s -- --binary-only --prefix $T/bin` | `Release: vX.Y.Z (the latest)`, both downloads ✓, `Checksum verified (SHA-256)`, `Installed vX.Y.Z`, `Config written`. `$T/bin/prompt-engine --pe-version` prints that version |
+| P2 | Same as P1, with `--version v0.1.1` | It shows `Installed: vX.Y.Z` (the latest, from P1), then `Installed v0.1.1 (was vX.Y.Z)` (an upgrade looks the same) and `Config kept` |
+| P3 | Run P2 again | `prompt-engine v0.1.1 is already installed`; nothing is downloaded |
+| P4 | Same as P1, with `--version v0.0.9` (no such release) | `Couldn't download v0.0.9 for <os>/<arch>`, exit status 1, and `$T/bin/prompt-engine` still reports v0.1.1 |
+| P5 | Same as P1 without `--binary-only`, with `--dry-run` | Steps 1–6. The dependencies list Ollama and Claude Code, not Go or git. Step 4 is `Install prompt-engine` and says what it would download |
+| P6 | In the clone: `scripts/test-env.sh ./install.sh --dry-run --prefix $T/bin2` | Step 4 is `Build and install prompt-engine`, building `v…-g<commit>` with Go, and Go is among the dependencies |
+| P7 | On macOS: `xattr $T/bin/prompt-engine` | No `com.apple.quarantine` (`com.apple.provenance` is fine: it doesn't block running) |
+
+A bad checksum can't be produced against GitHub; `scripts/install-test.sh` checks that the install stops (`Checksum mismatch`, nothing installed).
+
+**Cleanup:** `rm -rf "$T"`.
+
+---
+
+## 18. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -844,7 +873,7 @@ Open the panel (Ctrl+Q, then p), so the prompt box is narrower and long prompts 
 
 ---
 
-## 18. Reporting a problem
+## 19. Reporting a problem
 
 Include:
 

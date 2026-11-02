@@ -1,9 +1,9 @@
 # PRD Appendix 3: Installing from a Release
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.3 (section 6, target technology stack, and the roadmap)  
-**Appendix Version:** 1.1.0  
+**Appendix Version:** 1.2.0  
 **Date:** 2026-11-02  
-**Status:** Proposed, deferred. Agreed as the direction on 2026-10-30, to be built later. FR-9.7 (signed macOS releases) added on 2026-11-02; it needs an Apple Developer account first.
+**Status:** FR-9.1 to FR-9.6 built on 2026-11-02 (see section 6). FR-9.7 (signed macOS releases), added the same day, is proposed and needs an Apple Developer account first.
 
 ---
 
@@ -98,8 +98,8 @@ One install script, with two ways to get the binary. A second script would repea
 
 ## 4. Open decisions
 
-* **FR-9.6:** whether to add the post-release install check, and on which runners.
-* **The one-line URL:** whether the README leads with `master`, or with the latest tag (updated each release).
+* ~~**FR-9.6:** whether to add the post-release install check, and on which runners.~~ Added, on Linux and macOS (section 6).
+* ~~**The one-line URL:** whether the README leads with `master`, or with the latest tag (updated each release).~~ The README leads with `master`, which always installs the latest release, and shows a tag-pinned line beside it.
 * **FR-9.7, the Apple Developer account:** a paid, yearly Apple Developer Program membership. Individual or organization? The name on the certificate is what macOS shows as the developer.
 * **FR-9.7, Linux:** whether to sign `checksums.txt` as well.
 
@@ -107,6 +107,28 @@ One install script, with two ways to get the binary. A second script would repea
 
 ## 5. Roadmap
 
-Deferred on 2026-10-30. When picked up: FR-9.1 to FR-9.5 with the documentation and the testing part, tested against a published release, then FR-9.6 if agreed.
+Deferred on 2026-10-30; FR-9.1 to FR-9.6 built on 2026-11-02 (section 6). The one-line install works from `master` once this is merged; the release-install check (FR-9.6) first runs with the next tag.
 
 FR-9.7 doesn't depend on the others. It can be done on its own, as soon as there's an Apple Developer account: the signing and notarizing steps in the release workflow, the secrets, and a check on a fresh Mac.
+
+---
+
+## 6. As built (2026-11-02)
+
+FR-9.1 to FR-9.6 as proposed, with these details:
+
+* **The latest release** comes from where `<releases>/latest` redirects to, not from GitHub's API, so it has no rate limit.
+* **Same version:** when the installed binary already reports the release's version (`--pe-version`), nothing is downloaded. The one exception is a missing config file: the archive is downloaded again for its template.
+* **An older binary:** one that can't report its version (built before `--pe-version`) is simply replaced.
+* **`--version` implies `--from release`,** even in a clone; with `--from source` it's an error.
+* **The binary is replaced in one step:** the new one is copied next to the old one, then moved over it. A running `prompt-engine` keeps working, and a failed install leaves the old binary.
+* **`--binary-only`:** installs or upgrades only the binary, with no dependencies, models or health check. It's the quickest upgrade, and what the tests use.
+* **Source builds report a version:** `--from source` builds with `git describe` as the version (e.g. `v0.1.2-5-g343ef94`), so an upgrade can show both versions.
+* **Hints:** without a clone, the script's hints show the one-line command (`… | bash -s -- --check`) in place of `./install.sh`.
+* **`PROMPT_ENGINE_RELEASES_URL`** replaces `https://github.com/pmvieira93/prompt-engine-cli/releases`, for tests and mirrors (`file://` works).
+* **Tests:**
+  * `scripts/install-test.sh` builds releases on the spot and serves them from a folder. It covers a pinned version, the same version again, an upgrade that keeps the config, a bad checksum, a missing config file, an old binary without `--pe-version`, the script piped in outside a clone, and a missing version. `--latest` adds the real latest release.
+  * CI runs it on Linux and macOS on every push. The release workflow then installs each new release on both (FR-9.6).
+  * The testing guide's Part P checks the same by hand against GitHub.
+* **Checked on macOS:** a binary downloaded with `curl` has no quarantine flag. On Linux, only CI checks it.
+
