@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O), and **installing from a release** (PRD Appendix 3, Part P), and **guard rails from a file** (PRD Appendix 4, Part Q). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O), and **installing from a release** (PRD Appendix 3, Part P), and **your own guard rails** (PRD Appendix 4, Part Q). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -857,27 +857,27 @@ A bad checksum can't be produced against GitHub; `scripts/install-test.sh` check
 
 ---
 
-## 18. Part Q: Guard rails from a file
+## 18. Part Q: Your own guard rails
 
-`guards.yaml`, beside `config.yaml`, changes the built-in guard rails (PRD Appendix 4). These steps use a throwaway config folder and the fake rewriter, which turns `<text>` into `Please <text>.`, so the results are repeatable. Q4 to Q7 send `say hello` to `claude`.
+`templates/guards.txt` adds your own rules to the built-in guard rails (PRD Appendix 4), one per line. These steps use a throwaway config folder and the fake rewriter, which turns `<text>` into `Please <text>.`, so the results are repeatable. Q4 to Q7 send `say hello` to `claude`.
 
 **Setup:**
 
 ```sh
-T=$(mktemp -d)
+T=$(mktemp -d); mkdir -p "$T/templates"
 printf 'expand:\n  on_enter: auto\n  min_words: 1\npanel:\n  guard_details: true\n' >"$T/config.yaml"
 export PROMPT_ENGINE_CONFIG="$T/config.yaml"
 ```
 
 | # | Do this | Expected |
 |---|---|---|
-| Q1 | `prompt-engine --pe-check-guards "fix the typo" "Fix the typo."` | `Using built-in guards (weakened: none; custom: none).`, then `Passes: no guard stops this rewrite.`; exit status 0 |
-| Q2 | `printf 'custom:\n  - name: no-please\n    added: [please]\n' >"$T/guards.yaml"`, then `prompt-engine --pe-check-guards "say hello" "Please say hello."` | `Using guards from …/guards.yaml (… custom: no-please).`, then `Stopped by no-please (please): the rewrite added please.`; exit status 1 |
-| Q3 | `cp "$T/guards.yaml" "$T/keep.yaml"; printf 'questoin:\n  enabled: false\n' >"$T/guards.yaml"`, run Q2's check again, then `mv "$T/keep.yaml" "$T/guards.yaml"` | `prompt-engine: invalid …/guards.yaml: … field questoin not found …`; exit status 2 |
-| Q4 | `PROMPT_ENGINE_SUGGESTER=fake scripts/test-env.sh prompt-engine`, open the panel (**Ctrl+Q**, **p**), type `say hello`, **Enter** | Claude receives `say hello` as typed. The panel shows `Sent as typed · guard no-please: please`, and its Session section `guards: …/guards.yaml; custom no-please` |
-| Q5 | While it runs, in another terminal: `printf 'destructive:\n  enabled: false\n' >"$T/guards.yaml"` | Within a second, the Session section shows `weakened: destructive off` and `⚠ destructive is off: in auto mode, a rewrite it would stop is sent unchecked`; `no-please` is gone |
+| Q1 | `prompt-engine --pe-check-guards "fix the typo" "Fix the typo."` | `Using the built-in guards only (no …/templates/guards.txt).`, then `Passes: no guard stops this rewrite.`; exit status 0 |
+| Q2 | `printf 'never add: please\n' >"$T/templates/guards.txt"`, then `prompt-engine --pe-check-guards "say hello" "Please say hello."` | `Using the built-in guards and …/guards.txt (never add 1).`, then `Stopped by never-add (please): the rewrite added "please" (guards.txt line 1: never add).`; exit status 1 |
+| Q3 | `printf 'never add: please\nturn off: questoin\n' >"$T/templates/guards.txt"`, run Q2's check again, then put Q2's file back | `prompt-engine: …/guards.txt line 2: no guard "questoin" (the guards: empty, placeholder, …)`; exit status 2 |
+| Q4 | `PROMPT_ENGINE_SUGGESTER=fake scripts/test-env.sh prompt-engine`, open the panel (**Ctrl+Q**, **p**), type `say hello`, **Enter** | Claude receives `say hello` as typed. The panel shows `Sent as typed · guard never-add: please`, and its Session section `guards: …/templates/guards.txt: never add 1` |
+| Q5 | While it runs, in another terminal: `printf 'turn off: destructive\n' >"$T/templates/guards.txt"` | Within a second, the Session section shows `…/guards.txt: off: destructive` and `⚠ destructive is off: in auto mode, a rewrite it would stop is sent unchecked` |
 | Q6 | Type `say hello`, **Enter** | Claude receives the rewrite, starting `Please say hello.` (the fake rewriter adds the earlier prompt after it) |
-| Q7 | `printf 'replaced:\n  max_share: 2\n' >"$T/guards.yaml"` | The Session section shows `last guards edit rejected: … replaced.max_share: 2 is not above 0 and at most 1`, and still `destructive off`. Quit with `/exit` |
+| Q7 | `printf 'turn of: question\n' >"$T/templates/guards.txt"` | The Session section shows `last guards.txt edit rejected: …/guards.txt line 1: "turn of: question" isn't a rule: start it with never add:, always keep: or turn off:`, and still `off: destructive`. Quit with `/exit` |
 
 **Cleanup:** `unset PROMPT_ENGINE_CONFIG; rm -rf "$T"`.
 

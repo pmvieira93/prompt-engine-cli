@@ -120,29 +120,39 @@ func TestCheckGuardsArgs(t *testing.T) {
 
 func TestCheckGuards(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv(config.EnvConfigPath, filepath.Join(dir, "config.yaml"))
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	run := func(typed, rewrite string) (int, string) {
 		var b strings.Builder
-		code := checkGuards(&b, typed, rewrite)
+		code := checkGuards(&b, cfg, typed, rewrite)
 		return code, b.String()
 	}
-	if code, out := run("fix the typo", "Fix the typo."); code != 0 || !strings.Contains(out, "Using built-in guards") || !strings.Contains(out, "Passes") {
+	if code, out := run("fix the typo", "Fix the typo."); code != 0 || !strings.Contains(out, "built-in guards only") || !strings.Contains(out, "Passes") {
 		t.Errorf("passes: %d %q", code, out)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "guards.yaml"), []byte("destructive:\n  enabled: false\ncustom:\n  - name: prod-words\n    added: [prod]\n"), 0o600); err != nil {
+	path := filepath.Join(dir, "templates", "guards.txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("turn off: destructive\nnever add: production\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	code, out := run("restart the api", "Restart the production api.")
-	if code != 1 || !strings.Contains(out, "Stopped by prod-words (production)") {
-		t.Errorf("custom: %d %q", code, out)
+	if code != 1 || !strings.Contains(out, `Stopped by never-add (production): the rewrite added "production" (guards.txt line 2: never add).`) {
+		t.Errorf("never add: %d %q", code, out)
 	}
-	if !strings.Contains(out, "weakened: destructive off") || !strings.Contains(out, "Warning: destructive is off") {
-		t.Errorf("no warning: %q", out)
+	if !strings.Contains(out, "(never add 1; off: destructive)") || !strings.Contains(out, "Warning: destructive is off") {
+		t.Errorf("no summary or warning: %q", out)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "guards.yaml"), []byte("questoin: {}\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("turn off: questoin\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, out := run("a", "b"); code != 2 || !strings.Contains(out, "questoin") {
+	if code, out := run("a", "b"); code != 2 || !strings.Contains(out, `line 1: no guard "questoin"`) {
 		t.Errorf("invalid file: %d %q", code, out)
 	}
 }
@@ -150,7 +160,7 @@ func TestCheckGuards(t *testing.T) {
 func TestReviewPastesOff(t *testing.T) {
 	plan := expand.Plan{Masked: "explain " + expand.Marker(1) + " then " + expand.Marker(2), Kept: []string{"A", "B"}}
 	moved := "Explain " + expand.Marker(2) + " then " + expand.Marker(1)
-	r := expand.DefaultRules()
+	var r expand.Rules
 	if _, stop := review(&r, plan, moved, expand.SessionContext{}); stop == nil || stop.Guard != "pastes" {
 		t.Errorf("built in: %+v, want stopped by pastes", stop)
 	}

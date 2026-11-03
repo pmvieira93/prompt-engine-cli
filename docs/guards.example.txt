@@ -1,0 +1,53 @@
+# prompt-engine guard rails: your own rules
+#
+# Save as templates/guards.txt, beside append.txt and system.txt:
+#   ~/.config/prompt-engine/templates/guards.txt
+# Edits apply as soon as you save.
+#
+# A rewrite is used only if no guard rail stops it. Otherwise, in auto mode,
+# your prompt is sent as typed, and in preview mode no rewrite is offered.
+#
+# One rule per line. Lines starting with # are notes.
+#
+#   never add: word, word, phrase   the rewrite must not add these, if you didn't type them
+#   always keep: word, phrase       if you typed one of these, the rewrite must keep it
+#   turn off: guard, guard          turn off built-in guards, by the names below
+#
+# Words match whole, in any case, and in their forms: "deploy" also catches
+# "deploys", "deployed" and "deploying". "force push" is a phrase: the words
+# in a row. "never add" and "always keep" are also told to the model, so it
+# keeps them to begin with; the check catches it when it doesn't.
+#
+# Try a rule before relying on it:
+#   prompt-engine --pe-check-guards "what you typed" "a rewrite"
+#
+# The built-in guards, always on unless turned off here:
+#
+#   empty            the rewrite was empty
+#   placeholder      the rewrite has a placeholder to fill in ("[file name]")
+#   asked-back       the model asked a question back instead of rewriting
+#   language         the rewrite is in another language
+#   names            the rewrite dropped or changed a name: a file, a path, an agent, "!110"
+#   quotes           the rewrite changed text in `backticks` or "double quotes"
+#   destructive      the rewrite added a destructive action: delete, remove, drop, reset,
+#                    force, rm, overwrite, revert, push, wip, truncate, destroy, purge,
+#                    erase, discard, uninstall
+#   question         the rewrite turned your question into an instruction
+#   added-task       the rewrite added a task to a prompt that asked for none ("it still fails")
+#   dropped-part     the rewrite dropped a sentence or line of what you typed
+#   negation         the rewrite has more or fewer negations (not, never, without, only…)
+#   earlier-prompts  the rewrite took details from earlier prompts you didn't point back at
+#   length           the rewrite is more than 3 × your words + 15 long
+#   replaced         the rewrite lost more than 60% of your words
+#   pastes           the rewrite dropped, repeated or moved a part you pasted. Turned off,
+#                    a moved part is put back where it moved; dropped or repeated still stops it
+#
+# Turning off destructive, pastes or names gets a warning in the side panel:
+# in auto mode, a rewrite it would stop is then sent unchecked.
+#
+# Examples (remove the # to use them):
+#
+# never add: deploy, rollback, production
+# never add: force push
+# always keep: staging, main
+# turn off: question

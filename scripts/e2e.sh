@@ -281,12 +281,12 @@ exit'
 }
 
 case_guards() {
-	echo "guards: guards.yaml beside config.yaml adds a guard, and an edit applies at once"
-	mkdir -p "$work/guards"
-	printf -- 'custom:\n  - name: no-please\n    added: [please]\n' >"$work/guards/guards.yaml"
-	# While the first prompt waits for claude's reply, the guard is turned
-	# off by editing the file.
-	(sleep 3 && printf -- 'question:\n  enabled: false\n' >"$work/guards/guards.yaml") &
+	echo "guards: templates/guards.txt adds a rule, and an edit applies at once"
+	mkdir -p "$work/guards/templates"
+	printf -- '# no please\nnever add: please\n' >"$work/guards/templates/guards.txt"
+	# While the first prompt waits for claude's reply, the rule is replaced
+	# by editing the file.
+	(sleep 3 && printf -- 'turn off: question\n' >"$work/guards/templates/guards.txt") &
 	run_case guards 'reply on
 wait "❯" 5s
 send "fix the parser now"
@@ -301,11 +301,11 @@ send "\x04"
 exit' 'expand:
   on_enter: auto'
 	wait
-	check "the custom guard was read" logged 'custom: no-please'
-	check "it stopped the rewrite" logged 'not used (guard no-please: the rewrite added please); sending as typed'
+	check "the rule was read" logged 'guards.txt: never add 1'
+	check "it stopped the rewrite" logged 'not used (guard never-add: the rewrite added "please" (guards.txt line 2: never add)); sending as typed'
 	check "claude received the prompt as typed" first_sent '"fix the parser now"'
 	check "the edit was read" logged 'guards: reloaded'
-	check "it shows as weakened" logged 'weakened: question off'
+	check "the panel line has the new rules" logged 'guards.txt: off: question'
 	check "the next prompt was rewritten" grep -qF '"Please fix the lexer now.' "$dir/sent.jsonl"
 }
 

@@ -79,7 +79,10 @@ type Expander struct {
 	// TypoOnly uses TypoSystem whatever the style: corrections, no
 	// rewording (Plan.TypoOnly).
 	TypoOnly bool
-	Client   *http.Client
+	// Rules are the developer's guards.txt: its words are named in the
+	// instructions too (PRD Appendix 4). Nil adds nothing.
+	Rules  *Rules
+	Client *http.Client
 }
 
 // Expand returns text rewritten, with any context appended.
@@ -96,6 +99,9 @@ func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
 	}
 	if markerPattern.MatchString(text) {
 		system += "\n" + MarkerRule
+	}
+	if e.Rules != nil {
+		system += e.Rules.Instructions()
 	}
 	// In typo mode the model copied a "Request:" label into its answer,
 	// but not "Message:".

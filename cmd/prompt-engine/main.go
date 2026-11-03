@@ -18,6 +18,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -91,15 +92,15 @@ func run() int {
 		// every reader of the config path (the reload watcher too) in step.
 		os.Setenv(config.EnvConfigPath, cfgPath)
 	}
+	cfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		warn("%v; using defaults", cfgErr)
+	}
 	if typed, rewrite, ok, err := checkGuardsArgs(cliArgs); err != nil {
 		warn("%v", err)
 		return 2
 	} else if ok {
-		return checkGuards(os.Stdout, typed, rewrite)
-	}
-	cfg, cfgErr := config.Load()
-	if cfgErr != nil {
-		warn("%v; using defaults", cfgErr)
+		return checkGuards(os.Stdout, cfg, typed, rewrite)
 	}
 
 	bin, err := exec.LookPath(cfg.Command)
@@ -311,8 +312,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		})
 	}
 
-	// The guard rails file (PRD Appendix 4): read now, and again when it's
-	// edited. A rejected edit keeps the rules in use.
+	// The developer's guard rails, templates/guards.txt (PRD Appendix 4):
+	// read now, and again when it's edited. A rejected edit keeps the rules
+	// in use.
 	var guardRules atomic.Pointer[expand.Rules]
 	var guardStatus atomic.Pointer[[]string]
 	setGuards := func(path string, next expand.Rules, note string) {
@@ -323,25 +325,25 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		}
 		guardStatus.Store(&lines)
 	}
-	if path, err := guards.Path(); err != nil {
+	if path, err := guardsPath(cfg); err != nil {
 		logf("guards: built-in only: %v", err)
-		setGuards("", expand.DefaultRules(), "")
+		setGuards("", expand.Rules{}, "")
 	} else {
 		r, err := guards.Load(path)
 		if err != nil {
-			msg := strings.ReplaceAll(err.Error(), "\n", " ")
-			logf("guards: %s; using the built-in guards", msg)
-			warn("%s; using the built-in guards", msg)
-			setGuards(path, r, "guards file rejected: "+msg)
+			msg := err.Error()
+			logf("guards: %s; using the built-in guards only", msg)
+			warn("%s; using the built-in guards only", msg)
+			setGuards(path, r, "guards.txt rejected: "+msg)
 		} else {
 			setGuards(path, r, "")
 		}
 		go config.WatchFile(ctx, path, time.Second, func() {
 			next, err := guards.Load(path)
 			if err != nil {
-				msg := strings.ReplaceAll(err.Error(), "\n", " ")
-				logf("guards: %s; keeping the previous guards", msg)
-				setGuards(path, *guardRules.Load(), "last guards edit rejected: "+msg)
+				msg := err.Error()
+				logf("guards: %s; keeping the previous rules", msg)
+				setGuards(path, *guardRules.Load(), "last guards.txt edit rejected: "+msg)
 			} else {
 				logf("guards: reloaded %s", path)
 				setGuards(path, next, "")
@@ -464,7 +466,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		defer cancel()
 		start := time.Now()
 		release := sess.hold()
-		masked, style, err := expandPrompt(ectx, cfg, plan, sessionContext())
+		masked, style, err := expandPrompt(ectx, cfg, guardRules.Load(), plan, sessionContext())
 		release()
 		if err != nil {
 			logf("expand: failed: %v", err)
@@ -668,7 +670,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		for try := 1; try <= 2; try++ {
 			tctx, tcancel := context.WithTimeout(pctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
 			release := sess.hold()
-			masked, st, err := expandPrompt(tctx, *cfg, plan, sc)
+			masked, st, err := expandPrompt(tctx, *cfg, guardRules.Load(), plan, sc)
 			release()
 			tcancel()
 			if pctx.Err() != nil {
@@ -793,7 +795,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		start := time.Now()
 		sc := sessionContext()
 		release := sess.hold()
-		masked, style, err := expandPrompt(actx, cfg, plan, sc)
+		masked, style, err := expandPrompt(actx, cfg, guardRules.Load(), plan, sc)
 		release()
 		ctrl.SetNotice("")
 
@@ -1148,24 +1150,27 @@ func review(rules *expand.Rules, plan expand.Plan, masked string, sc expand.Sess
 	return out, nil
 }
 
-// guardLines are the side panel's lines about the guard rails in use
-// (PRD Appendix 4, FR-10.6), each also logged: the file, what it turns
-// off or loosens, and a warning for each risky guard turned off.
-func guardLines(path string, r expand.Rules, logf func(string, ...any)) []string {
-	src := "built-in"
-	if _, err := os.Stat(path); err == nil {
-		src = tilde(path)
+// guardsPath is where the developer's guards.txt is: in the templates
+// folder, beside append.txt and system.txt.
+func guardsPath(cfg config.Config) (string, error) {
+	dir, err := cfg.TemplatesDir()
+	if err != nil {
+		return "", err
 	}
-	weakened, warnings, custom := guards.Notes(r)
-	line := "guards:      " + src
-	if len(custom) > 0 {
-		line += "; custom " + strings.Join(custom, ", ")
+	return filepath.Join(dir, expand.GuardsFile), nil
+}
+
+// guardLines are the side panel's lines about the developer's guard
+// rails (PRD Appendix 4), each also logged: the file and its rules, and a
+// warning for each risky guard turned off.
+func guardLines(path string, r expand.Rules, logf func(string, ...any)) []string {
+	summary, warnings := guards.Notes(r)
+	line := "guards:      built-in only (no " + tilde(path) + ")"
+	if _, err := os.Stat(path); err == nil {
+		line = "guards:      " + tilde(path) + ": " + summary
 	}
 	lines := []string{line}
-	logf("guards: %s; weakened: %s; custom: %s", src, listOrNone(weakened), listOrNone(custom))
-	if len(weakened) > 0 {
-		lines = append(lines, "weakened:    "+strings.Join(weakened, "; "))
-	}
+	logf("%s", strings.Join(strings.Fields(line), " "))
 	for _, w := range warnings {
 		lines = append(lines, "⚠ "+w)
 		logf("guards: warning: %s", w)
@@ -1202,7 +1207,7 @@ func shorten(text string, n int) string {
 // git context for the working directory; the caller restores the kept
 // parts. With the fake provider it uses a fixed, offline rewrite, so tests
 // are repeatable.
-func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, sc expand.SessionContext) (rewrite, style string, err error) {
+func expandPrompt(ctx context.Context, cfg config.Config, rules *expand.Rules, plan expand.Plan, sc expand.SessionContext) (rewrite, style string, err error) {
 	text := plan.Masked
 	dir, _ := os.Getwd()
 	provider := cfg.LLM.Provider
@@ -1219,6 +1224,7 @@ func expandPrompt(ctx context.Context, cfg config.Config, plan expand.Plan, sc e
 		Session:      func() expand.SessionContext { return sc },
 		Style:        cfg.Expand.Style,
 		TypoOnly:     plan.TypoOnly,
+		Rules:        rules,
 	}
 	style = e.StyleName()
 	if provider == "fake" {
@@ -1365,8 +1371,8 @@ func checkGuardsArgs(args []string) (typed, rewrite string, ok bool, err error) 
 // rewrite through for typed, and returns the exit code: 0 if they do, 1
 // if one stops it, 2 if the guards file is invalid. No session context is
 // used, so earlier-prompts can't stop it, and there are no pastes.
-func checkGuards(w io.Writer, typed, rewrite string) int {
-	path, err := guards.Path()
+func checkGuards(w io.Writer, cfg config.Config, typed, rewrite string) int {
+	path, err := guardsPath(cfg)
 	if err != nil {
 		fmt.Fprintf(w, "prompt-engine: %v\n", err)
 		return 2
@@ -1376,12 +1382,12 @@ func checkGuards(w io.Writer, typed, rewrite string) int {
 		fmt.Fprintf(w, "prompt-engine: %v\n", err)
 		return 2
 	}
-	src := "built-in guards"
+	summary, warnings := guards.Notes(r)
 	if _, err := os.Stat(path); err == nil {
-		src = "guards from " + tilde(path)
+		fmt.Fprintf(w, "Using the built-in guards and %s (%s).\n", tilde(path), summary)
+	} else {
+		fmt.Fprintf(w, "Using the built-in guards only (no %s).\n", tilde(path))
 	}
-	weakened, warnings, custom := guards.Notes(r)
-	fmt.Fprintf(w, "Using %s (weakened: %s; custom: %s).\n", src, listOrNone(weakened), listOrNone(custom))
 	for _, x := range warnings {
 		fmt.Fprintf(w, "Warning: %s.\n", x)
 	}

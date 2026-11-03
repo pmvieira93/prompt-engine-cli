@@ -125,7 +125,7 @@ Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, 
 **Ctrl+Q, then p** opens a panel next to Claude Code. It shows:
 
 - **Prompt diff:** what you typed against what was sent, with every change highlighted.
-- **Session:** the current mode, style and models, any setting that needs a restart, and the guard rails your `guards.yaml` turns off or loosens.
+- **Session:** the current mode, style and models, any setting that needs a restart, and your `guards.txt` rules and the guards it turns off.
 - **Guard details:** with `panel.guard_details`, which guard stopped a rewrite and the start of what it stopped.
 
 The panel goes on the right or the left. **Ctrl+Q, then + or −** resizes it.
@@ -349,28 +349,29 @@ Durations use Go's format: `150ms`, `2s`, `1m`.
 
 ### Your own guard rails
 
-An optional **`guards.yaml`**, beside `config.yaml`, changes the built-in guard rails rather than replacing them. Anything it leaves out stays built in, so later releases' fixes still apply. With it you can:
+Add your own rules in **`~/.config/prompt-engine/templates/guards.txt`**, beside `append.txt` and `system.txt`. Write one rule per line; lines starting with `#` are notes:
 
-- **extend a word list:** add or remove words for `destructive`, `question`, `added-task`, `negation`, and the words that point back ("that", "the second one");
-- **change a threshold:** `length` (`factor`, `allowance`) and `replaced` (`max_share`);
-- **turn a guard off:** `enabled: false`;
-- **add guards of your own:** a rewrite may not add these words (`added`), or must keep these (`kept`).
-
-```yaml
-destructive:
-  add: [deploy, rollback]
-question:
-  enabled: false
-custom:
-  - name: prod-words
-    added: [production, prod]
+```
+never add: deploy, rollback, production
+never add: force push
+always keep: staging, main
+turn off: question
 ```
 
-- **Mistakes are caught** as in `config.yaml`, and edits apply live.
-- **Weakening shows.** The panel's Session section lists every guard turned off or loosened. Turning off `destructive`, `pastes` or `names` also gets a warning, since in `auto` mode a rewrite it would stop is then sent unchecked.
+| Line | Meaning |
+|---|---|
+| `never add: …` | The rewrite must not add these words or phrases, if you didn't type them |
+| `always keep: …` | If you typed one of these, the rewrite must keep it |
+| `turn off: …` | Turn off built-in guards, by name |
+
+- **Each rule is used twice.** `never add` and `always keep` are added to the model's instructions, so it keeps them to begin with. They are also checked after the rewrite, in case the model ignores them.
+- **Words match whole,** in any case and in their forms: `deploy` also catches "deploys", "deployed" and "deploying". `force push` is a phrase: the words in a row.
+- **The built-in guards stay on.** Your rules add to them. `turn off:` takes the guard names the panel and the log show; the template lists them all.
+- **Mistakes are caught.** A line that isn't a rule, or an unknown guard, is named by its line number. The previous rules are kept, and edits apply as soon as you save.
+- **Weakening shows.** The panel's Session section lists your rules and the guards turned off. Turning off `destructive`, `pastes` or `names` also gets a warning, since in `auto` mode a rewrite it would stop is then sent unchecked.
 - **Try a rule first:** `prompt-engine --pe-check-guards "<what you typed>" "<a rewrite>"` says which guard stops the rewrite, or that it passes. It needs no model.
 
-**Template:** [`docs/guards.example.yaml`](docs/guards.example.yaml) lists every guard and the built-in word lists.
+**Template:** [`docs/guards.example.txt`](docs/guards.example.txt) explains each rule and lists every built-in guard.
 
 ---
 
@@ -382,7 +383,7 @@ Every argument goes on to `claude`, except these, which start with `--pe-`:
 |---|---|
 | `--pe-config <file>` | Use this config file (wins over `PROMPT_ENGINE_CONFIG`) |
 | `--pe-version` | Print `prompt-engine`'s version and exit (`--version` still gives Claude Code's) |
-| `--pe-check-guards "<typed>" "<rewrite>"` | Say which guard rail stops the rewrite, or that it passes, with your `guards.yaml`. Exits 0 if it passes, 1 if stopped, 2 if `guards.yaml` is invalid |
+| `--pe-check-guards "<typed>" "<rewrite>"` | Say which guard rail stops the rewrite, or that it passes, with your `guards.txt`. Exits 0 if it passes, 1 if stopped, 2 if `guards.txt` is invalid |
 
 ## Environment variables
 
@@ -411,9 +412,9 @@ Every argument goes on to `claude`, except these, which start with `--pe-`:
 | Path | What it holds |
 |---|---|
 | `~/.config/prompt-engine/config.yaml` | Your settings |
-| `~/.config/prompt-engine/guards.yaml` | Your changes to the guard rails (optional) |
 | `~/.config/prompt-engine/templates/append.txt` | Rules added to every prompt |
 | `~/.config/prompt-engine/templates/system.txt` | Your own rewrite instructions (replaces every style) |
+| `~/.config/prompt-engine/templates/guards.txt` | Your own guard rails (optional) |
 | `~/.local/state/prompt-engine/history.jsonl` | The history of sent prompts |
 | `~/.claude/projects/<project>/<session>.jsonl` | Claude Code's transcript: read, never written, with `expand.context: reply` or `session` |
 | `~/.local/bin/prompt-engine` | The binary, as installed by the script |

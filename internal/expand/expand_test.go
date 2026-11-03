@@ -314,3 +314,27 @@ func TestNextStyle(t *testing.T) {
 		}
 	}
 }
+
+// guards.txt's words are named in the instructions, with system.txt too.
+func TestExpandWithGuardRules(t *testing.T) {
+	rules := &Rules{NeverAdd: []Rule{{Line: 1, Words: []string{"production"}}}}
+	e, req := fakeChat(t, `{"message":{"content":"ok"}}`)
+	e.Rules = rules
+	if _, err := e.Expand(context.Background(), "restart the api"); err != nil {
+		t.Fatal(err)
+	}
+	if want := DefaultSystem + rules.Instructions(); req.Messages[0].Content != want {
+		t.Errorf("system = %q\nwant     %q", req.Messages[0].Content, want)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, SystemFile), []byte("Be terse."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.TemplatesDir = dir
+	if _, err := e.Expand(context.Background(), "restart the api"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Be terse." + rules.Instructions(); req.Messages[0].Content != want {
+		t.Errorf("with system.txt: system = %q", req.Messages[0].Content)
+	}
+}
