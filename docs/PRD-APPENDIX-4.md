@@ -1,9 +1,9 @@
 # PRD Appendix 4: Guard Rails from a File
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.4 (section 4.4, configuration and custom rules) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7.4, the guard rails)  
-**Appendix Version:** 1.2.0  
+**Appendix Version:** 1.3.0  
 **Date:** 2026-11-03  
-**Status:** Built on 2026-11-03 as a plain-text `templates/guards.txt` (section 6), in place of the `guards.yaml` first proposed (section 2). Agreed as the direction on 2026-10-30.
+**Status:** Built on 2026-11-03 as a plain-text `templates/guards.txt` (section 6), in place of the `guards.yaml` first proposed (section 2). Agreed as the direction on 2026-10-30. Proposed next: built-in guards told to the model (section 7, FR-10.8).
 
 ---
 
@@ -96,7 +96,7 @@ Decided on 2026-11-03:
 
 ## 5. Roadmap
 
-Built on 2026-11-03 (section 6). Possible later: more kinds of line, such as `also a negation: jamais`, when a real need shows up.
+Built on 2026-11-03 (section 6). Proposed next: built-in guards told to the model (section 7, FR-10.8). Possible later: more kinds of line, such as `also a negation: jamais`, when a real need shows up.
 
 ---
 
@@ -157,3 +157,44 @@ turn off: question
 * the e2e `guards` case: a rule stops an auto rewrite, then an edit while running replaces it, and deleting the file leaves the built-in guards;
 * review fixes (2026-11-03): spellings (quotes, apostrophes, hyphens, doubled letters), `Instructions(typed)`, the shortcut check (`CheckShortcut`), `empty` always on, the word cap, and the panel lines;
 * testing guide, Part Q.
+
+---
+
+## 7. Proposed (2026-11-03): built-in guards told to the model (FR-10.8)
+
+**Status:** Proposed, for after PR #16. Not built.
+
+**Background.** Your own rules are told to the model and then checked (section 6). The built-in guards are only checked. Some already have a matching line in the instructions (`DefaultSystem` in `internal/expand/expand.go`), but others don't. A rewrite that breaks one of those is made and then thrown away.
+
+| Guard | Told to the model today |
+|---|---|
+| `added-task`, `dropped-part`, `replaced` | Partly: "Keep the developer's intent exactly. Never add goals, components, files, or steps…" |
+| `names` | Yes: "Keep names exactly as written…" |
+| `placeholder` | Partly: "If the request is vague, keep it vague…" |
+| `length` | Yes: "under 60 words" |
+| `asked-back` | Partly: "Output only the rewritten prompt" |
+| `pastes` | Yes: `MarkerRule` |
+| `earlier-prompts` | Yes: `EarlierRule` |
+| `destructive`, `question`, `negation`, `language`, `quotes` | No |
+| `empty` | Not needed |
+
+There are two more gaps:
+* **`system.txt` drops the lines.** It replaces `DefaultSystem` whole, so a developer with their own instructions loses every guard line in it unless they copy it.
+* **A guard turned off is still told.** With `turn off: question`, the model would still be told to keep questions as questions, once there's a line for that guard.
+
+**FR-10.8: Guard lines.** Each built-in guard can have one short instruction line, added to the rewrite instructions the way `Rules.Instructions(typed)` adds the developer's rules:
+* **Only when it matters for the typed prompt,** to keep the instructions short for a small model:
+  * `question`: when the prompt is a question ("Keep it a question; don't turn it into a task.");
+  * `negation`: when it has a negation ("Keep every not, never, without and only.");
+  * `quotes`: when it has quoted text ("Copy quoted text exactly.");
+  * `language`: always, or only when the prompt isn't English ("Write in the language of the request.");
+  * `destructive`: always, as a general rule with no words listed ("Never add actions that delete, reset or overwrite anything."). Naming the words could prompt a small model to write them.
+* **Not for a guard turned off** in `guards.txt`.
+* **Kept with `system.txt`,** so the guard lines don't depend on which instructions are used. The lines already in `DefaultSystem` move into the guard lines, so they aren't told twice.
+* **The checks stay as they are.** The lines make a stop rarer. Only the check makes it certain.
+
+**Risks**
+* **Longer instructions:** every request costs more tokens and time, and too many rules can blur the rewriting itself. Adding a line only when it matters keeps that low.
+* **Changing what works:** the current instructions were tuned in testing, and moving lines may change rewrites. The e2e and unit tests that check instructions guard against this, and the before and after numbers below show any change.
+
+**How to measure:** run the same prompts before and after, and compare the stops per guard (the history's `guard` field) and the tokens per request. This fits [Appendix 5](PRD-APPENDIX-5.md) step 1, the token baseline. Keep a line only if its guard stops fewer rewrites without more stops elsewhere.
