@@ -46,7 +46,7 @@ EOF
 			PROMPT_ENGINE_DEBUG_LOG="$dir/pe.log" \
 			PROMPT_ENGINE_SUGGESTER=fake \
 			${NESTED:+PROMPT_ENGINE_ACTIVE=1} \
-			${HISTORY:+PROMPT_ENGINE_HISTORY="$HISTORY"} \
+			${PE_HISTORY:+PROMPT_ENGINE_HISTORY="$PE_HISTORY"} \
 			"$bin/vtharness" -cols 120 -rows 30 -- "$bin/prompt-engine" \
 			<<<"$script" >"$dir/screen.txt" 2>&1
 	) 2>/dev/null || echo "harness: exited with an error" >>"$dir/screen.txt"
@@ -264,7 +264,7 @@ exit' 'expand:
 
 case_history() {
 	echo "history: PROMPT_ENGINE_HISTORY picks the file, and each line names the session"
-	HISTORY="$work/history/project.jsonl" run_case history 'reply on
+	PE_HISTORY="$work/history/project.jsonl" run_case history 'reply on
 wait "❯" 5s
 send "say hello"
 sleep 300ms

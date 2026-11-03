@@ -181,7 +181,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	var recent struct {
 		sync.Mutex
 		prompts []string
-		sent    []string // the last few as sent, rules included, to find the transcript
+		times   []time.Time // when each of prompts was sent
+		sent    []string    // the last few as sent, rules included, to find the transcript
+		sentAt  []time.Time
 	}
 	lastPrompts := func(n int) []string {
 		recent.Lock()
@@ -200,10 +202,22 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		recent.Lock()
 		defer recent.Unlock()
 		return slices.Clone(recent.sent)
-	}, func() {
+	}, func(t time.Time) {
+		// Only what was sent before /clear: a prompt sent while it was
+		// being looked for belongs to the new conversation.
 		recent.Lock()
-		recent.prompts, recent.sent = nil, nil
-		recent.Unlock()
+		defer recent.Unlock()
+		keep := func(at []time.Time) int {
+			i := 0
+			for i < len(at) && !at[i].After(t) {
+				i++
+			}
+			return i
+		}
+		i := keep(recent.times)
+		recent.prompts, recent.times = recent.prompts[i:], recent.times[i:]
+		j := keep(recent.sentAt)
+		recent.sent, recent.sentAt = recent.sent[j:], recent.sentAt[j:]
 	}, logf)
 	go sess.run(ctx, func() config.Config { return *live.Load() })
 
@@ -826,12 +840,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		lastSent.Store(&sub)
 		recent.Lock()
 		recent.prompts = append(recent.prompts, expand.ForContext(s.Text, s.Pastes))
+		recent.times = append(recent.times, sub.Time)
 		if len(recent.prompts) > 20 { // the most expand.context_prompts allows
-			recent.prompts = recent.prompts[1:]
+			recent.prompts, recent.times = recent.prompts[1:], recent.times[1:]
 		}
 		recent.sent = append(recent.sent, sub.Sent)
+		recent.sentAt = append(recent.sentAt, sub.Time)
 		if len(recent.sent) > 3 {
-			recent.sent = recent.sent[1:]
+			recent.sent, recent.sentAt = recent.sent[1:], recent.sentAt[1:]
 		}
 		recent.Unlock()
 		added, removed := diff.Counts(sub.Diff())

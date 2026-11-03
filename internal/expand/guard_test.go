@@ -149,6 +149,12 @@ func TestLanguage(t *testing.T) {
 		"run the tests please": "",
 		"commit agora":         "Portuguese",
 		"commit and push now":  "",
+		// A word another language shares isn't enough (found in review).
+		"esta bien":        "",
+		"porque no?":       "",
+		"fix para spacing": "",
+		"como assim?":      "",
+		"agora sim":        "Portuguese",
 	}
 	for text, want := range cases {
 		if got := Language(text); got != want {
@@ -358,6 +364,15 @@ func TestGuardSynonyms(t *testing.T) {
 		// Only whole words count: "seems" isn't "see".
 		{"it seems broken", "Check why it seems broken.", true},
 		{"looking into the slow build, any idea why?", "Looking into the slow build: can you check why?", false},
+		// A typed word still in the rewrite excuses nothing: the new word
+		// is a task of its own (found in review).
+		{"which files did we touch?", "Which files did we touch? Then modify them to use tabs.", true},
+		{"can you look at the edit history?", "Look at the edit history and update the changelog.", true},
+		// One typed word excuses one new word.
+		{"which files did we touch?", "Which files did we modify, and what did we change?", true},
+		// Other forms of the verbs.
+		{"what did we touch?", "What did we modify?", false},
+		{"what fixes did it make?", "What fixes did it create?", false},
 		// A synonym of one action doesn't cover another.
 		{"which files did we touch?", "Which files did we touch? Run the tests.", true},
 	} {

@@ -63,8 +63,9 @@ type Finder struct {
 	matchedFor string // the prompts it was found by
 }
 
-// Path returns the session's transcript, found by sent: the prompts sent
-// since the session started or was last cleared, oldest first. It's one
+// Path returns the session's transcript, found by sent: the last few
+// prompts sent since the session started or was last cleared, oldest
+// first. It's one
 // written since the session started that holds the last of them; of
 // those, the one holding the most of the others, then the most recently
 // written. It returns "" before the first prompt, or if no transcript
@@ -133,6 +134,14 @@ func (f *Finder) Path(sent ...string) string {
 		f.matched, f.matchedFor = best, key
 	}
 	return best
+}
+
+// Forget drops the transcript Path last found, e.g. after /clear: the
+// same prompts sent again belong to the new transcript, not that one.
+func (f *Finder) Forget() {
+	f.mu.Lock()
+	f.matched, f.matchedFor = "", ""
+	f.mu.Unlock()
 }
 
 // ClearedAfter reports whether a transcript other than except, written

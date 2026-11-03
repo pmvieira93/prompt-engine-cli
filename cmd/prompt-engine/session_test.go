@@ -175,7 +175,7 @@ func TestSessionForgetsAfterClear(t *testing.T) {
 	s.summary, s.summaryOf = "Asked why the build fails.", path
 	s.mu.Unlock()
 	cleared := make(chan struct{})
-	s.onClear = func() { close(cleared) }
+	s.onClear = func(time.Time) { close(cleared) }
 
 	at := time.Now()
 	s.slashCommand(at)
@@ -192,5 +192,45 @@ func TestSessionForgetsAfterClear(t *testing.T) {
 	}
 	if got := s.Summary(); got != "" {
 		t.Errorf("summary after /clear: %q", got)
+	}
+}
+
+func TestSessionSamePromptAfterClear(t *testing.T) {
+	s, path, _ := testSession(t)
+	var mu sync.Mutex
+	prompts := []string{sent}
+	s.sent = func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(prompts) }
+	writeTranscript(t, path, tPrompt, tReply)
+	if s.reply() == "" {
+		t.Fatal("no reply before /clear")
+	}
+	cleared := make(chan struct{})
+	s.onClear = func(time.Time) { mu.Lock(); prompts = nil; mu.Unlock(); close(cleared) }
+
+	at := time.Now()
+	s.slashCommand(at)
+	fresh := filepath.Join(filepath.Dir(path), "new.jsonl")
+	writeTranscript(t, fresh, `{"type":"user","timestamp":"`+at.UTC().Format(time.RFC3339Nano)+
+		`","message":{"content":"<command-name>/clear</command-name>"}}`)
+	select {
+	case <-cleared:
+	case <-time.After(3 * time.Second):
+		t.Fatal("onClear not called")
+	}
+	if got := s.reply(); got != "" {
+		t.Errorf("reply right after /clear: %q", got)
+	}
+	// The same prompt again, answered in the new transcript.
+	writeTranscript(t, fresh, `{"type":"user","message":{"content":"<command-name>/clear</command-name>"}}`,
+		tPrompt, tReply2)
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(fresh, later, later); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	prompts = []string{sent}
+	mu.Unlock()
+	if got := s.reply(); got != "Done: termios_darwin.go and termios_linux.go." {
+		t.Errorf("reply after the same prompt again = %q, want the new transcript's", got)
 	}
 }

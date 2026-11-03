@@ -204,3 +204,25 @@ func TestClearedAfter(t *testing.T) {
 		t.Error("a /clear from before the slash command counted")
 	}
 }
+
+func TestFinderForgetAfterClear(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "-work-app")
+	old := filepath.Join(dir, "old.jsonl")
+	write(t, old, prompt1, answer)
+	f := &Finder{Root: root, Cwd: "/work/app", Since: time.Now().Add(-time.Minute)}
+	if p := f.Path("why does the parser crash"); p != old {
+		t.Fatalf("before /clear: %q", p)
+	}
+	// /clear, then the same prompt again: it's in the new transcript too.
+	later := time.Now().Add(time.Minute)
+	fresh := filepath.Join(dir, "new.jsonl")
+	write(t, fresh, `{"type":"user","message":{"content":"<command-name>/clear</command-name>"}}`, prompt1)
+	if err := os.Chtimes(fresh, later, later); err != nil {
+		t.Fatal(err)
+	}
+	f.Forget()
+	if p := f.Path("why does the parser crash"); p != fresh {
+		t.Errorf("after /clear and the same prompt: %q, want %q", p, fresh)
+	}
+}
