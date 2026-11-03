@@ -27,6 +27,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -59,22 +60,28 @@ type Finder struct {
 
 	mu         sync.Mutex
 	matched    string // the transcript last found
-	matchedFor string // the prompt it was found by
+	matchedFor string // the prompts it was found by
 }
 
-// Path returns the session's transcript: the most recently written one,
-// since the session started, that holds sent, the last prompt sent. It
-// returns "" before the first prompt, or if no transcript holds it:
-// without that, another session's transcript could be taken for this
-// one. Seen in testing: before a prompt was sent, the newest transcript
-// in the project was another Claude Code session's, in the same folder.
-func (f *Finder) Path(sent string) string {
-	if strings.TrimSpace(sent) == "" {
+// Path returns the session's transcript, found by sent: the last few
+// prompts sent since the session started or was last cleared, oldest
+// first. It's one
+// written since the session started that holds the last of them; of
+// those, the one holding the most of the others, then the most recently
+// written. It returns "" before the first prompt, or if no transcript
+// holds it: without that, another session's transcript could be taken
+// for this one. Seen in testing: before a prompt was sent, the newest
+// transcript in the project was another Claude Code session's, in the
+// same folder. The earlier prompts tell two sessions apart that both sent
+// the last one, such as "yes".
+func (f *Finder) Path(sent ...string) string {
+	if len(sent) == 0 || strings.TrimSpace(sent[len(sent)-1]) == "" {
 		return ""
 	}
+	key := strings.Join(sent, "\x00")
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.matched != "" && f.matchedFor == sent {
+	if f.matched != "" && f.matchedFor == key {
 		if _, err := os.Stat(f.matched); err == nil {
 			return f.matched
 		}
@@ -104,22 +111,98 @@ func (f *Finder) Path(sent string) string {
 	}
 	// Newest first: after /clear, the new transcript holds the prompt.
 	sort.Slice(found, func(i, j int) bool { return found[i].mod.After(found[j].mod) })
+	best, bestHeld := "", 0
 	for _, c := range found {
-		if hasPrompt(c.path, sent) {
-			f.matched, f.matchedFor = c.path, sent
-			return c.path
+		prompts := promptsOf(c.path)
+		holds := func(p string) bool {
+			return slices.ContainsFunc(prompts, func(q string) bool { return samePrompt(q, p) })
+		}
+		if !holds(sent[len(sent)-1]) {
+			continue
+		}
+		held := 1
+		for _, p := range sent[:len(sent)-1] {
+			if holds(p) {
+				held++
+			}
+		}
+		if held > bestHeld {
+			best, bestHeld = c.path, held
 		}
 	}
-	return ""
+	if best != "" {
+		f.matched, f.matchedFor = best, key
+	}
+	return best
 }
 
-// hasPrompt reports whether the transcript at path has sent among its
-// prompts.
-func hasPrompt(path, sent string) bool {
-	data, err := readTail(path, tailSize)
+// Forget drops the transcript Path last found, e.g. after /clear: the
+// same prompts sent again belong to the new transcript, not that one.
+func (f *Finder) Forget() {
+	f.mu.Lock()
+	f.matched, f.matchedFor = "", ""
+	f.mu.Unlock()
+}
+
+// ClearedAfter reports whether a transcript other than except, written
+// since t, starts with /clear: Claude Code begins a new transcript with
+// it at once (recorded in 2.1.309, whether /clear was typed in full or
+// picked from the menu), and leaves the old one as it was.
+func (f *Finder) ClearedAfter(t time.Time, except string) bool {
+	dir := f.projectDir()
+	if dir == "" {
+		return false
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	for _, p := range files {
+		info, err := os.Stat(p)
+		if err != nil || p == except || info.ModTime().Before(t.Add(-time.Second)) {
+			continue
+		}
+		if startsWithClear(p, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// startsWithClear reports whether the first user records of the
+// transcript at path run /clear, at t or later.
+func startsWithClear(path string, t time.Time) bool {
+	file, err := os.Open(path)
 	if err != nil {
 		return false
 	}
+	defer file.Close()
+	sc := bufio.NewScanner(file)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	for i := 0; i < 10 && sc.Scan(); i++ {
+		var r struct {
+			record
+			Timestamp time.Time `json:"timestamp"`
+		}
+		if json.Unmarshal(sc.Bytes(), &r) != nil || r.Type != "user" {
+			continue
+		}
+		var m message
+		if json.Unmarshal(r.Message, &m) != nil {
+			continue
+		}
+		if text, _ := content(m.Content); strings.Contains(text, "<command-name>/clear</command-name>") {
+			return !r.Timestamp.Before(t.Add(-time.Second))
+		}
+	}
+	return false
+}
+
+// promptsOf returns the prompts in the transcript at path, from the part
+// read.
+func promptsOf(path string) []string {
+	data, err := readTail(path, tailSize)
+	if err != nil {
+		return nil
+	}
+	var prompts []string
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		var r record
 		if len(line) == 0 || json.Unmarshal(line, &r) != nil || r.Type != "user" || r.IsSidechain || r.IsMeta {
@@ -129,11 +212,11 @@ func hasPrompt(path, sent string) bool {
 		if json.Unmarshal(r.Message, &m) != nil {
 			continue
 		}
-		if prompt, ok := promptText(content(m.Content)); ok && samePrompt(prompt, sent) {
-			return true
+		if prompt, ok := promptText(content(m.Content)); ok {
+			prompts = append(prompts, prompt)
 		}
 	}
-	return false
+	return prompts
 }
 
 // projectDir finds the folder for f.Cwd: Claude Code's name for it

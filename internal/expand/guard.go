@@ -113,6 +113,88 @@ func newWords(typed, rewritten string, stems []string) []string {
 	return added
 }
 
+// synonyms are, for an action or task verb, typed verbs that ask for the
+// same thing, so a rewrite that puts the verb in place of one adds
+// nothing. Seen in testing: "which files did we touch" became "Which
+// files did we modify?", stopped as a question turned into an
+// instruction. Words count only as whole verb forms (verbForms): "see"
+// isn't "seems", "change" isn't "changelog". Destructive actions have
+// none: they stay stopped however the prompt put them.
+var synonyms = map[string][]string{
+	"modify":      {"touch", "edit", "change", "alter", "tweak", "adjust", "update"},
+	"change":      {"touch", "edit", "modify", "alter", "tweak", "adjust", "update"},
+	"update":      {"touch", "edit", "modify", "change", "refresh", "bump"},
+	"check":       {"look", "see", "verify", "inspect", "review", "examine"},
+	"verify":      {"look", "see", "check", "inspect", "review", "confirm"},
+	"investigate": {"look", "dig", "inspect", "examine"},
+	"show":        {"list", "display", "print", "see"},
+	"create":      {"make", "add", "write"},
+	"write":       {"make", "create", "add", "draft"},
+	"run":         {"execute", "launch", "start"},
+	"fix":         {"repair", "solve", "correct"},
+}
+
+// irregular are verb forms verbForms can't make.
+var irregular = map[string][]string{
+	"see":   {"saw", "seen"},
+	"make":  {"made"},
+	"write": {"wrote", "written"},
+	"run":   {"ran"},
+	"dig":   {"dug", "digging"},
+	"show":  {"shown"},
+}
+
+// verbForms returns v with -s (or -es), -ed and -ing, and its irregular
+// forms.
+func verbForms(v string) []string {
+	forms := []string{v}
+	switch {
+	case strings.HasSuffix(v, "y") && !strings.HasSuffix(v, "ay"):
+		stem := strings.TrimSuffix(v, "y")
+		forms = append(forms, stem+"ies", stem+"ied", v+"ing")
+	case strings.HasSuffix(v, "e"):
+		forms = append(forms, v+"s", v+"d", strings.TrimSuffix(v, "e")+"ing")
+	case strings.HasSuffix(v, "ch") || strings.HasSuffix(v, "sh") || strings.HasSuffix(v, "x") || strings.HasSuffix(v, "s"):
+		forms = append(forms, v+"es", v+"ed", v+"ing")
+	default:
+		forms = append(forms, v+"s", v+"ed", v+"ing")
+	}
+	return append(forms, irregular[v]...)
+}
+
+// besidesSynonyms returns the words of ws, new in rewritten, that don't
+// stand in for a typed synonym. A typed word excuses one new word, and
+// only if the rewrite no longer has it: then the rewrite replaced it
+// ("touch" → "modify"). If it's still there, the new word is a task of
+// its own ("…touch? Then modify them").
+func besidesSynonyms(typed, rewritten string, ws []string) []string {
+	typedWords := words(strings.ToLower(typed))
+	rewrittenWords := words(strings.ToLower(rewritten))
+	used := map[int]bool{} // typed words that already excused one
+	var kept []string
+next:
+	for _, w := range ws {
+		for verb, alts := range synonyms {
+			if !slices.Contains(verbForms(verb), w) {
+				continue
+			}
+			for i, t := range typedWords {
+				if used[i] || slices.Contains(rewrittenWords, t) {
+					continue
+				}
+				for _, alt := range alts {
+					if slices.Contains(verbForms(alt), t) {
+						used[i] = true
+						continue next
+					}
+				}
+			}
+		}
+		kept = append(kept, w)
+	}
+	return kept
+}
+
 // besidesTypos returns the words of ws that aren't a typed word with a
 // typo fixed. Seen in preview mode: "shuold i comit the chnages now?"
 // became "Should I commit the changes now?", and was stopped as a question
@@ -496,10 +578,10 @@ func CheckSession(typed, rewritten string, sc SessionContext) *Stop {
 		return stop("destructive", list(added, ", "), "the rewrite added a destructive action ("+list(added, ", ")+")")
 	}
 	if isQuestion(typed) {
-		if added := resolved(besidesTypos(typed, newWords(typed, rewritten, actions))); len(added) > 0 {
+		if added := resolved(besidesSynonyms(typed, rewritten, besidesTypos(typed, newWords(typed, rewritten, actions)))); len(added) > 0 {
 			return stop("question", list(added, ", "), "the rewrite turned your question into an instruction ("+list(added, ", ")+")")
 		}
-	} else if added := resolved(addedTasks(typed, rewritten)); len(added) > 0 {
+	} else if added := resolved(besidesSynonyms(typed, rewritten, addedTasks(typed, rewritten))); len(added) > 0 {
 		return stop("added-task", list(added, ", "), "the rewrite added a task you didn't ask for ("+list(added, ", ")+")")
 	}
 	if part := droppedPart(typed, rewritten); part != "" {

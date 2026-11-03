@@ -11,6 +11,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"maps"
@@ -62,6 +64,8 @@ const (
 	envFakeDelay   = "PROMPT_ENGINE_FAKE_DELAY"
 	envRenderPanic = "PROMPT_ENGINE_TEST_RENDER_PANIC"
 	envDebugOutput = "PROMPT_ENGINE_DEBUG_OUTPUT"
+	// envHistory names the history file, over history.path.
+	envHistory = "PROMPT_ENGINE_HISTORY"
 )
 
 // version is set when a release is built (-ldflags "-X main.version=v1.2.3").
@@ -119,12 +123,13 @@ func run() int {
 	cmd.Env = append(env, envActive+"=1")
 
 	tracker := input.NewTracker()
+	sessionID := newSessionID()
 	var logf func(string, ...any)
 	if path := os.Getenv(envDebugLog); path != "" {
 		if logf, err = logStates(path, tracker); err != nil {
 			warn("debug log: %v", err)
 		} else {
-			logStartup(logf, cfg, cfgErr)
+			logStartup(logf, sessionID, cfg, cfgErr)
 		}
 	}
 
@@ -135,7 +140,7 @@ func run() int {
 		session := &pty.Session{Filter: tracker, OnFilterError: onFilterError}
 		code, err = session.Run(cmd)
 	} else {
-		code, err = runGhost(cmd, cfg, cfgErr, tracker, logf, onFilterError)
+		code, err = runGhost(cmd, cfg, cfgErr, sessionID, tracker, logf, onFilterError)
 	}
 	if err != nil {
 		warn("%v", err)
@@ -150,7 +155,7 @@ func run() int {
 }
 
 // runGhost runs cmd in the emulator UI with fake ghost-text suggestions.
-func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tracker, logf func(string, ...any), onFilterError func(error)) (int, error) {
+func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, tracker *input.Tracker, logf func(string, ...any), onFilterError func(error)) (int, error) {
 	if logf == nil {
 		logf = func(string, ...any) {} // no debug log
 	}
@@ -176,6 +181,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 	var recent struct {
 		sync.Mutex
 		prompts []string
+		times   []time.Time // when each of prompts was sent
+		sent    []string    // the last few as sent, rules included, to find the transcript
+		sentAt  []time.Time
 	}
 	lastPrompts := func(n int) []string {
 		recent.Lock()
@@ -190,11 +198,26 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 	}
 	// The last prompt sent, as sent, for the panel and the history (FR-5).
 	var lastSent atomic.Pointer[history.Submission]
-	sess := newSessionInfo(started, func() string {
-		if sub := lastSent.Load(); sub != nil {
-			return sub.Sent
+	sess := newSessionInfo(started, func() []string {
+		recent.Lock()
+		defer recent.Unlock()
+		return slices.Clone(recent.sent)
+	}, func(t time.Time) {
+		// Only what was sent before /clear: a prompt sent while it was
+		// being looked for belongs to the new conversation.
+		recent.Lock()
+		defer recent.Unlock()
+		keep := func(at []time.Time) int {
+			i := 0
+			for i < len(at) && !at[i].After(t) {
+				i++
+			}
+			return i
 		}
-		return ""
+		i := keep(recent.times)
+		recent.prompts, recent.times = recent.prompts[i:], recent.times[i:]
+		j := keep(recent.sentAt)
+		recent.sent, recent.sentAt = recent.sent[j:], recent.sentAt[j:]
 	}, logf)
 	go sess.run(ctx, func() config.Config { return *live.Load() })
 
@@ -794,10 +817,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 	// Leader then Enter sends the prompt as typed: no rules, but recorded.
 	ctrl.OnSubmitAsTyped = func(s input.State) { record(s, "") }
 	record = func(s input.State, appended string) {
+		if strings.HasPrefix(strings.TrimSpace(s.Text), "/") {
+			sess.slashCommand(time.Now()) // /clear starts the conversation again
+		}
 		if rules.SkipReason(s) != "" {
 			return // not a message to the model
 		}
-		sub := history.Submission{Time: time.Now(), Raw: s.Text, Sent: s.Text, Rules: appended != ""}
+		sub := history.Submission{Time: time.Now(), Session: sessionID, Raw: s.Text, Sent: s.Text, Rules: appended != ""}
 		expansion.Lock()
 		if expansion.expanded != "" && s.Text == expansion.expanded {
 			sub.Raw, sub.Expanded, sub.Style = expansion.original, true, expansion.style
@@ -814,8 +840,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 		lastSent.Store(&sub)
 		recent.Lock()
 		recent.prompts = append(recent.prompts, expand.ForContext(s.Text, s.Pastes))
+		recent.times = append(recent.times, sub.Time)
 		if len(recent.prompts) > 20 { // the most expand.context_prompts allows
-			recent.prompts = recent.prompts[1:]
+			recent.prompts, recent.times = recent.prompts[1:], recent.times[1:]
+		}
+		recent.sent = append(recent.sent, sub.Sent)
+		recent.sentAt = append(recent.sentAt, sub.Time)
+		if len(recent.sent) > 3 {
+			recent.sent, recent.sentAt = recent.sent[1:], recent.sentAt[1:]
 		}
 		recent.Unlock()
 		added, removed := diff.Counts(sub.Diff())
@@ -932,9 +964,18 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, tracker *input.Tra
 
 // logStartup records which config a session runs with, since the warning
 // for a bad config file is hidden as soon as the child draws its screen.
-func logStartup(logf func(string, ...any), cfg config.Config, cfgErr error) {
+func logStartup(logf func(string, ...any), session string, cfg config.Config, cfgErr error) {
 	src, llm := describeConfig(cfg, cfgErr)
-	logf("session start: config %s; suggestions %s; context: rewrites %s, ghost text %s", src, llm, cfg.Expand.Context, cfg.Ghost.Context)
+	logf("session start: id %s; config %s; suggestions %s; context: rewrites %s, ghost text %s", session, src, llm, cfg.Expand.Context, cfg.Ghost.Context)
+}
+
+// newSessionID returns a short random id for this run, written to the
+// debug log and to each history line, so one session's lines can be told
+// from another's when several run at once.
+func newSessionID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // describeConfig says where cfg came from and what suggestions it gives,
@@ -970,6 +1011,9 @@ func describeConfig(cfg config.Config, cfgErr error) (src, llm string) {
 // recordHistory appends sub to the history file h names.
 func recordHistory(h config.HistoryConfig, sub history.Submission, logf func(string, ...any)) {
 	path := h.Path
+	if p := os.Getenv(envHistory); p != "" {
+		path = p // e.g. one file per project, set by the shell or direnv
+	}
 	if path == "" {
 		var err error
 		if path, err = history.DefaultPath(); err != nil {
@@ -986,7 +1030,6 @@ func recordHistory(h config.HistoryConfig, sub history.Submission, logf func(str
 // a 92-word prompt took 5.3 s with the 7B model, so about 6 s per 100.
 func wordsTime(n int) time.Duration { return time.Duration(n) * 60 * time.Millisecond }
 
-// flashNotice shows msg at the cursor for a few seconds.
 // styleName is the style a rewrite would use: the style, "typos" for a
 // typo-only rewrite, or "custom" for templates/system.txt.
 func styleName(cfg config.Config, typoOnly bool) string {
@@ -1005,6 +1048,7 @@ func briefNotice(ctrl *ghost.Controller, msg string) {
 	})
 }
 
+// flashNotice shows msg at the cursor for a few seconds.
 func flashNotice(ctrl *ghost.Controller, msg string) {
 	ctrl.SetNotice(msg)
 	time.AfterFunc(4*time.Second, func() {

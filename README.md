@@ -132,7 +132,7 @@ The panel goes on the right or the left. **Ctrl+Q, then + or −** resizes it.
 
 ### History
 
-Each prompt you send adds one JSON line to `~/.local/state/prompt-engine/history.jsonl`. The line records whether the prompt was rewritten, in which style, whether rules were added, and which guard stopped a rewrite. The text itself is recorded only with `history.include_text: true`.
+Each prompt you send adds one JSON line to `~/.local/state/prompt-engine/history.jsonl`. The line records whether the prompt was rewritten, in which style, whether rules were added, and which guard stopped a rewrite. The text itself is recorded only with `history.include_text: true`. Each line also names the session (`"session"`, a short id that the debug log names too), so the lines of sessions running at once can be told apart.
 
 ### Built to stay out of the way
 
@@ -343,7 +343,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | **`history`** | | |
 | `history.enabled` | `true` | Record one line per prompt sent |
 | `history.include_text` | `false` | Also record the prompts' text |
-| `history.path` | `""` | Default: `~/.local/state/prompt-engine/history.jsonl` |
+| `history.path` | `""` | Default: `~/.local/state/prompt-engine/history.jsonl`. `PROMPT_ENGINE_HISTORY` wins over it |
 
 Durations use Go's format: `150ms`, `2s`, `1m`.
 
@@ -367,7 +367,8 @@ Every argument goes on to `claude`, except these two, which start with `--pe-`:
 | `XDG_STATE_HOME` | Base folder for the history (default `~/.local/state`) |
 | `CLAUDE_CONFIG_DIR` | Claude Code's folder (default `~/.claude`), where `expand.context: reply` and `session` find its transcripts |
 | **Troubleshooting** | |
-| `PROMPT_ENGINE_DEBUG_LOG` | File for a detailed log: keys, the prompt as tracked, suggestions, rewrites and guards |
+| `PROMPT_ENGINE_DEBUG_LOG` | File for a detailed log: keys, the prompt as tracked, suggestions, rewrites and guards. Its first line names the session's id |
+| `PROMPT_ENGINE_HISTORY` | The history file, over `history.path`: e.g. one per project, set in your shell or with direnv |
 | `PROMPT_ENGINE_DEBUG_OUTPUT` | File for a raw copy of everything Claude Code draws |
 | `PROMPT_ENGINE_PASSTHROUGH` | `1` runs a plain pass-through with no ghost text or panel, to tell whether a glitch is `prompt-engine`'s |
 | **Testing** | |

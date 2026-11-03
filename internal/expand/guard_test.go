@@ -139,6 +139,22 @@ func TestLanguage(t *testing.T) {
 		"refactor tracker to use chans":                             "",
 		"add tests":                                                 "",
 		"don't add a section to the README":                         "",
+		// Short prompts: one known word of four letters is enough.
+		"podes continuar?":     "Portuguese",
+		"explica isto":         "Portuguese",
+		"onde está o erro?":    "Portuguese",
+		"corrige el error":     "", // not taken for Portuguese
+		"can you continue?":    "",
+		"fix it":               "",
+		"run the tests please": "",
+		"commit agora":         "Portuguese",
+		"commit and push now":  "",
+		// A word another language shares isn't enough (found in review).
+		"esta bien":        "",
+		"porque no?":       "",
+		"fix para spacing": "",
+		"como assim?":      "",
+		"agora sim":        "Portuguese",
 	}
 	for text, want := range cases {
 		if got := Language(text); got != want {
@@ -328,6 +344,40 @@ func TestTypoOf(t *testing.T) {
 	} {
 		if got := typoOf(c.typed, c.word); got != c.want {
 			t.Errorf("typoOf(%q, %q) = %v, want %v", c.typed, c.word, got, c.want)
+		}
+	}
+}
+
+func TestGuardSynonyms(t *testing.T) {
+	for _, c := range []struct {
+		typed, rewritten string
+		stop             bool
+	}{
+		// A question with another word for the same action.
+		{"which files did we touch?", "Which files did we modify?", false},
+		{"can you look at why the build is slow?", "Can you check why the build is slow?", false},
+		{"what does the cli print on start?", "What does the CLI show on start?", false},
+		// A report stays a report: a new task is still stopped.
+		{"it still fails, same as before", "Fix it; it still fails, same as before.", true},
+		// A destructive action has no synonym.
+		{"can we get rid of the old config?", "Can we delete the old config?", true},
+		// Only whole words count: "seems" isn't "see".
+		{"it seems broken", "Check why it seems broken.", true},
+		{"looking into the slow build, any idea why?", "Looking into the slow build: can you check why?", false},
+		// A typed word still in the rewrite excuses nothing: the new word
+		// is a task of its own (found in review).
+		{"which files did we touch?", "Which files did we touch? Then modify them to use tabs.", true},
+		{"can you look at the edit history?", "Look at the edit history and update the changelog.", true},
+		// One typed word excuses one new word.
+		{"which files did we touch?", "Which files did we modify, and what did we change?", true},
+		// Other forms of the verbs.
+		{"what did we touch?", "What did we modify?", false},
+		{"what fixes did it make?", "What fixes did it create?", false},
+		// A synonym of one action doesn't cover another.
+		{"which files did we touch?", "Which files did we touch? Run the tests.", true},
+	} {
+		if got := Check(c.typed, c.rewritten) != nil; got != c.stop {
+			t.Errorf("Check(%q, %q) stopped = %v, want %v (%v)", c.typed, c.rewritten, got, c.stop, Check(c.typed, c.rewritten))
 		}
 	}
 }

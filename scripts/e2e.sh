@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept style nested
+#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept style history nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -46,6 +46,7 @@ EOF
 			PROMPT_ENGINE_DEBUG_LOG="$dir/pe.log" \
 			PROMPT_ENGINE_SUGGESTER=fake \
 			${NESTED:+PROMPT_ENGINE_ACTIVE=1} \
+			${PE_HISTORY:+PROMPT_ENGINE_HISTORY="$PE_HISTORY"} \
 			"$bin/vtharness" -cols 120 -rows 30 -- "$bin/prompt-engine" \
 			<<<"$script" >"$dir/screen.txt" 2>&1
 	) 2>/dev/null || echo "harness: exited with an error" >>"$dir/screen.txt"
@@ -261,6 +262,24 @@ exit' 'expand:
 	check "claude received the default style" sent '"Please fix the lexer too."'
 }
 
+case_history() {
+	echo "history: PROMPT_ENGINE_HISTORY picks the file, and each line names the session"
+	PE_HISTORY="$work/history/project.jsonl" run_case history 'reply on
+wait "❯" 5s
+send "say hello"
+sleep 300ms
+send "\r"
+sleep 500ms
+send "\x04"
+exit'
+	local id
+	id="$(sed -n 's/.*session start: id \([0-9a-f]*\);.*/\1/p' "$dir/pe.log")"
+	check "the log names the session" test -n "$id"
+	check "the history goes to PROMPT_ENGINE_HISTORY" test -s "$work/history/project.jsonl"
+	check "its line names the session" grep -q "\"session\":\"$id\"" "$work/history/project.jsonl"
+	check "not to the default file" test ! -e "$dir/state/prompt-engine/history.jsonl"
+}
+
 case_nested() {
 	echo "nested: inside prompt-engine already, it hands over and says so"
 	NESTED=1 run_case nested 'reply on
@@ -271,7 +290,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept style nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept style history nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

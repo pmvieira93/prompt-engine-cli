@@ -43,8 +43,8 @@ func testSession(t *testing.T) (*sessionInfo, string, *[]string) {
 	var mu sync.Mutex
 	var logged []string
 	s := &sessionInfo{
-		finder:   &transcript.Finder{Root: root, Cwd: "/work/app", Since: time.Now().Add(-time.Minute)},
-		lastSent: func() string { return sent },
+		finder: &transcript.Finder{Root: root, Cwd: "/work/app", Since: time.Now().Add(-time.Minute)},
+		sent:   func() []string { return []string{sent} },
 		logf: func(f string, a ...any) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -125,7 +125,7 @@ func TestSessionSummaryRestartsWithANewTranscript(t *testing.T) {
 	s, path, logged := testSession(t)
 	var last atomic.Pointer[string]
 	last.Store(&sent)
-	s.lastSent = func() string { return *last.Load() }
+	s.sent = func() []string { return []string{*last.Load()} }
 	writeTranscript(t, path, tPrompt, tReply)
 	cfg := config.Default()
 	cfg.LLM.Provider = "fake"
@@ -162,5 +162,75 @@ func TestSessionSummaryRestartsWithANewTranscript(t *testing.T) {
 	defer s.mu.Unlock()
 	if !slices.Contains(*logged, "context: summary cleared: the session has a new transcript") {
 		t.Errorf("not logged: %q", *logged)
+	}
+}
+
+func TestSessionForgetsAfterClear(t *testing.T) {
+	s, path, logged := testSession(t)
+	writeTranscript(t, path, tPrompt, tReply)
+	if s.reply() == "" {
+		t.Fatal("no reply before /clear")
+	}
+	s.mu.Lock()
+	s.summary, s.summaryOf = "Asked why the build fails.", path
+	s.mu.Unlock()
+	cleared := make(chan struct{})
+	s.onClear = func(time.Time) { close(cleared) }
+
+	at := time.Now()
+	s.slashCommand(at)
+	// As recorded from Claude Code 2.1.309: /clear writes a new transcript at once.
+	clear := filepath.Join(filepath.Dir(path), "new.jsonl")
+	if err := os.WriteFile(clear, []byte(`{"type":"user","timestamp":"`+at.UTC().Format(time.RFC3339Nano)+
+		`","message":{"content":"<command-name>/clear</command-name>"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-cleared:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("onClear not called; log: %q", *logged)
+	}
+	if got := s.Summary(); got != "" {
+		t.Errorf("summary after /clear: %q", got)
+	}
+}
+
+func TestSessionSamePromptAfterClear(t *testing.T) {
+	s, path, _ := testSession(t)
+	var mu sync.Mutex
+	prompts := []string{sent}
+	s.sent = func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(prompts) }
+	writeTranscript(t, path, tPrompt, tReply)
+	if s.reply() == "" {
+		t.Fatal("no reply before /clear")
+	}
+	cleared := make(chan struct{})
+	s.onClear = func(time.Time) { mu.Lock(); prompts = nil; mu.Unlock(); close(cleared) }
+
+	at := time.Now()
+	s.slashCommand(at)
+	fresh := filepath.Join(filepath.Dir(path), "new.jsonl")
+	writeTranscript(t, fresh, `{"type":"user","timestamp":"`+at.UTC().Format(time.RFC3339Nano)+
+		`","message":{"content":"<command-name>/clear</command-name>"}}`)
+	select {
+	case <-cleared:
+	case <-time.After(3 * time.Second):
+		t.Fatal("onClear not called")
+	}
+	if got := s.reply(); got != "" {
+		t.Errorf("reply right after /clear: %q", got)
+	}
+	// The same prompt again, answered in the new transcript.
+	writeTranscript(t, fresh, `{"type":"user","message":{"content":"<command-name>/clear</command-name>"}}`,
+		tPrompt, tReply2)
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(fresh, later, later); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	prompts = []string{sent}
+	mu.Unlock()
+	if got := s.reply(); got != "Done: termios_darwin.go and termios_linux.go." {
+		t.Errorf("reply after the same prompt again = %q, want the new transcript's", got)
 	}
 }

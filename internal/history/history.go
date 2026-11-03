@@ -19,6 +19,7 @@ import (
 // Submission is one prompt sent to the wrapped CLI.
 type Submission struct {
 	Time     time.Time
+	Session  string // the prompt-engine run it was sent in
 	Raw      string // what the user typed
 	Sent     string // what the CLI received
 	Expanded bool   // Raw was rewritten by expansion
@@ -39,6 +40,7 @@ func (s Submission) Diff() []diff.Op { return diff.Prompt(s.Raw, s.Sent) }
 // when asked for: the file is local, but prompts can hold anything.
 type record struct {
 	Time         time.Time `json:"time"`
+	Session      string    `json:"session,omitempty"`
 	RawChars     int       `json:"raw_chars"`
 	SentChars    int       `json:"sent_chars"`
 	RawWords     int       `json:"raw_words"`
@@ -83,6 +85,7 @@ func (l *Log) Append(s Submission) error {
 	added, removed := diff.Counts(s.Diff())
 	r := record{
 		Time:         s.Time.UTC().Round(time.Millisecond),
+		Session:      s.Session,
 		RawChars:     len([]rune(s.Raw)),
 		SentChars:    len([]rune(s.Sent)),
 		RawWords:     len(strings.Fields(s.Raw)),
