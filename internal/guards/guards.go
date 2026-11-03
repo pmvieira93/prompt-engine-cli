@@ -23,6 +23,11 @@ var Risky = []string{"destructive", "pastes", "names"}
 // kinds are the rules a line can start with.
 var kinds = []string{"never add", "always keep", "turn off"}
 
+// MaxWords is the most words and phrases never add and always keep may
+// name in all: each request to the model names them, and a long list
+// would crowd out its instructions.
+const MaxWords = 50
+
 // Load reads the guards file at path. No file is not an error: it means no
 // rules. On an error the rules are empty too, so the caller can warn and
 // keep what it had.
@@ -32,7 +37,7 @@ func Load(path string) (expand.Rules, error) {
 		return expand.Rules{}, nil
 	}
 	if err != nil {
-		return expand.Rules{}, fmt.Errorf("read %s: %w", expand.GuardsFile, err)
+		return expand.Rules{}, fmt.Errorf("read %s: %w", path, err)
 	}
 	r, err := Parse(string(data))
 	if err != nil {
@@ -45,6 +50,7 @@ func Load(path string) (expand.Rules, error) {
 // isn't one, or an unknown guard is an error naming the line.
 func Parse(text string) (expand.Rules, error) {
 	var r expand.Rules
+	count := 0
 	for i, line := range strings.Split(text, "\n") {
 		n := i + 1
 		if j := strings.Index(line, "#"); j >= 0 {
@@ -66,12 +72,17 @@ func Parse(text string) (expand.Rules, error) {
 				continue
 			}
 			if !expand.IsPhrase(item) {
-				return expand.Rules{}, fmt.Errorf("line %d: %q isn't a word or phrase (letters, digits, - and ')", n, item)
+				return expand.Rules{}, fmt.Errorf("line %d: %q isn't a word or phrase (letters, digits, -, _ and ')", n, item)
 			}
 			items = append(items, item)
 		}
 		if len(items) == 0 {
 			return expand.Rules{}, fmt.Errorf("line %d: %s: names nothing", n, kind)
+		}
+		if kind != "turn off" {
+			if count += len(items); count > MaxWords {
+				return expand.Rules{}, fmt.Errorf("line %d: more than %d words in all: keep the list short, as the model is told them", n, MaxWords)
+			}
 		}
 		switch kind {
 		case "never add":
@@ -80,6 +91,9 @@ func Parse(text string) (expand.Rules, error) {
 			r.AlwaysKeep = append(r.AlwaysKeep, expand.Rule{Line: n, Words: items})
 		case "turn off":
 			for _, g := range items {
+				if g == "empty" {
+					return expand.Rules{}, fmt.Errorf("line %d: empty can't be turned off: an empty rewrite would replace your prompt", n)
+				}
 				if !slices.Contains(expand.Guards, g) {
 					return expand.Rules{}, fmt.Errorf("line %d: no guard %q (the guards: %s)", n, g, strings.Join(expand.Guards, ", "))
 				}

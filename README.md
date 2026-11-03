@@ -364,12 +364,16 @@ turn off: question
 | `always keep: …` | If you typed one of these, the rewrite must keep it |
 | `turn off: …` | Turn off built-in guards, by name |
 
-- **Each rule is used twice.** `never add` and `always keep` are added to the model's instructions, so it keeps them to begin with. They are also checked after the rewrite, in case the model ignores them.
-- **Words match whole,** in any case and in their forms: `deploy` also catches "deploys", "deployed" and "deploying". `force push` is a phrase: the words in a row.
-- **The built-in guards stay on.** Your rules add to them. `turn off:` takes the guard names the panel and the log show; the template lists them all.
-- **Mistakes are caught.** A line that isn't a rule, or an unknown guard, is named by its line number. The previous rules are kept, and edits apply as soon as you save.
+- **Each rule is used twice.**
+  - **Told to the model,** so it keeps the rules to begin with. Only the words that matter for the prompt are named: the `never add` words you didn't type, and the `always keep` words you did.
+  - **Checked after the rewrite,** in case the model ignores them. That holds in every mode, Ctrl+Q, e included.
+- **Words match whole,** in any case, with quotes, apostrophes and a final "'s" ignored. They match in their forms: `deploy` also catches "deploys", "deployed" and "deploying", and `commit` catches "committed". A hyphenated word counts as its parts ("production-like" has "production").
+- **Phrases:** `force push` matches its words in a row, with forms on the last word ("force pushed").
+- **Short words catch more:** `stag` also catches "staging". The rules ignore words that only appear inside a paste.
+- **The built-in guards stay on.** Your rules add to them. `turn off:` takes the guard names the panel and the log show; the template lists them all. `empty` can't be turned off.
+- **Mistakes are caught.** A line that isn't a rule, an unknown guard, or more than 50 words in all is named by its line number. The previous rules are kept, and edits apply as soon as you save. The file follows `templates.dir`, which needs a restart.
 - **Weakening shows.** The panel's Session section lists your rules and the guards turned off. Turning off `destructive`, `pastes` or `names` also gets a warning, since in `auto` mode a rewrite it would stop is then sent unchecked.
-- **Try a rule first:** `prompt-engine --pe-check-guards "<what you typed>" "<a rewrite>"` says which guard stops the rewrite, or that it passes. It needs no model.
+- **Try a rule first:** `prompt-engine --pe-check-guards "<what you typed>" "<a rewrite>"` says which guard stops the rewrite, or that it passes. It needs no model, and checks as `auto` and `preview` do. Ctrl+Q, e checks less, since you see the rewrite before sending it: only names, quotes and your rules.
 
 **Template:** [`docs/guards.example.txt`](docs/guards.example.txt) explains each rule and lists every built-in guard.
 

@@ -13,17 +13,24 @@
 #   always keep: word, phrase       if you typed one of these, the rewrite must keep it
 #   turn off: guard, guard          turn off built-in guards, by the names below
 #
-# Words match whole, in any case, and in their forms: "deploy" also catches
-# "deploys", "deployed" and "deploying". "force push" is a phrase: the words
-# in a row. "never add" and "always keep" are also told to the model, so it
-# keeps them to begin with; the check catches it when it doesn't.
+# Words match whole, in any case, with quotes, apostrophes and a final 's
+# ignored. They match in their forms: "deploy" also catches "deploys",
+# "deployed" and "deploying", and "commit" catches "committed". A hyphenated
+# word counts as its parts: "production-like" has "production". "force push" is
+# a phrase: its words in a row, with forms on the last word. A short word
+# catches more ("stag" also catches "staging"). Words only inside a paste
+# don't count. At most 50 words and phrases in all.
+#
+# "never add" and "always keep" are also told to the model, so it keeps them
+# to begin with: the never-add words you didn't type, and the always-keep words
+# you did. The check catches it when it doesn't, in every mode.
 #
 # Try a rule before relying on it:
 #   prompt-engine --pe-check-guards "what you typed" "a rewrite"
 #
 # The built-in guards, always on unless turned off here:
 #
-#   empty            the rewrite was empty
+#   empty            the rewrite was empty (can't be turned off)
 #   placeholder      the rewrite has a placeholder to fill in ("[file name]")
 #   asked-back       the model asked a question back instead of rewriting
 #   language         the rewrite is in another language

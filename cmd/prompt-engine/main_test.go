@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -128,9 +129,15 @@ func TestCheckGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(typed, rewrite string) (int, string) {
-		var b strings.Builder
-		code := checkGuards(&b, cfg, typed, rewrite)
-		return code, b.String()
+		var out, errs strings.Builder
+		code := checkGuards(&out, &errs, cfg, typed, rewrite)
+		if code == 2 {
+			if out.Len() > 0 {
+				t.Errorf("an error on stdout: %q", out.String())
+			}
+			return code, errs.String()
+		}
+		return code, out.String()
 	}
 	if code, out := run("fix the typo", "Fix the typo."); code != 0 || !strings.Contains(out, "built-in guards only") || !strings.Contains(out, "Passes") {
 		t.Errorf("passes: %d %q", code, out)
@@ -167,5 +174,27 @@ func TestReviewPastesOff(t *testing.T) {
 	r.Off = map[string]bool{"pastes": true}
 	if out, stop := review(&r, plan, moved, expand.SessionContext{}); stop != nil || out != "Explain B then A" {
 		t.Errorf("pastes off: %q, %+v", out, stop)
+	}
+}
+
+// The panel's guard lines, with no file, with rules, and with a risky
+// guard turned off.
+func TestGuardLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "guards.txt")
+	var logged []string
+	logf := func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }
+	if got := guardLines(path, expand.Rules{}, logf); len(got) != 1 || !strings.Contains(got[0], "built-in only (no ") {
+		t.Errorf("no file: %q", got)
+	}
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := expand.Rules{Off: map[string]bool{"names": true}, NeverAdd: []expand.Rule{{Line: 1, Words: []string{"prod"}}}}
+	got := guardLines(path, r, logf)
+	if len(got) != 2 || !strings.HasSuffix(got[0], "guards.txt: never add 1; off: names") || !strings.HasPrefix(got[1], "⚠ names is off") {
+		t.Errorf("rules: %q", got)
+	}
+	if !slices.ContainsFunc(logged, func(l string) bool { return strings.Contains(l, "guards: warning: names is off") }) {
+		t.Errorf("warning not logged: %q", logged)
 	}
 }

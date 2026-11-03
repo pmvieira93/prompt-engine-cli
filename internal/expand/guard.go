@@ -569,7 +569,7 @@ func (r *Rules) CheckSession(typed, rewritten string, sc SessionContext) *Stop {
 		resolved = func(ws []string) []string { return ws }
 	}
 	switch {
-	case rewritten == "" && r.on("empty"):
+	case rewritten == "": // always on: guards.txt can't turn it off
 		return stop("empty", "", "the rewrite was empty")
 	case placeholder.MatchString(rewritten) && !placeholder.MatchString(typed) && r.on("placeholder"):
 		return stop("placeholder", placeholder.FindString(rewritten), "the rewrite has a placeholder to fill in")

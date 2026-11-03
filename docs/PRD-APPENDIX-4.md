@@ -87,7 +87,7 @@ custom:
 
 Decided on 2026-11-03:
 
-* ~~**Where the file lives:** a separate `guards.yaml` (proposed, since the lists can grow long), or a `guards:` section in `config.yaml`.~~ A separate `guards.yaml`, beside `config.yaml`.
+* ~~**Where the file lives:** a separate `guards.yaml` (proposed, since the lists can grow long), or a `guards:` section in `config.yaml`.~~ A separate `guards.yaml`, beside `config.yaml`. *Superseded by the format decision below: `templates/guards.txt` (section 6).*
 * ~~**Whether `pastes` and `names` may be turned off at all,** or only loosened.~~ Any guard may be turned off. Turning off `destructive`, `pastes` or `names` gets a warning.
 * **The format (on review of PR #16):** the `guards.yaml` built from section 2 had 15 sections, two kinds of word list (word starts and whole words) and thresholds: "a lot of confuse and very hard to understand". Replaced by `templates/guards.txt`: one rule per line, in near-English, beside `append.txt` and `system.txt`. Its rules are also told to the model, not only checked. The built-in word lists and thresholds stay in code, tuned by tests.
 * ~~**Whether to look at the `question` examples first.**~~ Built without waiting: the history and logs had no `question` stops to look at (the 11 logged stops were `earlier-prompts`, `names`, `dropped-part`, `destructive`, `asked-back` and `added-task`). The `question` lists can now be tuned when a bad stop shows up.
@@ -118,9 +118,22 @@ turn off: question
 | `turn off: …` | Turn off built-in guards, by name | FR-10.3 |
 
 **How the rules are used**
-* **Told to the model:** `never add` and `always keep` are added to the rewrite instructions of every request, `system.txt` included. They read "Never add these words unless the developer wrote them: …" and "Always keep these words when the developer wrote them: …".
+* **Told to the model:** `never add` and `always keep` are added to the rewrite instructions of each request, `system.txt` included. Only the words that matter for the prompt are named: "Never add these words: …" (those not typed) and "Keep these words exactly: …" (those typed). Naming a typed word as one never to add would invite the model to drop it. The rules are read once per rewrite, so the model and the check use the same file even if it's saved meanwhile.
 * **Checked afterwards:** right after `destructive`, as guards named `never-add` and `always-keep`. The reason names the line ("the rewrite added "production" (guards.txt line 3: never add)").
-* **Matching:** whole words, any case, and their forms (-s, -es, -ed, -d, -ing, and the irregular verb forms): `deploy` also catches "deploys", "deployed", "deploying". A phrase ("force push") matches its words in a row. Words are letters, digits, `-`, `_` and `'`, so a file name like `main.go` isn't a valid word. The `names` guard already keeps names.
+  * In `auto` and `preview` mode, with every built-in guard.
+  * With the shortcut (Ctrl+Q, e), with `names` and `quotes` only, as before, since the developer sees the rewrite before sending it. `turn off:` applies there too.
+* **Matching:**
+  * whole words, any case, with quotes, apostrophes and a final "'s" ignored;
+  * hyphenated words split into their parts ("production-like" has "production");
+  * forms: -s, -es, -ed, -d and -ing, a doubled last letter ("committed"), and the irregular verb forms;
+  * a phrase ("force push") matches its words in a row, with forms on the last word only;
+  * a short rule catches more ("stag" is also "staging").
+
+  Words are letters, digits, `-`, `_` and `'`, so a file name like `main.go` isn't a valid word; the `names` guard already keeps names. Words only inside a paste don't count, since the rules see the text with pastes masked.
+* **Limits:**
+  * at most 50 words and phrases in `never add` and `always keep` together, since the model may be told each one;
+  * `turn off: empty` is refused, as an empty rewrite would replace the prompt;
+  * the file follows `templates.dir`, which needs a restart.
 * **`turn off: pastes`:** a pasted part the rewrite moved is put back where it now is. One dropped or repeated still stops the rewrite.
 
 **Behaviour (FR-10.5 to FR-10.7, as proposed)**
@@ -129,7 +142,7 @@ turn off: question
   * While running, the previous rules are kept. At startup, there's a warning and the built-in guards alone.
   * No file means the built-in guards alone.
 * **Session section:** `guards: …/guards.txt: never add 4; always keep 2; off: question` (or `built-in only (no …)`), and a `⚠` line for each of `destructive`, `pastes` and `names` turned off. A rejected edit adds `last guards.txt edit rejected: …`. The log has the same lines.
-* **`--pe-check-guards "<typed>" "<rewrite>"`:** says whether the rewrite passes, or which guard stops it and why. It uses no session context and no pastes. It exits 0 if the rewrite passes, 1 if a guard stops it, and 2 if `guards.txt` is invalid.
+* **`--pe-check-guards "<typed>" "<rewrite>"`:** says whether the rewrite passes, or which guard stops it and why, as in `auto` mode. It uses no session context and no pastes. It exits 0 if the rewrite passes, 1 if a guard stops it, and 2 (with the error on stderr) if `guards.txt` is invalid.
 
 **Dropped from section 2:** editing the built-in word lists (FR-10.1), the thresholds (FR-10.2), `points_back`, and the word-start syntax. These were internal tuning, and confusing to read.
 
@@ -140,5 +153,6 @@ turn off: question
 * `internal/expand/rules_test.go`: matching, the checks, a guard turned off, the instructions, `RestoreMoved`;
 * `TestExpandWithGuardRules`: the instructions reach the model, with and without `system.txt`;
 * the check command, and `review` with `pastes` off;
-* the e2e `guards` case: a rule stops an auto rewrite, then an edit while running replaces it;
+* the e2e `guards` case: a rule stops an auto rewrite, then an edit while running replaces it, and deleting the file leaves the built-in guards;
+* review fixes (2026-11-03): spellings (quotes, apostrophes, hyphens, doubled letters), `Instructions(typed)`, the shortcut check (`CheckShortcut`), `empty` always on, the word cap, and the panel lines;
 * testing guide, Part Q.

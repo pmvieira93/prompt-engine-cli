@@ -27,10 +27,31 @@ func TestRules(t *testing.T) {
 		{"run the dry tests", "Run the dry tests.", ""}, // "dry" and "run", not "dry run"
 		{"restart the staging api", "Restart the api in stage.", "always-keep"},
 		{"restart the staging api", "Restart the staging api.", ""},
+		// Seen in review: quotes, apostrophes, hyphens and doubled letters.
+		{"restart the api", "Restart the production's api.", "never-add"},
+		{"restart the api", "Restart the production’s api.", "never-add"},
+		{"restart the api", "Restart the 'production' api.", "never-add"},
+		{"restart the api", "Restart the production-like api.", "never-add"},
+		{"restart the staging api", "Restart the 'staging' api.", ""},
+		{"restart the staging api", "Restart the staging-api.", ""},
 	} {
 		if got := guard(r, c.typed, c.rewritten); got != c.want {
 			t.Errorf("%q → %q: stopped by %q, want %q", c.typed, c.rewritten, got, c.want)
 		}
+	}
+	// "staging-api" typed has "staging" (names would stop this first).
+	if stop := r.check("restart the staging-api", "Restart the api."); stop == nil || stop.Guard != "always-keep" {
+		t.Errorf("staging-api: %+v, want always-keep", stop)
+	}
+	commit := &Rules{NeverAdd: []Rule{{Line: 1, Words: []string{"commit", "ship", "deploy", "force push"}}}}
+	for _, rewritten := range []string{"Tidy it; committed.", "Tidy it before shipping.", "Tidy it; deploys later.", "Tidy it, then force pushed."} {
+		if got := guard(commit, "tidy it", rewritten); got != "never-add" && got != "destructive" {
+			t.Errorf("%q: stopped by %q, want never-add", rewritten, got)
+		}
+	}
+	// Only a phrase's last word takes forms: "forced push" isn't "force push".
+	if got := guard(&Rules{NeverAdd: []Rule{{Line: 1, Words: []string{"dry run"}}}}, "tidy it", "Tidy it; dried runs later."); got == "never-add" {
+		t.Errorf("dried runs: stopped by never-add")
 	}
 	stop := r.CheckSession("restart the api", "Restart the production api.", SessionContext{})
 	if stop == nil || stop.Detail != "production" || !strings.Contains(stop.Reason, "guards.txt line 1") {
@@ -47,18 +68,52 @@ func TestRules(t *testing.T) {
 	}
 }
 
+// Only the words that matter for the prompt are named: a typed word in a
+// "never add" list would invite the model to drop it.
 func TestRulesInstructions(t *testing.T) {
-	if got := (&Rules{}).Instructions(); got != "" {
+	r := &Rules{
+		NeverAdd:   []Rule{{Line: 1, Words: []string{"deploy", "production"}}, {Line: 2, Words: []string{"force push"}}},
+		AlwaysKeep: []Rule{{Line: 3, Words: []string{"staging", "main"}}},
+	}
+	for _, c := range []struct{ typed, want string }{
+		{"restart the api", "\nNever add these words: deploy, production, force push."},
+		{"deploy the staging api", "\nNever add these words: production, force push.\nKeep these words exactly: staging."},
+		{"deploy production with a force push on main", "\nKeep these words exactly: main."},
+	} {
+		if got := r.Instructions(c.typed); got != c.want {
+			t.Errorf("Instructions(%q) = %q, want %q", c.typed, got, c.want)
+		}
+	}
+	if got := (&Rules{}).Instructions("x"); got != "" {
 		t.Errorf("no rules: %q", got)
 	}
-	r := &Rules{
-		NeverAdd:   []Rule{{Line: 1, Words: []string{"deploy"}}, {Line: 2, Words: []string{"force push"}}},
-		AlwaysKeep: []Rule{{Line: 3, Words: []string{"staging"}}},
+}
+
+// The shortcut checks names, quotes and the developer's rules, and honours
+// turn off.
+func TestCheckShortcut(t *testing.T) {
+	r := &Rules{NeverAdd: []Rule{{Line: 4, Words: []string{"production"}}}}
+	if stop := r.CheckShortcut("restart the api", "Restart the production api."); stop == nil || stop.Guard != "never-add" {
+		t.Errorf("never add: %+v", stop)
 	}
-	want := "\nNever add these words unless the developer wrote them: deploy, force push." +
-		"\nAlways keep these words when the developer wrote them: staging."
-	if got := r.Instructions(); got != want {
-		t.Errorf("Instructions() = %q, want %q", got, want)
+	if stop := r.CheckShortcut("use code-reviewer", "Review the code."); stop == nil || stop.Guard != "names" {
+		t.Errorf("names: %+v", stop)
+	}
+	off := &Rules{Off: map[string]bool{"names": true}}
+	if stop := off.CheckShortcut("use code-reviewer", "Review the code."); stop != nil {
+		t.Errorf("names off: %+v", stop)
+	}
+	// Not a guard the shortcut checks: the developer sees the rewrite.
+	if stop := (*Rules)(nil).CheckShortcut("why does it fail?", "Fix it."); stop != nil {
+		t.Errorf("question: %+v", stop)
+	}
+}
+
+// empty stays on whatever Off says.
+func TestEmptyAlwaysOn(t *testing.T) {
+	r := &Rules{Off: map[string]bool{"empty": true, "language": true, "replaced": true, "dropped-part": true}}
+	if stop := r.CheckSession("fix the parser now", "", SessionContext{}); stop == nil || stop.Guard != "empty" {
+		t.Errorf("empty off: %+v", stop)
 	}
 }
 

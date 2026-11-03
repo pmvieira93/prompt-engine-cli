@@ -281,22 +281,29 @@ exit'
 }
 
 case_guards() {
-	echo "guards: templates/guards.txt adds a rule, and an edit applies at once"
+	echo "guards: templates/guards.txt adds a rule, an edit applies at once, and deleting it leaves the built-in guards"
+	local g="$work/guards/templates/guards.txt" sent="$work/guards/sent.jsonl"
 	mkdir -p "$work/guards/templates"
-	printf -- '# no please\nnever add: please\n' >"$work/guards/templates/guards.txt"
-	# While the first prompt waits for claude's reply, the rule is replaced
-	# by editing the file.
-	(sleep 3 && printf -- 'turn off: question\n' >"$work/guards/templates/guards.txt") &
+	printf -- '# no please\nnever add: please\n' >"$g"
+	# Each edit waits for claude to receive a prompt, not for a time, so a
+	# slow start can't move it before the prompt it should follow.
+	(
+		lines() { [ -f "$sent" ] && wc -l <"$sent" || echo 0; }
+		for _ in $(seq 150); do [ "$(lines)" -ge 1 ] && break; sleep 0.1; done
+		printf -- 'turn off: question\n' >"$g"
+		for _ in $(seq 150); do [ "$(lines)" -ge 2 ] && break; sleep 0.1; done
+		rm -f "$g"
+	) &
 	run_case guards 'reply on
 wait "❯" 5s
 send "fix the parser now"
 sleep 300ms
 send "\r"
-sleep 5s
+sleep 3s
 send "fix the lexer now"
 sleep 300ms
 send "\r"
-sleep 1s
+sleep 3s
 send "\x04"
 exit' 'expand:
   on_enter: auto'
@@ -304,9 +311,9 @@ exit' 'expand:
 	check "the rule was read" logged 'guards.txt: never add 1'
 	check "it stopped the rewrite" logged 'not used (guard never-add: the rewrite added "please" (guards.txt line 2: never add)); sending as typed'
 	check "claude received the prompt as typed" first_sent '"fix the parser now"'
-	check "the edit was read" logged 'guards: reloaded'
-	check "the panel line has the new rules" logged 'guards.txt: off: question'
+	check "the edit was read" logged 'guards.txt: off: question'
 	check "the next prompt was rewritten" grep -qF '"Please fix the lexer now.' "$dir/sent.jsonl"
+	check "deleting the file leaves the built-in guards" logged 'guards: built-in only (no '
 }
 
 case_nested() {

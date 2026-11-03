@@ -79,7 +79,10 @@ func TestParseRejects(t *testing.T) {
 		{"turn off: questoin", `line 1: no guard "questoin"`},
 		{"never add:", "line 1: never add: names nothing"},
 		{"never add: , ,", "names nothing"},
-		{"always keep: main.go", `"main.go" isn't a word or phrase`},
+		{"always keep: main.go", `"main.go" isn't a word or phrase (letters, digits, -, _ and ')`},
+		{"turn off: empty", "line 1: empty can't be turned off"},
+		{"never add: " + strings.Repeat("w, ", MaxWords) + "w", "more than 50 words"},
+		{"never add: a, b\nalways keep: " + strings.Repeat("w, ", MaxWords-2) + "w", "line 2: more than 50 words"},
 	} {
 		if _, err := Parse(tc.file); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err = %v, want %q", tc.file, err, tc.want)
@@ -96,7 +99,7 @@ func TestLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, err := Load(path)
-	if err == nil || !strings.Contains(err.Error(), path+" line 2") {
+	if err == nil || !strings.HasPrefix(err.Error(), path+" line 2") {
 		t.Errorf("invalid file: err = %v", err)
 	}
 	if !reflect.DeepEqual(r, expand.Rules{}) {

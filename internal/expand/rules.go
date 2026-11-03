@@ -12,7 +12,7 @@ const GuardsFile = "guards.txt"
 
 // Guards are the built-in guard rails, by the name a Stop gives them, in
 // the order they are checked. "pastes" is checked when the kept parts are
-// put back (Plan.Restore).
+// put back (Plan.Restore). All but "empty" can be turned off.
 var Guards = []string{
 	"empty", "placeholder", "asked-back", "language", "names", "quotes", "destructive",
 	"question", "added-task", "dropped-part", "negation", "earlier-prompts", "length", "replaced", "pastes",
@@ -41,7 +41,7 @@ func (r *Rules) on(guard string) bool { return !r.Off[guard] }
 // check stops a rewrite that adds a word a "never add:" line names, or
 // drops one an "always keep:" line names.
 func (r *Rules) check(typed, rewritten string) *Stop {
-	t, w := words(strings.ToLower(typed)), words(strings.ToLower(rewritten))
+	t, w := ruleWords(typed), ruleWords(rewritten)
 	for _, rule := range r.NeverAdd {
 		for _, p := range rule.Words {
 			if hasPhrase(w, p) && !hasPhrase(t, p) {
@@ -61,38 +61,82 @@ func (r *Rules) check(typed, rewritten string) *Stop {
 	return nil
 }
 
-// Instructions are the lines added to the model's instructions, so it
-// keeps the rules to begin with; check catches it when it doesn't.
-func (r *Rules) Instructions() string {
-	join := func(rules []Rule) string {
+// CheckShortcut is what a rewrite asked for with the shortcut (keys.expand)
+// must pass before it replaces the prompt: the names and quotes guards,
+// unless turned off, and the developer's rules. The rest are left to the
+// developer, who sees the rewrite before sending it. A nil r is no rules.
+func (r *Rules) CheckShortcut(typed, rewritten string) *Stop {
+	if r == nil {
+		r = &Rules{}
+	}
+	typed, rewritten = StripContext(typed), StripContext(rewritten)
+	if lost := LostNames(typed, rewritten); len(lost) > 0 && r.on("names") {
+		return &Stop{Guard: "names", Detail: "lost " + strings.Join(lost, ", "), Reason: "the rewrite changed " + strings.Join(lost, ", ")}
+	}
+	if lost := LostQuotes(typed, rewritten); len(lost) > 0 && r.on("quotes") {
+		return &Stop{Guard: "quotes", Detail: "changed " + strings.Join(lost, ", "), Reason: "the rewrite changed " + strings.Join(lost, ", ")}
+	}
+	return r.check(typed, rewritten)
+}
+
+// Instructions are the lines added to the model's instructions for typed,
+// so it keeps the rules to begin with; check catches it when it doesn't.
+// Only the words that matter for typed are named: those it must not add
+// (not typed), and those it must keep (typed). Naming a typed word as one
+// never to add would invite the model to drop it.
+func (r *Rules) Instructions(typed string) string {
+	t := ruleWords(StripContext(typed))
+	pick := func(rules []Rule, typed bool) string {
 		var all []string
 		for _, rule := range rules {
-			all = append(all, rule.Words...)
+			for _, p := range rule.Words {
+				if hasPhrase(t, p) == typed && !slices.Contains(all, p) {
+					all = append(all, p)
+				}
+			}
 		}
 		return strings.Join(all, ", ")
 	}
 	var b strings.Builder
-	if len(r.NeverAdd) > 0 {
-		b.WriteString("\nNever add these words unless the developer wrote them: " + join(r.NeverAdd) + ".")
+	if never := pick(r.NeverAdd, false); never != "" {
+		b.WriteString("\nNever add these words: " + never + ".")
 	}
-	if len(r.AlwaysKeep) > 0 {
-		b.WriteString("\nAlways keep these words when the developer wrote them: " + join(r.AlwaysKeep) + ".")
+	if keep := pick(r.AlwaysKeep, true); keep != "" {
+		b.WriteString("\nKeep these words exactly: " + keep + ".")
 	}
 	return b.String()
 }
 
-// hasPhrase reports whether text, as words, has phrase: its words in a
-// row, each as written or in one of its forms ("deploy" is also
-// "deploys", "deployed", "deploying").
+// ruleWords splits text into the words rules are matched against: in
+// lower case, without quotes or apostrophes around them or a final "'s",
+// and hyphenated words split ("production-like" has "production").
+func ruleWords(text string) []string {
+	text = strings.NewReplacer("’", "'", "‘", "'").Replace(strings.ToLower(text))
+	var out []string
+	for _, w := range words(text) {
+		for _, part := range strings.Split(w, "-") {
+			part = strings.Trim(part, "'_")
+			part = strings.TrimSuffix(part, "'s")
+			if part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
+}
+
+// hasPhrase reports whether text, as ruleWords, has phrase: its words in
+// a row, the last as written or in one of its forms ("deploy" is also
+// "deploys", "deployed", "deploying"; "force push" also "force pushed").
 func hasPhrase(text []string, phrase string) bool {
-	ps := words(phrase)
+	ps := ruleWords(phrase)
 	if len(ps) == 0 {
 		return false
 	}
 next:
 	for i := 0; i+len(ps) <= len(text); i++ {
 		for j, p := range ps {
-			if !isForm(text[i+j], p) {
+			if w := text[i+j]; w != p && (j < len(ps)-1 || !isForm(w, p)) {
 				continue next
 			}
 		}
@@ -101,10 +145,12 @@ next:
 	return false
 }
 
-// isForm reports whether w is word, or word with -s, -es, -ed, -d or
-// -ing, or another of its forms (verbForms): "deploys", "staged".
+// isForm reports whether w is word with -s, -es, -ed, -d or -ing, with
+// the last letter doubled ("committed", "shipping"), or another of its
+// forms (verbForms).
 func isForm(w, word string) bool {
-	for _, suffix := range []string{"", "s", "es", "ed", "d", "ing"} {
+	last := word[len(word)-1:]
+	for _, suffix := range []string{"s", "es", "ed", "d", "ing", last + "ed", last + "ing"} {
 		if w == word+suffix {
 			return true
 		}

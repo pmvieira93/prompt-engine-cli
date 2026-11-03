@@ -323,7 +323,7 @@ func TestExpandWithGuardRules(t *testing.T) {
 	if _, err := e.Expand(context.Background(), "restart the api"); err != nil {
 		t.Fatal(err)
 	}
-	if want := DefaultSystem + rules.Instructions(); req.Messages[0].Content != want {
+	if want := DefaultSystem + rules.Instructions("restart the api"); req.Messages[0].Content != want {
 		t.Errorf("system = %q\nwant     %q", req.Messages[0].Content, want)
 	}
 	dir := t.TempDir()
@@ -334,7 +334,7 @@ func TestExpandWithGuardRules(t *testing.T) {
 	if _, err := e.Expand(context.Background(), "restart the api"); err != nil {
 		t.Fatal(err)
 	}
-	if want := "Be terse." + rules.Instructions(); req.Messages[0].Content != want {
+	if want := "Be terse." + rules.Instructions("restart the api"); req.Messages[0].Content != want {
 		t.Errorf("with system.txt: system = %q", req.Messages[0].Content)
 	}
 }

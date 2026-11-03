@@ -100,7 +100,7 @@ func run() int {
 		warn("%v", err)
 		return 2
 	} else if ok {
-		return checkGuards(os.Stdout, cfg, typed, rewrite)
+		return checkGuards(os.Stdout, os.Stderr, cfg, typed, rewrite)
 	}
 
 	bin, err := exec.LookPath(cfg.Command)
@@ -466,18 +466,23 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		defer cancel()
 		start := time.Now()
 		release := sess.hold()
-		masked, style, err := expandPrompt(ectx, cfg, guardRules.Load(), plan, sessionContext())
+		rules := guardRules.Load() // the same for the model and the check
+		masked, style, err := expandPrompt(ectx, cfg, rules, plan, sessionContext())
 		release()
 		if err != nil {
 			logf("expand: failed: %v", err)
 			return
 		}
-		if lost := append(expand.LostNames(plan.Masked, masked), expand.LostQuotes(plan.Masked, masked)...); len(lost) > 0 {
-			logf("expand: not applied: the rewrite %q dropped or changed %s", masked, strings.Join(lost, ", "))
-			after = "kept your text: the rewrite changed " + strings.Join(lost, ", ")
+		if stop := rules.CheckShortcut(plan.Masked, masked); stop != nil {
+			logf("expand: not applied: the rewrite %q was stopped by guard %s (%s)", masked, stop.Guard, stop.Reason)
+			after = "kept your text: " + stop.Reason
 			return
 		}
-		out, err := plan.Restore(masked)
+		restore := plan.Restore
+		if rules.Off["pastes"] {
+			restore = plan.RestoreMoved
+		}
+		out, err := restore(masked)
 		if err != nil {
 			logf("expand: not applied: %v: %q", err, masked)
 			after = "kept your text: " + err.Error()
@@ -670,7 +675,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		for try := 1; try <= 2; try++ {
 			tctx, tcancel := context.WithTimeout(pctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
 			release := sess.hold()
-			masked, st, err := expandPrompt(tctx, *cfg, guardRules.Load(), plan, sc)
+			rules := guardRules.Load() // the same for the model and the check
+			masked, st, err := expandPrompt(tctx, *cfg, rules, plan, sc)
 			release()
 			tcancel()
 			if pctx.Err() != nil {
@@ -683,7 +689,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 				break
 			}
 			var stop *expand.Stop
-			if out, stop = review(guardRules.Load(), plan, masked, sc); stop == nil {
+			if out, stop = review(rules, plan, masked, sc); stop == nil {
 				reason, guard, detail, rejected = "", "", "", ""
 				break
 			}
@@ -795,7 +801,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		start := time.Now()
 		sc := sessionContext()
 		release := sess.hold()
-		masked, style, err := expandPrompt(actx, cfg, guardRules.Load(), plan, sc)
+		rules := guardRules.Load() // the same for the model and the check
+		masked, style, err := expandPrompt(actx, cfg, rules, plan, sc)
 		release()
 		ctrl.SetNotice("")
 
@@ -816,7 +823,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			reason = "expansion failed: " + err.Error()
 		default:
 			var stop *expand.Stop
-			if out, stop = review(guardRules.Load(), plan, masked, sc); stop != nil {
+			if out, stop = review(rules, plan, masked, sc); stop != nil {
 				reason, guard, detail, rejected = stop.Reason, stop.Guard, stop.Detail, expand.StripContext(masked)
 			}
 		}
@@ -1371,15 +1378,15 @@ func checkGuardsArgs(args []string) (typed, rewrite string, ok bool, err error) 
 // rewrite through for typed, and returns the exit code: 0 if they do, 1
 // if one stops it, 2 if the guards file is invalid. No session context is
 // used, so earlier-prompts can't stop it, and there are no pastes.
-func checkGuards(w io.Writer, cfg config.Config, typed, rewrite string) int {
+func checkGuards(w, errw io.Writer, cfg config.Config, typed, rewrite string) int {
 	path, err := guardsPath(cfg)
 	if err != nil {
-		fmt.Fprintf(w, "prompt-engine: %v\n", err)
+		fmt.Fprintf(errw, "prompt-engine: %v\n", err)
 		return 2
 	}
 	r, err := guards.Load(path)
 	if err != nil {
-		fmt.Fprintf(w, "prompt-engine: %v\n", err)
+		fmt.Fprintf(errw, "prompt-engine: %v\n", err)
 		return 2
 	}
 	summary, warnings := guards.Notes(r)

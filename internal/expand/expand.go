@@ -101,7 +101,7 @@ func (e *Expander) Expand(ctx context.Context, text string) (string, error) {
 		system += "\n" + MarkerRule
 	}
 	if e.Rules != nil {
-		system += e.Rules.Instructions()
+		system += e.Rules.Instructions(text)
 	}
 	// In typo mode the model copied a "Request:" label into its answer,
 	// but not "Message:".
