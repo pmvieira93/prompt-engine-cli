@@ -878,7 +878,8 @@ export PROMPT_ENGINE_CONFIG="$T/config.yaml"
 | Q5 | While it runs, in another terminal: `printf 'turn off: destructive\n' >"$T/templates/guards.txt"` | Within a second, the Session section shows `…/guards.txt: off: destructive` and `⚠ destructive is off: in auto mode, a rewrite it would stop is sent unchecked` |
 | Q6 | Type `say hello`, **Enter** | Claude receives the rewrite, starting `Please say hello.` (the fake rewriter adds the earlier prompt after it) |
 | Q7 | `printf 'turn of: question\n' >"$T/templates/guards.txt"` | The Session section shows `last guards.txt edit rejected: …/guards.txt line 1: "turn of: question" isn't a rule: start it with never add:, always keep: or turn off:`, and still `off: destructive` |
-| Q8 | `printf 'never add: please\n' >"$T/templates/guards.txt"`, type `say hello`, then **Ctrl+Q**, **e** | At the cursor: `kept your text: the rewrite added "please" (guards.txt line 1: never add)`, and the prompt stays `say hello`. Clear it with **Ctrl+U** and quit with `/exit` |
+| Q8 | `printf 'never add: please\n' >"$T/templates/guards.txt"`, type `say hello`, then **Ctrl+Q**, **e** | At the cursor: `kept your text: the rewrite added "please" (guards.txt line 1: never add)`, and the prompt stays `say hello`. Clear it with **Ctrl+U** |
+| Q9 | Add `  guards: off` under `expand:` in `$T/config.yaml`, then type `say hello` and press **Ctrl+Q**, **e** | The Session section shows `guards.txt ignored (expand.guards: off); built-in guards only`, and the prompt becomes `Please say hello.` Clear it with **Ctrl+U** and quit with `/exit` |
 
 **Cleanup:** `unset PROMPT_ENGINE_CONFIG; rm -rf "$T"`.
 

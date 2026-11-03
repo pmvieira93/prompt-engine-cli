@@ -25,6 +25,9 @@
 # to begin with: the never-add words you didn't type, and the always-keep words
 # you did. The check catches it when it doesn't, in every mode.
 #
+# To ignore this file without deleting it, set expand.guards: off in
+# config.yaml. The built-in guards apply either way.
+#
 # Try a rule before relying on it:
 #   prompt-engine --pe-check-guards "what you typed" "a rewrite"
 #

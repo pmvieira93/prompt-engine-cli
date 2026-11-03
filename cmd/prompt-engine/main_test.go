@@ -162,6 +162,12 @@ func TestCheckGuards(t *testing.T) {
 	if code, out := run("a", "b"); code != 2 || !strings.Contains(out, `line 1: no guard "questoin"`) {
 		t.Errorf("invalid file: %d %q", code, out)
 	}
+
+	// expand.guards: off ignores the file, even an invalid one.
+	cfg.Expand.Guards = "off"
+	if code, out := run("restart the api", "Restart the production api."); code != 0 || !strings.Contains(out, "expand.guards: off, so") {
+		t.Errorf("expand.guards off: %d %q", code, out)
+	}
 }
 
 func TestReviewPastesOff(t *testing.T) {

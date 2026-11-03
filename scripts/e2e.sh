@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept style history guards nested
+#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept style history guards guards_off nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -316,6 +316,23 @@ exit' 'expand:
 	check "deleting the file leaves the built-in guards" logged 'guards: built-in only (no '
 }
 
+case_guards_off() {
+	echo "guards_off: expand.guards: off ignores templates/guards.txt"
+	mkdir -p "$work/guards_off/templates"
+	printf -- 'never add: please\n' >"$work/guards_off/templates/guards.txt"
+	run_case guards_off 'reply on
+wait "❯" 5s
+send "fix the parser now"
+sleep 300ms
+send "\r"
+sleep 1s
+send "\x04"
+exit' 'expand:
+  on_enter: auto
+  guards: off'
+	check "the rule didn't stop the rewrite" sent '"Please fix the parser now."'
+}
+
 case_nested() {
 	echo "nested: inside prompt-engine already, it hands over and says so"
 	NESTED=1 run_case nested 'reply on
@@ -326,7 +343,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept style history guards nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept style history guards guards_off nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

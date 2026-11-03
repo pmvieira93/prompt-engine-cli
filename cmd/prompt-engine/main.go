@@ -317,6 +317,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	// in use.
 	var guardRules atomic.Pointer[expand.Rules]
 	var guardStatus atomic.Pointer[[]string]
+	// rulesFor is the rules a rewrite with cfg uses: none from guards.txt
+	// with expand.guards off.
+	rulesFor := func(cfg config.Config) *expand.Rules {
+		if cfg.Expand.Guards == "off" {
+			return &expand.Rules{}
+		}
+		return guardRules.Load()
+	}
 	setGuards := func(path string, next expand.Rules, note string) {
 		guardRules.Store(&next)
 		lines := guardLines(path, next, logf)
@@ -466,7 +474,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		defer cancel()
 		start := time.Now()
 		release := sess.hold()
-		rules := guardRules.Load() // the same for the model and the check
+		rules := rulesFor(cfg) // the same for the model and the check
 		masked, style, err := expandPrompt(ectx, cfg, rules, plan, sessionContext())
 		release()
 		if err != nil {
@@ -675,7 +683,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		for try := 1; try <= 2; try++ {
 			tctx, tcancel := context.WithTimeout(pctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
 			release := sess.hold()
-			rules := guardRules.Load() // the same for the model and the check
+			rules := rulesFor(*cfg) // the same for the model and the check
 			masked, st, err := expandPrompt(tctx, *cfg, rules, plan, sc)
 			release()
 			tcancel()
@@ -801,7 +809,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		start := time.Now()
 		sc := sessionContext()
 		release := sess.hold()
-		rules := guardRules.Load() // the same for the model and the check
+		rules := rulesFor(cfg) // the same for the model and the check
 		masked, style, err := expandPrompt(actx, cfg, rules, plan, sc)
 		release()
 		ctrl.SetNotice("")
@@ -1001,10 +1009,16 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	}
 
 	return tui.Run(cmd, tui.Options{
-		Ctrl:          ctrl,
-		Tracker:       tracker,
-		PanelPercent:  func() int { return live.Load().Panel.Width },
-		Status:        func() []string { return append(slices.Clone(*status.Load()), *guardStatus.Load()...) },
+		Ctrl:         ctrl,
+		Tracker:      tracker,
+		PanelPercent: func() int { return live.Load().Panel.Width },
+		Status: func() []string {
+			guardLines := *guardStatus.Load()
+			if live.Load().Expand.Guards == "off" {
+				guardLines = []string{"guards:      guards.txt ignored (expand.guards: off); built-in guards only"}
+			}
+			return append(slices.Clone(*status.Load()), guardLines...)
+		},
 		Diff:          panelDiff,
 		PanelLeft:     func() bool { return live.Load().Panel.Side == "left" },
 		GhostStyle:    func() string { return live.Load().Ghost.Style },
@@ -1384,16 +1398,22 @@ func checkGuards(w, errw io.Writer, cfg config.Config, typed, rewrite string) in
 		fmt.Fprintf(errw, "prompt-engine: %v\n", err)
 		return 2
 	}
-	r, err := guards.Load(path)
-	if err != nil {
-		fmt.Fprintf(errw, "prompt-engine: %v\n", err)
-		return 2
-	}
-	summary, warnings := guards.Notes(r)
-	if _, err := os.Stat(path); err == nil {
-		fmt.Fprintf(w, "Using the built-in guards and %s (%s).\n", tilde(path), summary)
+	var r expand.Rules
+	var warnings []string
+	if cfg.Expand.Guards == "off" {
+		fmt.Fprintf(w, "Using the built-in guards only (expand.guards: off, so %s is ignored).\n", tilde(path))
 	} else {
-		fmt.Fprintf(w, "Using the built-in guards only (no %s).\n", tilde(path))
+		if r, err = guards.Load(path); err != nil {
+			fmt.Fprintf(errw, "prompt-engine: %v\n", err)
+			return 2
+		}
+		var summary string
+		summary, warnings = guards.Notes(r)
+		if _, err := os.Stat(path); err == nil {
+			fmt.Fprintf(w, "Using the built-in guards and %s (%s).\n", tilde(path), summary)
+		} else {
+			fmt.Fprintf(w, "Using the built-in guards only (no %s).\n", tilde(path))
+		}
 	}
 	for _, x := range warnings {
 		fmt.Fprintf(w, "Warning: %s.\n", x)

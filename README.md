@@ -321,6 +321,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | `expand.preview_pause` | `1s` | `preview`: how long typing must pause |
 | `expand.min_words` | `3` | `auto`: shorter prompts are sent as typed |
 | `expand.auto_timeout` | `5s` | `auto`: after this, the prompt is sent as typed |
+| `expand.guards` | `on` | `off` ignores `templates/guards.txt`, your own guard rails, while it's there. The built-in guards apply either way |
 | **`ghost`**: ghost text | | |
 | `ghost.style` | `italic` | `italic`, `faint` or `color:N` (0–255) |
 | `ghost.context` | `prompts` | `prompts`: suggestions follow your last prompts; `none` doesn't |
@@ -373,6 +374,7 @@ turn off: question
 - **The built-in guards stay on.** Your rules add to them. `turn off:` takes the guard names the panel and the log show; the template lists them all. `empty` can't be turned off.
 - **Mistakes are caught.** A line that isn't a rule, an unknown guard, or more than 50 words in all is named by its line number. The previous rules are kept, and edits apply as soon as you save. The file follows `templates.dir`, which needs a restart.
 - **Weakening shows.** The panel's Session section lists your rules and the guards turned off. Turning off `destructive`, `pastes` or `names` also gets a warning, since in `auto` mode a rewrite it would stop is then sent unchecked.
+- **Switch your rules off** without deleting the file: `expand.guards: off` in `config.yaml`. The built-in guards stay on, and the panel says the file is ignored.
 - **Try a rule first:** `prompt-engine --pe-check-guards "<what you typed>" "<a rewrite>"` says which guard stops the rewrite, or that it passes. It needs no model, and checks as `auto` and `preview` do. Ctrl+Q, e checks less, since you see the rewrite before sending it: only names, quotes and your rules.
 
 **Template:** [`docs/guards.example.txt`](docs/guards.example.txt) explains each rule and lists every built-in guard.

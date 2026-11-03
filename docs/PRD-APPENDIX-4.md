@@ -130,6 +130,7 @@ turn off: question
   * a short rule catches more ("stag" is also "staging").
 
   Words are letters, digits, `-`, `_` and `'`, so a file name like `main.go` isn't a valid word; the `names` guard already keeps names. Words only inside a paste don't count, since the rules see the text with pastes masked.
+* **`expand.guards`** (`on` by default) set to `off` ignores `guards.txt` while it's there, live: no rules are told to the model or checked, and `turn off:` lines don't apply. The built-in guards stay on, since a switch for all of them would let an `auto` rewrite out unchecked. The Session section shows `guards.txt ignored (expand.guards: off); built-in guards only`, and `--pe-check-guards` doesn't read the file.
 * **Limits:**
   * at most 50 words and phrases in `never add` and `always keep` together, since the model may be told each one;
   * `turn off: empty` is refused, as an empty rewrite would replace the prompt;
