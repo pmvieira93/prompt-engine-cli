@@ -1,0 +1,139 @@
+# prompt-engine guard rails (PRD Appendix 4)
+#
+# Location: guards.yaml beside config.yaml, so ~/.config/prompt-engine/guards.yaml
+#           (or beside the file PROMPT_ENGINE_CONFIG or --pe-config names).
+#
+# A rewrite is used only if no guard stops it. This file changes the built-in
+# guards rather than replacing them: every key is optional, and what's left out
+# stays built in, so later releases' changes still apply. No file means the
+# built-in guards. Unknown keys and invalid values are rejected with a warning,
+# and the built-in (or, while running, the previous) guards are kept. Edits
+# apply while prompt-engine runs.
+#
+# Every guard has "enabled" (true unless set to false). Turning one off, or
+# loosening one, is listed in the side panel's Session section; turning off
+# destructive, pastes or names also gets a warning, since in auto mode a
+# rewrite it would stop is then sent unchecked.
+#
+# Word lists take "add" and "remove". Words are matched in lower case. Lists of
+# word starts match any word beginning with one ("delet" is "delete",
+# "deleted", "deleting"); a start of two letters ("rm") only matches words of
+# up to four letters. A removed word that isn't in the list is ignored.
+#
+# Try a rule before relying on it:
+#   prompt-engine --pe-check-guards "<what you typed>" "<a rewrite>"
+#
+# Lines starting "# built-in" are the built-in lists (kept in step by a test).
+
+# The rewrite was empty.
+empty:
+  enabled: true
+
+# The rewrite has a placeholder to fill in ("[insert the file name]").
+placeholder:
+  enabled: true
+
+# The model asked a question back instead of rewriting.
+asked-back:
+  enabled: true
+
+# The rewrite is in another language.
+language:
+  enabled: true
+
+# The rewrite dropped or changed a name: a file, a path, an agent, "!110".
+names:
+  enabled: true
+
+# The rewrite changed text in `backticks` or "double quotes".
+quotes:
+  enabled: true
+
+# The rewrite added a destructive action. Word starts.
+# built-in destructive: delet, remov, drop, reset, forc, rm, overwrit, revert, push, wip, truncat, destroy, purg, eras, discard, uninstal
+destructive:
+  enabled: true
+  add: []              # e.g. [deploy, rollback, migrat]
+  remove: []
+
+# The rewrite turned a question into an instruction: it added an action. Word
+# starts. question_words make a prompt a question when one comes first or
+# second (besides a final "?", and "do you…").
+# built-in question: fix, chang, updat, add, remov, delet, refactor, implement, handl, writ, creat, renam, replac, modif, mov, run, commit, push, instal, build, show
+# built-in question.question_words: why, how, what, when, where, which, who, does, is, are, can, could, should, would, will, explain
+question:
+  enabled: true
+  add: []
+  remove: []
+  question_words:
+    add: []            # e.g. [porque, qual, como]
+    remove: []
+
+# The rewrite added a task to a prompt that asked for none (a report, such as
+# "it still fails"). Word starts.
+# built-in added-task: ensur, verif, investigat, check, explain, debug, resolv, diagnos, troubleshoot, fix, chang, updat, add, remov, delet, refactor, implement, handl, writ, creat, renam, replac, modif, mov, run, commit, push, instal, build, show
+added-task:
+  enabled: true
+  add: []
+  remove: []
+
+# The rewrite dropped a sentence or line of what you typed.
+dropped-part:
+  enabled: true
+
+# The rewrite has more or fewer negations than you typed. Whole words; "n't"
+# counts as "not", and "no" counts too, except in Portuguese ("in the").
+# built-in negation: not, never, without, nothing, only, except, avoid, dont, nao, não, sem, nunca, nada, apenas, só
+negation:
+  enabled: true
+  add: []              # e.g. [jamais, nem]
+  remove: []
+
+# The rewrite took details from your earlier prompts when you didn't point
+# back at them.
+earlier-prompts:
+  enabled: true
+
+# The rewrite is much longer than what you typed: more than factor × the typed
+# words + allowance.
+length:
+  enabled: true
+  factor: 3            # 1 to 100
+  allowance: 15        # 0 to 1000
+
+# The rewrite replaced most of what you typed: more than max_share of the
+# typed words are gone.
+replaced:
+  enabled: true
+  max_share: 0.6       # above 0, at most 1
+
+# The rewrite dropped, repeated or moved a part you pasted, which is kept
+# exactly. Turned off, a moved part is put back where the rewrite moved it; one
+# dropped or repeated still stops the rewrite, since it can't be put back.
+pastes:
+  enabled: true
+
+# Words that point back at something said before. When a prompt has one, what
+# the rewrite takes from the session context counts as resolving it, not as
+# invented. Whole words. points_at_reply count only when the model was given
+# Claude's reply or the session summary (expand.context: reply or session).
+# built-in points_back: it, its, that, this, these, those, there, them, they, same, also, again, too, isso, isto, mesmo, também
+# built-in points_at_reply: one, ones, first, second, third, last, option, above, previous, suggested, both, either, yes, yep, sure, ok, okay, ahead, primeiro, primeira, segundo, segunda, opção, sim
+points_back:
+  add: []
+  remove: []
+points_at_reply:
+  add: []
+  remove: []
+
+# Guards of your own, checked right after destructive. Each has a name (lower
+# case letters, digits and hyphens; not a built-in guard's), shown in the panel
+# and the log like a built-in one, and one or both of:
+#   added: word starts a rewrite must not add when what you typed has none;
+#   kept:  word starts a rewrite must keep when what you typed has one.
+custom: []
+# custom:
+#   - name: prod-words
+#     added: [production, prod]
+#   - name: keep-staging
+#     kept: [staging]

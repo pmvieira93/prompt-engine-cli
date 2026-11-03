@@ -1,9 +1,9 @@
 # PRD Appendix 4: Guard Rails from a File
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.4 (section 4.4, configuration and custom rules) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7.4, the guard rails)  
-**Appendix Version:** 1.0.0  
-**Date:** 2026-10-30  
-**Status:** Proposed. Agreed as the direction on 2026-10-30; not scheduled.
+**Appendix Version:** 1.1.0  
+**Date:** 2026-11-03  
+**Status:** Built on 2026-11-03 (FR-10.1 to FR-10.7; see section 6). Agreed as the direction on 2026-10-30.
 
 ---
 
@@ -83,12 +83,35 @@ custom:
 
 ## 4. Open decisions
 
-* **Where the file lives:** a separate `guards.yaml` (proposed, since the lists can grow long), or a `guards:` section in `config.yaml`.
-* **Whether `pastes` and `names` may be turned off at all,** or only loosened.
-* **Whether to look at the `question` examples first.** If loosening that guard turns out to be a word-list change, it's a natural first case for the file.
+Decided on 2026-11-03:
+
+* ~~**Where the file lives:** a separate `guards.yaml` (proposed, since the lists can grow long), or a `guards:` section in `config.yaml`.~~ A separate `guards.yaml`, beside `config.yaml`.
+* ~~**Whether `pastes` and `names` may be turned off at all,** or only loosened.~~ Any guard may be turned off. Turning off `destructive`, `pastes` or `names` gets a warning.
+* ~~**Whether to look at the `question` examples first.**~~ Built without waiting: the history and logs had no `question` stops to look at (the 11 logged stops were `earlier-prompts`, `names`, `dropped-part`, `destructive`, `asked-back` and `added-task`). The `question` lists can now be tuned when a bad stop shows up.
 
 ---
 
 ## 5. Roadmap
 
-Not scheduled. When picked up: FR-10.1 to FR-10.5 first, with the example file and its test. Then FR-10.6 and FR-10.7.
+FR-10.1 to FR-10.7 built together on 2026-11-03 (section 6).
+
+---
+
+## 6. As built (2026-11-03)
+
+As proposed, with these details:
+
+* **Where:** `guards.yaml` in the folder of the config file in use, so it follows `PROMPT_ENGINE_CONFIG` and `--pe-config`. It is polled every second, as `config.yaml` is.
+* **The keys** are the guards' names (`asked-back`, `added-task`, …). Each has `enabled`. The guards with word lists also take `add` and `remove`:
+  * `destructive`, `question` (action verbs) and `added-task` (task verbs) are lists of word starts, as in the code: `delet` is "delete", "deleted", "deleting";
+  * `question.question_words`, `negation`, `points_back` and `points_at_reply` are whole words.
+* **`added-task` has its own list.** In code it was the action verbs plus the investigation verbs, so adding to `question` doesn't change it.
+* **Thresholds:** `length.factor` (1–100, built in 3), `length.allowance` (0–1000, built in 15) and `replaced.max_share` (above 0, at most 1; built in 0.6).
+* **Words** are lower-cased and must be one word. A word both added and removed is an error. A removed word that isn't in the list is ignored, so a later release that drops it doesn't break the file.
+* **Custom guards** are checked right after `destructive`. Their words are word starts. A name is lower case letters, digits and hyphens, unique, and not a built-in guard's. The reason reads "the rewrite added production" or "the rewrite dropped staging".
+* **`pastes` off:** a pasted part the rewrite moved is put back where it now is. One dropped or repeated still stops the rewrite, since it can't be put back.
+* **Rejected files:** at startup, a warning, and the built-in guards; while running, the previous guards are kept. Either way the Session section says why.
+* **Session section:** a `guards:` line (the file, or "built-in", and the custom guards), a `weakened:` line (guards turned off, words removed from a list, thresholds loosened; adding words or tightening isn't listed), and one `⚠` line per risky guard turned off. The log has the same.
+* **`--pe-check-guards`** uses no session context, so `earlier-prompts` can't stop the rewrite, and there are no pastes. It exits 0 if the rewrite passes, 1 if a guard stops it, and 2 if `guards.yaml` is invalid.
+* **`docs/guards.example.yaml`** has a section for every guard. Its `# built-in` lines list the built-in word lists. A test checks that the file parses to the built-in rules and that those lines match. Release archives include it.
+* **Tests:** `internal/guards` (the file, the example, the notes), `internal/expand/rules_test.go` (each change reaches the checks), the check command, and the e2e `guards` case (a custom guard stops an auto rewrite, then an edit turns it off while running). Testing guide, Part Q.

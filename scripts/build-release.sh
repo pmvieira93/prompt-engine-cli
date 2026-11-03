@@ -27,7 +27,7 @@ for target in $targets; do
 	CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
 		-ldflags "-s -w -X main.version=$version" \
 		-o "$stage/prompt-engine" ./cmd/prompt-engine
-	cp README.md LICENSE docs/config.example.yaml "$stage/"
+	cp README.md LICENSE docs/config.example.yaml docs/guards.example.yaml "$stage/"
 	tar -czf "$out/$name.tar.gz" -C "$out" "$name"
 	rm -rf "$stage"
 	echo "built $out/$name.tar.gz"

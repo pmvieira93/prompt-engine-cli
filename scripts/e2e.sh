@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept style history nested
+#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept style history guards nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -280,6 +280,35 @@ exit'
 	check "not to the default file" test ! -e "$dir/state/prompt-engine/history.jsonl"
 }
 
+case_guards() {
+	echo "guards: guards.yaml beside config.yaml adds a guard, and an edit applies at once"
+	mkdir -p "$work/guards"
+	printf -- 'custom:\n  - name: no-please\n    added: [please]\n' >"$work/guards/guards.yaml"
+	# While the first prompt waits for claude's reply, the guard is turned
+	# off by editing the file.
+	(sleep 3 && printf -- 'question:\n  enabled: false\n' >"$work/guards/guards.yaml") &
+	run_case guards 'reply on
+wait "❯" 5s
+send "fix the parser now"
+sleep 300ms
+send "\r"
+sleep 5s
+send "fix the lexer now"
+sleep 300ms
+send "\r"
+sleep 1s
+send "\x04"
+exit' 'expand:
+  on_enter: auto'
+	wait
+	check "the custom guard was read" logged 'custom: no-please'
+	check "it stopped the rewrite" logged 'not used (guard no-please: the rewrite added please); sending as typed'
+	check "claude received the prompt as typed" first_sent '"fix the parser now"'
+	check "the edit was read" logged 'guards: reloaded'
+	check "it shows as weakened" logged 'weakened: question off'
+	check "the next prompt was rewritten" grep -qF '"Please fix the lexer now.' "$dir/sent.jsonl"
+}
+
 case_nested() {
 	echo "nested: inside prompt-engine already, it hands over and says so"
 	NESTED=1 run_case nested 'reply on
@@ -290,7 +319,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept style history nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept style history guards nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

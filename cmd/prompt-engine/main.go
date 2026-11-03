@@ -31,6 +31,7 @@ import (
 	"github.com/pmvieira93/prompt-engine-cli/internal/diff"
 	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
 	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
+	"github.com/pmvieira93/prompt-engine-cli/internal/guards"
 	"github.com/pmvieira93/prompt-engine-cli/internal/history"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
@@ -89,6 +90,12 @@ func run() int {
 		// The flag wins over the environment. Setting the variable keeps
 		// every reader of the config path (the reload watcher too) in step.
 		os.Setenv(config.EnvConfigPath, cfgPath)
+	}
+	if typed, rewrite, ok, err := checkGuardsArgs(cliArgs); err != nil {
+		warn("%v", err)
+		return 2
+	} else if ok {
+		return checkGuards(os.Stdout, typed, rewrite)
 	}
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {
@@ -301,6 +308,45 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			}
 			setStatus(next, nil, note)
 			ctrl.Redraw() // the panel shows the new status, and hides a preview of another style
+		})
+	}
+
+	// The guard rails file (PRD Appendix 4): read now, and again when it's
+	// edited. A rejected edit keeps the rules in use.
+	var guardRules atomic.Pointer[expand.Rules]
+	var guardStatus atomic.Pointer[[]string]
+	setGuards := func(path string, next expand.Rules, note string) {
+		guardRules.Store(&next)
+		lines := guardLines(path, next, logf)
+		if note != "" {
+			lines = append(lines, note)
+		}
+		guardStatus.Store(&lines)
+	}
+	if path, err := guards.Path(); err != nil {
+		logf("guards: built-in only: %v", err)
+		setGuards("", expand.DefaultRules(), "")
+	} else {
+		r, err := guards.Load(path)
+		if err != nil {
+			msg := strings.ReplaceAll(err.Error(), "\n", " ")
+			logf("guards: %s; using the built-in guards", msg)
+			warn("%s; using the built-in guards", msg)
+			setGuards(path, r, "guards file rejected: "+msg)
+		} else {
+			setGuards(path, r, "")
+		}
+		go config.WatchFile(ctx, path, time.Second, func() {
+			next, err := guards.Load(path)
+			if err != nil {
+				msg := strings.ReplaceAll(err.Error(), "\n", " ")
+				logf("guards: %s; keeping the previous guards", msg)
+				setGuards(path, *guardRules.Load(), "last guards edit rejected: "+msg)
+			} else {
+				logf("guards: reloaded %s", path)
+				setGuards(path, next, "")
+			}
+			ctrl.Redraw()
 		})
 	}
 
@@ -635,7 +681,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 				break
 			}
 			var stop *expand.Stop
-			if out, stop = review(plan, masked, sc); stop == nil {
+			if out, stop = review(guardRules.Load(), plan, masked, sc); stop == nil {
 				reason, guard, detail, rejected = "", "", "", ""
 				break
 			}
@@ -768,7 +814,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			reason = "expansion failed: " + err.Error()
 		default:
 			var stop *expand.Stop
-			if out, stop = review(plan, masked, sc); stop != nil {
+			if out, stop = review(guardRules.Load(), plan, masked, sc); stop != nil {
 				reason, guard, detail, rejected = stop.Reason, stop.Guard, stop.Detail, expand.StripContext(masked)
 			}
 		}
@@ -949,7 +995,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		Ctrl:          ctrl,
 		Tracker:       tracker,
 		PanelPercent:  func() int { return live.Load().Panel.Width },
-		Status:        func() []string { return *status.Load() },
+		Status:        func() []string { return append(slices.Clone(*status.Load()), *guardStatus.Load()...) },
 		Diff:          panelDiff,
 		PanelLeft:     func() bool { return live.Load().Panel.Side == "left" },
 		GhostStyle:    func() string { return live.Load().Ghost.Style },
@@ -1087,15 +1133,44 @@ func bindings(k config.KeysConfig) ghost.Keys {
 // review checks a rewrite of plan.Masked with the guard rails (PRD
 // Appendix 1, FR-7.4) and puts the kept parts back: the prompt to use, or
 // what stopped it.
-func review(plan expand.Plan, masked string, sc expand.SessionContext) (string, *expand.Stop) {
-	if stop := expand.CheckSession(plan.Masked, masked, sc); stop != nil {
+func review(rules *expand.Rules, plan expand.Plan, masked string, sc expand.SessionContext) (string, *expand.Stop) {
+	if stop := rules.CheckSession(plan.Masked, masked, sc); stop != nil {
 		return "", stop
 	}
-	out, err := plan.Restore(masked)
+	restore := plan.Restore
+	if rules.Off["pastes"] {
+		restore = plan.RestoreMoved
+	}
+	out, err := restore(masked)
 	if err != nil {
 		return "", &expand.Stop{Guard: "pastes", Reason: err.Error()}
 	}
 	return out, nil
+}
+
+// guardLines are the side panel's lines about the guard rails in use
+// (PRD Appendix 4, FR-10.6), each also logged: the file, what it turns
+// off or loosens, and a warning for each risky guard turned off.
+func guardLines(path string, r expand.Rules, logf func(string, ...any)) []string {
+	src := "built-in"
+	if _, err := os.Stat(path); err == nil {
+		src = tilde(path)
+	}
+	weakened, warnings, custom := guards.Notes(r)
+	line := "guards:      " + src
+	if len(custom) > 0 {
+		line += "; custom " + strings.Join(custom, ", ")
+	}
+	lines := []string{line}
+	logf("guards: %s; weakened: %s; custom: %s", src, listOrNone(weakened), listOrNone(custom))
+	if len(weakened) > 0 {
+		lines = append(lines, "weakened:    "+strings.Join(weakened, "; "))
+	}
+	for _, w := range warnings {
+		lines = append(lines, "⚠ "+w)
+		logf("guards: warning: %s", w)
+	}
+	return lines
 }
 
 // guardNotes are the panel's lines for a rewrite a guard rail stopped,
@@ -1266,6 +1341,60 @@ func ownFlags(args []string) (rest []string, cfgPath string, err error) {
 		}
 	}
 	return rest, cfgPath, nil
+}
+
+// checkGuardsArgs finds --pe-check-guards "<typed>" "<rewrite>" (PRD
+// Appendix 4, FR-10.7) before any "--".
+func checkGuardsArgs(args []string) (typed, rewrite string, ok bool, err error) {
+	const flag = "--pe-check-guards"
+	for i, a := range args {
+		switch a {
+		case "--":
+			return "", "", false, nil
+		case flag:
+			if len(args) != i+3 {
+				return "", "", false, fmt.Errorf("usage: prompt-engine %s \"<typed>\" \"<rewrite>\"", flag)
+			}
+			return args[i+1], args[i+2], true, nil
+		}
+	}
+	return "", "", false, nil
+}
+
+// checkGuards prints whether the guard rails, with the guards file, let
+// rewrite through for typed, and returns the exit code: 0 if they do, 1
+// if one stops it, 2 if the guards file is invalid. No session context is
+// used, so earlier-prompts can't stop it, and there are no pastes.
+func checkGuards(w io.Writer, typed, rewrite string) int {
+	path, err := guards.Path()
+	if err != nil {
+		fmt.Fprintf(w, "prompt-engine: %v\n", err)
+		return 2
+	}
+	r, err := guards.Load(path)
+	if err != nil {
+		fmt.Fprintf(w, "prompt-engine: %v\n", err)
+		return 2
+	}
+	src := "built-in guards"
+	if _, err := os.Stat(path); err == nil {
+		src = "guards from " + tilde(path)
+	}
+	weakened, warnings, custom := guards.Notes(r)
+	fmt.Fprintf(w, "Using %s (weakened: %s; custom: %s).\n", src, listOrNone(weakened), listOrNone(custom))
+	for _, x := range warnings {
+		fmt.Fprintf(w, "Warning: %s.\n", x)
+	}
+	if stop := r.CheckSession(typed, rewrite, expand.SessionContext{}); stop != nil {
+		detail := ""
+		if stop.Detail != "" {
+			detail = " (" + stop.Detail + ")"
+		}
+		fmt.Fprintf(w, "Stopped by %s%s: %s.\n", stop.Guard, detail, stop.Reason)
+		return 1
+	}
+	fmt.Fprintln(w, "Passes: no guard stops this rewrite.")
+	return 0
 }
 
 // expansionMode says when prompts are rewritten, for the panel. It

@@ -283,7 +283,7 @@ func TestDoStartsAQuestionOnlyBeforeASubject(t *testing.T) {
 		"do it":                    false,
 		"does it work":             true,
 	} {
-		if got := isQuestion(text); got != want {
+		if got := defaultRules.isQuestion(text); got != want {
 			t.Errorf("isQuestion(%q) = %v, want %v", text, got, want)
 		}
 	}

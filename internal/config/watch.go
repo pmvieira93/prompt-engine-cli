@@ -15,6 +15,12 @@ import (
 // rarely, a second's delay is fine, and polling needs no dependency and
 // survives editors that replace the file instead of writing to it.
 func Watch(ctx context.Context, path string, interval time.Duration, onChange func(Config, error)) {
+	WatchFile(ctx, path, interval, func() { onChange(LoadFile(path)) })
+}
+
+// WatchFile is Watch for any file: it calls onChange whenever path
+// changes, appears, or disappears.
+func WatchFile(ctx context.Context, path string, interval time.Duration, onChange func()) {
 	last := stampOf(path)
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -26,7 +32,7 @@ func Watch(ctx context.Context, path string, interval time.Duration, onChange fu
 		}
 		if s := stampOf(path); s != last {
 			last = s
-			onChange(LoadFile(path))
+			onChange()
 		}
 	}
 }

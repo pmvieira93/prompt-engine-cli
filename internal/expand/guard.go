@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// MaxRemoved is the share of the typed words a rewrite may lack, in any
-// order, before Guard rejects it. Fixing typos and rewording lose some
+// MaxRemoved is the built-in share of the typed words a rewrite may lack,
+// in any order, before Guard rejects it (Rules.MaxRemoved). Fixing typos and rewording lose some
 // (good rewrites in testing lacked up to 40%); lacking most means the
 // model misread the request. Order is ignored: "don't touch the tests,
 // just fix the config" → "Just fix the config without changing the tests"
@@ -43,19 +43,14 @@ var quotedName = regexp.MustCompile("\"[^\"\n]*\"|“[^”\n]*”|`[^`\n]*`")
 // negations counts words that limit or reverse a request. A rewrite may
 // reword them ("don't touch the tests" → "without changing the tests"),
 // but must not have fewer.
-func negations(text string) int {
+func (r *Rules) negations(text string) int {
 	text = quotedName.ReplaceAllString(text, " ")
 	// In Portuguese "no" means "in the", not "no".
 	noIsNegation := Language(text) != "Portuguese"
 	n := 0
 	// "…" is not a letter: "only…" is "only".
 	for _, w := range words(strings.NewReplacer("n't", " not", "cannot", "can not", "…", " ").Replace(strings.ToLower(text))) {
-		switch w {
-		case "no":
-			if noIsNegation {
-				n++
-			}
-		case "not", "never", "without", "nothing", "only", "except", "avoid", "dont", "nao", "não", "sem", "nunca", "nada", "apenas", "só":
+		if w == "no" && noIsNegation || slices.Contains(r.Negations, w) {
 			n++
 		}
 	}
@@ -65,27 +60,16 @@ func negations(text string) int {
 // contextNegations is how many negations the session context has, when
 // typed refers back to it: a rewrite resolving "go with option 2" may
 // take "only read at startup" from the reply, but never drops one typed.
-func contextNegations(typed string, sc SessionContext) int {
-	if !refersBack(typed, sc) {
+func (r *Rules) contextNegations(typed string, sc SessionContext) int {
+	if !r.refersBack(typed, sc) {
 		return 0
 	}
 	n := 0
 	for _, e := range sc.Texts() {
-		n += negations(e)
+		n += r.negations(e)
 	}
 	return n
 }
-
-// destructive and actions are word stems: a rewrite must not add the
-// former, or the latter to a question.
-var (
-	destructive = []string{"delet", "remov", "drop", "reset", "forc", "rm", "overwrit", "revert", "push", "wip", "truncat", "destroy", "purg", "eras", "discard", "uninstal"}
-	actions     = []string{"fix", "chang", "updat", "add", "remov", "delet", "refactor", "implement", "handl", "writ", "creat", "renam", "replac", "modif", "mov", "run", "commit", "push", "instal", "build", "show"}
-)
-
-// tasks are word stems of what a rewrite must not ask for when typed is
-// a report: actions, and asking for an investigation.
-var tasks = append([]string{"ensur", "verif", "investigat", "check", "explain", "debug", "resolv", "diagnos", "troubleshoot"}, actions...)
 
 // isStem reports whether word w starts with stem; a short stem ("rm",
 // "mov") only for a short word.
@@ -247,9 +231,9 @@ func typoOf(t, w string) bool {
 // tests, just fix the config loader" as context, an unrelated "fix the
 // error … in the client" came back with "Don't touch the tests or the
 // config loader." added.
-func fromEarlier(typed, rewritten string, sc SessionContext) []string {
+func (r *Rules) fromEarlier(typed, rewritten string, sc SessionContext) []string {
 	earlier := sc.Texts()
-	if len(earlier) == 0 || refersBack(typed, sc) {
+	if len(earlier) == 0 || r.refersBack(typed, sc) {
 		return nil // using the context is the point
 	}
 	typedWords := map[string]bool{}
@@ -286,19 +270,11 @@ func fromEarlier(typed, rewritten string, sc SessionContext) []string {
 // are then what it was asked to resolve. In testing, the reply's words
 // let a rewrite at L1 (earlier prompts only) resolve "the second one" to
 // the previous prompt, wrongly.
-func refersBack(typed string, sc SessionContext) bool {
+func (r *Rules) refersBack(typed string, sc SessionContext) bool {
 	reply := sc.Reply != "" || sc.Summary != ""
 	for _, w := range words(strings.ToLower(typed)) {
-		switch w {
-		case "it", "its", "that", "this", "these", "those", "there", "them", "they", "same", "also", "again", "too",
-			"isso", "isto", "mesmo", "também":
+		if slices.Contains(r.PointsBack, w) || reply && slices.Contains(r.PointsAtReply, w) {
 			return true
-		case "one", "ones", "first", "second", "third", "last", "option", "above", "previous", "suggested", "both", "either",
-			"yes", "yep", "sure", "ok", "okay", "ahead",
-			"primeiro", "primeira", "segundo", "segunda", "opção", "sim":
-			if reply {
-				return true
-			}
 		}
 	}
 	return false
@@ -307,8 +283,8 @@ func refersBack(typed string, sc SessionContext) bool {
 // pointsAtReply reports whether typed refers back while the model was
 // given the assistant's reply or the summary: "do the first one" is then
 // meant to be replaced by what it points at.
-func pointsAtReply(typed string, sc SessionContext) bool {
-	return (sc.Reply != "" || sc.Summary != "") && refersBack(typed, sc)
+func (r *Rules) pointsAtReply(typed string, sc SessionContext) bool {
+	return (sc.Reply != "" || sc.Summary != "") && r.refersBack(typed, sc)
 }
 
 // fromContext returns a filter keeping the words that aren't in the
@@ -317,9 +293,9 @@ func pointsAtReply(typed string, sc SessionContext) bool {
 // word matches the words it starts: after "run the tests and fix any
 // failures", "is it ready?" → "…are the tests running…" took "running"
 // from the context, but was stopped for it.
-func fromContext(typed string, sc SessionContext) func([]string) []string {
+func (r *Rules) fromContext(typed string, sc SessionContext) func([]string) []string {
 	earlier := sc.Texts()
-	if len(earlier) == 0 || !refersBack(typed, sc) {
+	if len(earlier) == 0 || !r.refersBack(typed, sc) {
 		return nil
 	}
 	key := func(w string) string {
@@ -358,16 +334,16 @@ func fromContext(typed string, sc SessionContext) func([]string) []string {
 
 // addedTasks returns the tasks a rewrite asks for when typed asks for
 // none of them: it reports something ("it still fails, same error
-// message"), or asks with a verb not in tasks ("tidy the branch"). Seen
+// message"), or asks with a verb not in Tasks ("tidy the branch"). Seen
 // in testing: "it still fais" became "Fix the error in the sentence: it
 // still fails.", and a list of "same …" became "Ensure the "hello" message
 // is displayed…", from an earlier prompt. A typed word with the same first
 // three letters counts as asking, so a typo ("refactr") doesn't make the
 // fixed word ("Refactor") new.
-func addedTasks(typed, rewritten string) []string {
+func (r *Rules) addedTasks(typed, rewritten string) []string {
 	typedWords := words(strings.ToLower(typed))
 	for _, w := range typedWords {
-		for _, stem := range tasks {
+		for _, stem := range r.Tasks {
 			if isStem(w, stem) {
 				return nil // a request, not a report
 			}
@@ -376,7 +352,7 @@ func addedTasks(typed, rewritten string) []string {
 	var added []string
 next:
 	for _, w := range words(strings.ToLower(rewritten)) {
-		for _, stem := range tasks {
+		for _, stem := range r.Tasks {
 			if !isStem(w, stem) {
 				continue
 			}
@@ -448,7 +424,7 @@ func shortPart(s string) string {
 
 // isQuestion reports whether typed asks something rather than asks for
 // something to be done.
-func isQuestion(typed string) bool {
+func (r *Rules) isQuestion(typed string) bool {
 	t := strings.TrimSpace(StripContext(typed))
 	if strings.HasSuffix(t, "?") {
 		return true
@@ -456,18 +432,18 @@ func isQuestion(typed string) bool {
 	// The question may also end the prompt, without its "?": "the
 	// error is … when I run make, can you fix it".
 	last := t[strings.LastIndexAny(t, ".,;:\n")+1:]
-	return startsQuestion(t) || startsQuestion(last)
+	return r.startsQuestion(t) || r.startsQuestion(last)
 }
 
-func startsQuestion(text string) bool {
+func (r *Rules) startsQuestion(text string) bool {
 	for i, w := range words(strings.ToLower(text)) {
 		if i > 1 { // "and what about…": the question word comes first or second
 			break
 		}
-		switch w {
-		case "why", "how", "what", "when", "where", "which", "who", "does", "is", "are", "can", "could", "should", "would", "will", "explain":
+		if slices.Contains(r.QuestionWords, w) {
 			return true
-		case "do": // "do you…", but not "do the first one"
+		}
+		if w == "do" { // "do you…", but not "do the first one"
 			if ws := words(strings.ToLower(text)); i+1 < len(ws) {
 				switch ws[i+1] {
 				case "you", "i", "we", "they":
@@ -548,53 +524,69 @@ func Check(typed, rewritten string, earlier ...string) *Stop {
 // CheckSession is Check with all the session context the model was given
 // (PRD Appendix 1, FR-6).
 func CheckSession(typed, rewritten string, sc SessionContext) *Stop {
+	return defaultRules.CheckSession(typed, rewritten, sc)
+}
+
+// CheckSession is the package's CheckSession with these rules (PRD
+// Appendix 4).
+func (r *Rules) CheckSession(typed, rewritten string, sc SessionContext) *Stop {
 	typed, rewritten = StripContext(typed), StripContext(rewritten)
 	stop := func(guard, detail, reason string) *Stop { return &Stop{Guard: guard, Detail: detail, Reason: reason} }
 	list := strings.Join
 	// When typed points back ("do the second one"), what the rewrite takes
 	// from the session context isn't invented (PRD Appendix 1, FR-6.3):
 	// only destructive actions stay stopped wherever they come from.
-	resolved := fromContext(typed, sc)
+	resolved := r.fromContext(typed, sc)
 	if resolved == nil {
 		resolved = func(ws []string) []string { return ws }
 	}
 	switch {
-	case rewritten == "":
+	case rewritten == "" && r.on("empty"):
 		return stop("empty", "", "the rewrite was empty")
-	case placeholder.MatchString(rewritten) && !placeholder.MatchString(typed):
+	case placeholder.MatchString(rewritten) && !placeholder.MatchString(typed) && r.on("placeholder"):
 		return stop("placeholder", placeholder.FindString(rewritten), "the rewrite has a placeholder to fill in")
-	case strings.HasSuffix(rewritten, "?") && !isQuestion(typed):
+	case strings.HasSuffix(rewritten, "?") && !r.isQuestion(typed) && r.on("asked-back"):
 		return stop("asked-back", "", "the model asked a question instead of rewriting")
-	case Language(typed) != Language(rewritten):
+	case Language(typed) != Language(rewritten) && r.on("language"):
 		return stop("language", languageName(typed)+" → "+languageName(rewritten), "the rewrite changed the language")
 	}
-	if lost := LostNames(typed, rewritten); len(lost) > 0 {
+	if lost := LostNames(typed, rewritten); len(lost) > 0 && r.on("names") {
 		return stop("names", "lost "+list(lost, ", "), "the rewrite dropped or changed "+list(lost, ", "))
 	}
-	if lost := LostQuotes(typed, rewritten); len(lost) > 0 {
+	if lost := LostQuotes(typed, rewritten); len(lost) > 0 && r.on("quotes") {
 		return stop("quotes", "changed "+list(lost, ", "), "the rewrite changed quoted text "+list(lost, ", "))
 	}
-	if added := newWords(typed, rewritten, destructive); len(added) > 0 {
+	if added := newWords(typed, rewritten, r.Destructive); len(added) > 0 && r.on("destructive") {
 		return stop("destructive", list(added, ", "), "the rewrite added a destructive action ("+list(added, ", ")+")")
 	}
-	if isQuestion(typed) {
-		if added := resolved(besidesSynonyms(typed, rewritten, besidesTypos(typed, newWords(typed, rewritten, actions)))); len(added) > 0 {
+	for _, c := range r.Custom {
+		if added := newWords(typed, rewritten, c.Added); len(added) > 0 {
+			return stop(c.Name, list(added, ", "), "the rewrite added "+list(added, ", "))
+		}
+		if lost := newWords(rewritten, typed, c.Kept); len(lost) > 0 {
+			return stop(c.Name, "lost "+list(lost, ", "), "the rewrite dropped "+list(lost, ", "))
+		}
+	}
+	if question := r.isQuestion(typed); question && r.on("question") {
+		if added := resolved(besidesSynonyms(typed, rewritten, besidesTypos(typed, newWords(typed, rewritten, r.Actions)))); len(added) > 0 {
 			return stop("question", list(added, ", "), "the rewrite turned your question into an instruction ("+list(added, ", ")+")")
 		}
-	} else if added := resolved(besidesSynonyms(typed, rewritten, addedTasks(typed, rewritten))); len(added) > 0 {
-		return stop("added-task", list(added, ", "), "the rewrite added a task you didn't ask for ("+list(added, ", ")+")")
+	} else if !question && r.on("added-task") {
+		if added := resolved(besidesSynonyms(typed, rewritten, r.addedTasks(typed, rewritten))); len(added) > 0 {
+			return stop("added-task", list(added, ", "), "the rewrite added a task you didn't ask for ("+list(added, ", ")+")")
+		}
 	}
-	if part := droppedPart(typed, rewritten); part != "" {
+	if part := droppedPart(typed, rewritten); part != "" && r.on("dropped-part") {
 		return stop("dropped-part", "“"+part+"”", "the rewrite dropped part of what you typed (“"+part+"”)")
 	}
-	if n, m := negations(typed), negations(rewritten); n != m && !(m > n && m-n <= contextNegations(typed, sc)) {
+	if n, m := r.negations(typed), r.negations(rewritten); n != m && !(m > n && m-n <= r.contextNegations(typed, sc)) && r.on("negation") {
 		return stop("negation", fmt.Sprintf("negations %d → %d", n, m), "the rewrite changed a negation (not, never, without, only…)")
 	}
-	if leaked := fromEarlier(typed, rewritten, sc); len(leaked) > 0 {
+	if leaked := r.fromEarlier(typed, rewritten, sc); len(leaked) > 0 && r.on("earlier-prompts") {
 		return stop("earlier-prompts", "from earlier: "+list(leaked, ", "), "the rewrite added details from your earlier prompts ("+list(leaked, ", ")+")")
 	}
-	if t, r := len(strings.Fields(typed)), len(strings.Fields(rewritten)); r > 3*t+15 {
-		return stop("length", fmt.Sprintf("%d → %d words", t, r), "the rewrite is much longer than what you typed")
+	if t, n := len(strings.Fields(typed)), len(strings.Fields(rewritten)); float64(n) > r.LengthFactor*float64(t)+float64(r.LengthAllowance) && r.on("length") {
+		return stop("length", fmt.Sprintf("%d → %d words", t, n), "the rewrite is much longer than what you typed")
 	}
 	typedWords := words(strings.ToLower(typed))
 	have := map[string]bool{}
@@ -607,7 +599,7 @@ func CheckSession(typed, rewritten string, sc SessionContext) *Stop {
 			missing++
 		}
 	}
-	if len(typedWords) > 0 && float64(missing)/float64(len(typedWords)) > MaxRemoved && !pointsAtReply(typed, sc) {
+	if len(typedWords) > 0 && float64(missing)/float64(len(typedWords)) > r.MaxRemoved && !r.pointsAtReply(typed, sc) && r.on("replaced") {
 		return stop("replaced", fmt.Sprintf("%d of %d words gone", missing, len(typedWords)), "the rewrite replaced most of what you typed")
 	}
 	return nil

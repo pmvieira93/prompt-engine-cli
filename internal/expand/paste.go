@@ -131,12 +131,26 @@ func PlanRewrite(text string, pastes []string) Plan {
 // marker must be there once, in order; otherwise the parts can't be put
 // back exactly.
 func (p Plan) Restore(rewritten string) (string, error) {
+	return p.restore(rewritten, false)
+}
+
+// RestoreMoved is Restore with the pastes guard turned off (PRD Appendix
+// 4): a kept part the rewrite moved is put back where it now is. One
+// dropped or repeated still can't be put back.
+func (p Plan) RestoreMoved(rewritten string) (string, error) {
+	return p.restore(rewritten, true)
+}
+
+func (p Plan) restore(rewritten string, moved bool) (string, error) {
 	found := markerPattern.FindAllString(rewritten, -1)
 	if len(found) != len(p.Kept) {
 		return "", errors.New("the rewrite dropped or repeated a pasted part")
 	}
 	for i, m := range found {
-		if m != Marker(i+1) {
+		if moved && strings.Count(rewritten, Marker(i+1)) != 1 {
+			return "", errors.New("the rewrite dropped or repeated a pasted part")
+		}
+		if !moved && m != Marker(i+1) {
 			return "", errors.New("the rewrite moved a pasted part")
 		}
 	}

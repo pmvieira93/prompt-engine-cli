@@ -1,12 +1,15 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/pmvieira93/prompt-engine-cli/internal/config"
+	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
 )
 
 func TestOwnFlags(t *testing.T) {
@@ -93,5 +96,66 @@ func TestGuardNotes(t *testing.T) {
 	}
 	if got := shorten("short", 50); got != "short" {
 		t.Errorf("shorten kept %q", got)
+	}
+}
+
+func TestCheckGuardsArgs(t *testing.T) {
+	for _, tc := range []struct {
+		args           []string
+		typed, rewrite string
+		ok, err        bool
+	}{
+		{[]string{"--pe-check-guards", "a", "b"}, "a", "b", true, false},
+		{[]string{"--pe-check-guards", "a"}, "", "", false, true},
+		{[]string{"--pe-check-guards", "a", "b", "c"}, "", "", false, true},
+		{[]string{"--", "--pe-check-guards", "a", "b"}, "", "", false, false}, // the child's
+		{[]string{"--resume"}, "", "", false, false},
+	} {
+		typed, rewrite, ok, err := checkGuardsArgs(tc.args)
+		if typed != tc.typed || rewrite != tc.rewrite || ok != tc.ok || (err != nil) != tc.err {
+			t.Errorf("checkGuardsArgs(%q) = %q, %q, %v, %v", tc.args, typed, rewrite, ok, err)
+		}
+	}
+}
+
+func TestCheckGuards(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(config.EnvConfigPath, filepath.Join(dir, "config.yaml"))
+	run := func(typed, rewrite string) (int, string) {
+		var b strings.Builder
+		code := checkGuards(&b, typed, rewrite)
+		return code, b.String()
+	}
+	if code, out := run("fix the typo", "Fix the typo."); code != 0 || !strings.Contains(out, "Using built-in guards") || !strings.Contains(out, "Passes") {
+		t.Errorf("passes: %d %q", code, out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "guards.yaml"), []byte("destructive:\n  enabled: false\ncustom:\n  - name: prod-words\n    added: [prod]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out := run("restart the api", "Restart the production api.")
+	if code != 1 || !strings.Contains(out, "Stopped by prod-words (production)") {
+		t.Errorf("custom: %d %q", code, out)
+	}
+	if !strings.Contains(out, "weakened: destructive off") || !strings.Contains(out, "Warning: destructive is off") {
+		t.Errorf("no warning: %q", out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "guards.yaml"), []byte("questoin: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := run("a", "b"); code != 2 || !strings.Contains(out, "questoin") {
+		t.Errorf("invalid file: %d %q", code, out)
+	}
+}
+
+func TestReviewPastesOff(t *testing.T) {
+	plan := expand.Plan{Masked: "explain " + expand.Marker(1) + " then " + expand.Marker(2), Kept: []string{"A", "B"}}
+	moved := "Explain " + expand.Marker(2) + " then " + expand.Marker(1)
+	r := expand.DefaultRules()
+	if _, stop := review(&r, plan, moved, expand.SessionContext{}); stop == nil || stop.Guard != "pastes" {
+		t.Errorf("built in: %+v, want stopped by pastes", stop)
+	}
+	r.Off = map[string]bool{"pastes": true}
+	if out, stop := review(&r, plan, moved, expand.SessionContext{}); stop != nil || out != "Explain B then A" {
+		t.Errorf("pastes off: %q, %+v", out, stop)
 	}
 }

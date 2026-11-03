@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O), and **installing from a release** (PRD Appendix 3, Part P). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O), and **installing from a release** (PRD Appendix 3, Part P), and **guard rails from a file** (PRD Appendix 4, Part Q). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -857,7 +857,33 @@ A bad checksum can't be produced against GitHub; `scripts/install-test.sh` check
 
 ---
 
-## 18. Known limitations (expected, not bugs)
+## 18. Part Q: Guard rails from a file
+
+`guards.yaml`, beside `config.yaml`, changes the built-in guard rails (PRD Appendix 4). These steps use a throwaway config folder and the fake rewriter, which turns `<text>` into `Please <text>.`, so the results are repeatable. Q4 to Q7 send `say hello` to `claude`.
+
+**Setup:**
+
+```sh
+T=$(mktemp -d)
+printf 'expand:\n  on_enter: auto\n  min_words: 1\npanel:\n  guard_details: true\n' >"$T/config.yaml"
+export PROMPT_ENGINE_CONFIG="$T/config.yaml"
+```
+
+| # | Do this | Expected |
+|---|---|---|
+| Q1 | `prompt-engine --pe-check-guards "fix the typo" "Fix the typo."` | `Using built-in guards (weakened: none; custom: none).`, then `Passes: no guard stops this rewrite.`; exit status 0 |
+| Q2 | `printf 'custom:\n  - name: no-please\n    added: [please]\n' >"$T/guards.yaml"`, then `prompt-engine --pe-check-guards "say hello" "Please say hello."` | `Using guards from …/guards.yaml (… custom: no-please).`, then `Stopped by no-please (please): the rewrite added please.`; exit status 1 |
+| Q3 | `cp "$T/guards.yaml" "$T/keep.yaml"; printf 'questoin:\n  enabled: false\n' >"$T/guards.yaml"`, run Q2's check again, then `mv "$T/keep.yaml" "$T/guards.yaml"` | `prompt-engine: invalid …/guards.yaml: … field questoin not found …`; exit status 2 |
+| Q4 | `PROMPT_ENGINE_SUGGESTER=fake scripts/test-env.sh prompt-engine`, open the panel (**Ctrl+Q**, **p**), type `say hello`, **Enter** | Claude receives `say hello` as typed. The panel shows `Sent as typed · guard no-please: please`, and its Session section `guards: …/guards.yaml; custom no-please` |
+| Q5 | While it runs, in another terminal: `printf 'destructive:\n  enabled: false\n' >"$T/guards.yaml"` | Within a second, the Session section shows `weakened: destructive off` and `⚠ destructive is off: in auto mode, a rewrite it would stop is sent unchecked`; `no-please` is gone |
+| Q6 | Type `say hello`, **Enter** | Claude receives the rewrite, starting `Please say hello.` (the fake rewriter adds the earlier prompt after it) |
+| Q7 | `printf 'replaced:\n  max_share: 2\n' >"$T/guards.yaml"` | The Session section shows `last guards edit rejected: … replaced.max_share: 2 is not above 0 and at most 1`, and still `destructive off`. Quit with `/exit` |
+
+**Cleanup:** `unset PROMPT_ENGINE_CONFIG; rm -rf "$T"`.
+
+---
+
+## 19. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -887,7 +913,7 @@ A bad checksum can't be produced against GitHub; `scripts/install-test.sh` check
 
 ---
 
-## 19. Reporting a problem
+## 20. Reporting a problem
 
 Include:
 

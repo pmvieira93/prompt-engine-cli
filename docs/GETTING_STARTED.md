@@ -111,6 +111,18 @@ panel:
   guard_details: true
 ```
 
+**Change the guard rails.** In `~/.config/prompt-engine/guards.yaml`, beside `config.yaml` (template: [`guards.example.yaml`](guards.example.yaml)):
+
+```yaml
+destructive:
+  add: [deploy, rollback]   # also stop a rewrite that adds these
+custom:
+  - name: prod-words
+    added: [production, prod]
+```
+
+Try it first: `prompt-engine --pe-check-guards "restart the api" "Restart the production api."` says which guard stops the rewrite.
+
 **Add your rules to every prompt.** Write them, one per line, in `~/.config/prompt-engine/templates/append.txt`:
 
 ```text
@@ -149,7 +161,7 @@ echo 'alias claude=prompt-engine' >> ~/.zshrc
 | Ghost text is slow | Ollama runs both models at once | Close other heavy apps, or try `llm.model: qwen2.5-coder:0.5b` |
 | A setting is ignored | The panel's **Session** section shows the error | Fix the key or value it names; the template is [`config.example.yaml`](config.example.yaml) |
 | `ghost.style` rejected | The value must be on one line | `style: color:117`, not a nested `color:` key |
-| Rewrites never apply | `panel.guard_details: true` | Each stop names its guard. Rephrase, or use `preview` to review |
+| Rewrites never apply | `panel.guard_details: true` | Each stop names its guard. Rephrase, use `preview` to review, or loosen that guard in `guards.yaml` |
 | "the second one" isn't named | `context: reading the transcript` in the debug log | Set `expand.context: reply`, and send a first prompt: the transcript is only used once it holds one of yours |
 | Odd characters on screen | Run with `PROMPT_ENGINE_PASSTHROUGH=1` | If they remain, the cause isn't `prompt-engine` |
 | Need details for a bug report | `PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log prompt-engine` | Attach the log. Use harmless prompts: it records what you type |
