@@ -159,3 +159,48 @@ func TestShorten(t *testing.T) {
 		t.Errorf("long: %q", got)
 	}
 }
+
+func TestFinderPathByEarlierPrompts(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "-work-app")
+	yes := `{"type":"user","uuid":"u9","message":{"content":"yes"}}`
+	ours := filepath.Join(dir, "ours.jsonl")
+	other := filepath.Join(dir, "other.jsonl")
+	write(t, ours, prompt1, answer, yes, answer)
+	write(t, other, prompt2, answer, yes, answer) // another session, written last
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(other, later, later); err != nil {
+		t.Fatal(err)
+	}
+	f := &Finder{Root: root, Cwd: "/work/app", Since: time.Now().Add(-time.Minute)}
+	if p := f.Path("yes"); p != other {
+		t.Errorf("by the last prompt alone, the newest: %q", p)
+	}
+	if p := f.Path("why does the parser crash", "yes"); p != ours {
+		t.Errorf("with the earlier prompt: %q, want %q", p, ours)
+	}
+}
+
+func TestClearedAfter(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "-work-app")
+	old := filepath.Join(dir, "old.jsonl")
+	write(t, old, prompt1, answer)
+	f := &Finder{Root: root, Cwd: "/work/app", Since: time.Now().Add(-time.Minute)}
+	sent := time.Now()
+	if f.ClearedAfter(sent, old) {
+		t.Fatal("cleared with no new transcript")
+	}
+	// As recorded from Claude Code 2.1.309: a new transcript, at once.
+	at := sent.Add(200 * time.Millisecond).UTC().Format(time.RFC3339Nano)
+	write(t, filepath.Join(dir, "new.jsonl"),
+		`{"type":"user","isMeta":true,"timestamp":"`+at+`","message":{"role":"user","content":"<local-command-caveat>The command below was run directly in Claude Code…</local-command-caveat>"}}`,
+		`{"type":"user","timestamp":"`+at+`","message":{"role":"user","content":"<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>"}}`,
+		`{"type":"system","subtype":"local_command","content":"<local-command-stdout></local-command-stdout>"}`)
+	if !f.ClearedAfter(sent, old) {
+		t.Error("a /clear transcript after the slash command wasn't seen")
+	}
+	if f.ClearedAfter(sent.Add(time.Minute), old) {
+		t.Error("a /clear from before the slash command counted")
+	}
+}

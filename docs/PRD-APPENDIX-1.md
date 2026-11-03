@@ -1,8 +1,8 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](../PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.12.0  
-**Date:** 2026-10-30  
+**Appendix Version:** 1.13.0  
+**Date:** 2026-11-02  
 **Status:** Built: FR-6.1 and FR-7.1 to FR-7.6 (with FR-7.4f) in Phase 4.5; FR-6.2 and FR-6.3 after it (2.5)
 
 ---
@@ -73,9 +73,14 @@ Before choosing a default, compare L0 and L1 on a fixed set of follow-up prompts
   * tool results are `user` records with `tool_result` blocks;
   * a reply is `assistant` records with `thinking`, `text` and `tool_use` blocks, the last with `stop_reason: end_turn`;
   * subagent (`isSidechain`) and `isMeta` records are skipped, and so are prompts starting with `<` (task notifications, slash command output, shell mode).
-* **Which transcript.** The most recently written transcript that holds the last prompt sent, among those written since `prompt-engine` started (newest first, so after `/clear` the new one wins). Before the first prompt, none is used. Anything unreadable falls back to L1.
+* **Which transcript.** Among the transcripts written since `prompt-engine` started, one that holds the last prompt sent; of those, the one holding the most of the two prompts before it, then the most recently written (so after `/clear` the new one wins). Before the first prompt, none is used. Anything unreadable falls back to L1.
+  * *The earlier prompts* were added on 2026-11-02. Two sessions in the same folder that both sent the same last prompt, such as "yes", were told apart only by which transcript was written last. Now the prompts before it decide.
   * *Seen in manual testing:* the first version took the newest transcript when nothing had been sent yet. That was another Claude Code session in the same project folder, and its conversation went into the L3 summary. It stayed on the machine (the local model wrote the summary), but it was the wrong session.
   * *After `/clear`*, the summary starts again: `claude` keeps none of the earlier conversation, so neither does L3. The `/clear` command is recorded at the start of the new transcript.
+  * *Right after `/clear`*, before the next prompt, the old transcript was still the one holding the last prompt sent, so a rewrite used the reply from before `/clear`. Since 2026-11-02, a slash command makes `prompt-engine` watch for a new transcript that starts with `/clear` and was written after it. Then the earlier reply, summary and prompts are no longer used: the log says `context: /clear: the earlier reply, summary and prompts are no longer used`. The rest of the time, nothing changes.
+    * *Recorded with Claude Code 2.1.309:* each `/clear` starts a new transcript at once, whether typed in full or picked from the menu after `/cl`. The new transcript starts with a `<command-name>/clear</command-name>` user record, and the old one is left as it was. So what was typed isn't enough to tell, and the new transcript is.
+    * *Checked live:* "now say it in portuguese" became `Say "hello" in three words in Portuguese.` before `/clear`, and no longer named "hello" after `/cl` and Enter.
+    * *Another session's `/clear`* in the same folder doesn't count. Only a `/clear` written after this session's own slash command does.
   * *Checked live (2026-10-30)*, with VHS, Claude Code 2.1.308 and a plain `claude` sent "say hi in three words" in the same folder while `prompt-engine` ran:
     * before the first prompt, Ctrl+Q e read no transcript, both before and after the other session wrote its newer one;
     * after "name two colours…", the transcript read was this session's, and "tell me a fun fact about the second one" became "…about Red" (the reply was Blue, Red);
@@ -174,6 +179,10 @@ A setting for when expansion runs:
   * **A context word under four letters didn't match its other forms** (about 9 stops). "is it ready to commit?" refers back, but "Is the --verbose flag added to the CLI and ready to commit?" was stopped for "added", since "add" and "added" have different four-letter keys.
 
   Fixed: a rewrite word one typo away from a typed word (a letter added, dropped or changed, or two swapped; only a swap under four letters, since "and" → "add" is another word) isn't new for `question` and `earlier-prompts`; common Portuguese words ("está", "já", "posso", "consegues", "agora", "alterações"…) are known; and a three-letter context word matches the words it starts ("run", "running"). After the fix, 210 of 360 passed and `question` stopped 103: all 40 typo'd tries passed, 38 of 56 Portuguese tries passed (12 before), and every question replaced by an earlier prompt or answered is still stopped. *Left as is:* "can you do the same for the server package" refers back ("same"), so its rewrite may take all three earlier prompts (both tries, one before the fix); 7 tries without context use an action word as a synonym ("which files did we touch" → "Which files did we modify?"); and statements whose second word is "is", "are" or "can" ("tests are failing on ci…") count as questions, so a task added to them is named `question` rather than `added-task`. The developer's own typed text would show which of these causes they hit.
+
+  **Fixed later (2026-11-02):**
+  * *Synonyms.* A rewrite word for an action or task (modify, check, show…) isn't new when the prompt has a synonym of it, in its usual forms: "which files did we touch" → "Which files did we modify?" now passes. Only whole words count, so "seems" isn't "see", and destructive actions have no synonyms.
+  * *Short Portuguese prompts.* A prompt of up to four words needs only one known Portuguese word of four letters or more, and no English one. "podes continuar?" (only "podes") was taken for English, so the model wasn't told its language and wrote "Can you continue?". A few Portuguese-only words were added ("isto", "onde", "quais", "obrigado"). Words shared with Spanish ("corrige", "explica") were left out, since a tie went to Portuguese.
 
   **Seen in a live run (2026-10-31).** With `expand.context: reply`, "explain waht the main.go file dose" became "Show me the contents of `main.go` and explain what it does.", taking "show me" from an earlier prompt, and passed: "show" wasn't an action word, and one leaked word is below `earlier-prompts`' threshold. "show" is now an action word. Replayed on the 360 rewrites above, no verdict changed.
 * **FR-7.4d:** `auto` holds Enter for at most `expand.auto_timeout` (default 5 s), plus time for long prompts (FR-7.4e). *Originally it also left prompts that looked pasted (over 400 characters, 6+ lines, or a code block) unexpanded; FR-7.4e replaced that.*

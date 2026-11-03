@@ -25,10 +25,11 @@ const (
 // keeps a running summary of the session (L3), for the expansion model
 // (PRD Appendix 1, FR-6.3).
 type sessionInfo struct {
-	finder   *transcript.Finder // nil without a transcript folder
-	lastSent func() string      // the last prompt sent, to tell sessions apart
-	logf     func(string, ...any)
-	every    time.Duration // how often run looks for a new reply
+	finder  *transcript.Finder // nil without a transcript folder
+	sent    func() []string    // the prompts sent since the start or /clear, to tell sessions apart
+	onClear func()             // after /clear: forget the earlier prompts
+	logf    func(string, ...any)
+	every   time.Duration // how often run looks for a new reply
 
 	mu         sync.Mutex
 	path       string // the transcript last read, to log a change
@@ -49,8 +50,8 @@ type cachedTurn struct {
 	err  error
 }
 
-func newSessionInfo(started time.Time, lastSent func() string, logf func(string, ...any)) *sessionInfo {
-	s := &sessionInfo{lastSent: lastSent, logf: logf, every: 2 * time.Second}
+func newSessionInfo(started time.Time, sent func() []string, onClear func(), logf func(string, ...any)) *sessionInfo {
+	s := &sessionInfo{sent: sent, onClear: onClear, logf: logf, every: 2 * time.Second}
 	root, err := transcript.Root()
 	if err != nil {
 		logf("context: no transcripts: %v", err)
@@ -66,7 +67,7 @@ func (s *sessionInfo) turn() (transcript.Turn, bool) {
 	if s.finder == nil {
 		return transcript.Turn{}, false
 	}
-	path := s.finder.Path(s.lastSent())
+	path := s.finder.Path(s.sent()...)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if path != s.path {
@@ -103,6 +104,36 @@ func (s *sessionInfo) turn() (transcript.Turn, bool) {
 		s.cached = c
 	}
 	return c.turn, c.err == nil
+}
+
+// slashCommand is told when a slash command is sent, at t. If it was
+// /clear, Claude Code starts a new transcript within a moment: then the
+// earlier reply, summary and prompts are forgotten, since claude no longer
+// knows them. Seen: a rewrite right after /clear still used the reply
+// from before it. Waiting for the transcript, rather than reading what
+// was typed, also catches /clear picked from the menu after "/cl".
+func (s *sessionInfo) slashCommand(t time.Time) {
+	if s.finder == nil {
+		return
+	}
+	current := s.finder.Path(s.sent()...)
+	go func() {
+		for range 20 {
+			time.Sleep(250 * time.Millisecond)
+			if !s.finder.ClearedAfter(t, current) {
+				continue
+			}
+			s.mu.Lock()
+			s.summaryOf, s.summary, s.summarized, s.failed = "", "", "", ""
+			s.cached = cachedTurn{}
+			s.mu.Unlock()
+			s.logf("context: /clear: the earlier reply, summary and prompts are no longer used")
+			if s.onClear != nil {
+				s.onClear()
+			}
+			return
+		}
+	}()
 }
 
 // reply returns the end of Claude Code's last reply, or "" if there's

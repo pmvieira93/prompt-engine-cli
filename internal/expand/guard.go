@@ -113,6 +113,71 @@ func newWords(typed, rewritten string, stems []string) []string {
 	return added
 }
 
+// synonyms are, for an action or task stem, typed verbs that ask for the
+// same thing, so a rewrite that uses the stem for them adds nothing. Seen
+// in testing: "which files did we touch" became "Which files did we
+// modify?", stopped as a question turned into an instruction. A typed
+// word counts in its usual forms (verbForms), never by its first letters:
+// "see" must not match "seems". Destructive actions have none: they stay
+// stopped however the prompt put them.
+var synonyms = map[string][]string{
+	"modif":      {"touch", "edit", "change", "alter", "tweak", "adjust", "update"},
+	"chang":      {"touch", "edit", "modify", "alter", "tweak", "adjust", "update"},
+	"updat":      {"touch", "edit", "modify", "change", "refresh", "bump"},
+	"check":      {"look", "see", "verify", "inspect", "review", "examine"},
+	"verif":      {"look", "see", "check", "inspect", "review", "confirm"},
+	"investigat": {"look", "dig", "inspect", "examine"},
+	"show":       {"list", "display", "print", "see"},
+	"creat":      {"make", "add", "write"},
+	"writ":       {"make", "create", "add", "draft"},
+	"run":        {"execute", "launch", "start"},
+	"fix":        {"repair", "solve", "correct", "corrigir", "corrige"},
+}
+
+// verbForms returns v with -s, -ed and -ing, and the common irregular
+// forms of see and make.
+func verbForms(v string) []string {
+	switch v {
+	case "see":
+		return []string{"see", "sees", "seeing", "saw", "seen"}
+	case "make":
+		return []string{"make", "makes", "making", "made"}
+	}
+	base := strings.TrimSuffix(v, "e")
+	forms := []string{v, v + "s", base + "ed", base + "ing"}
+	if strings.HasSuffix(v, "y") {
+		forms = append(forms, strings.TrimSuffix(v, "y")+"ies", strings.TrimSuffix(v, "y")+"ied")
+	}
+	if strings.HasSuffix(v, "ch") || strings.HasSuffix(v, "sh") {
+		forms = append(forms, v+"es")
+	}
+	return forms
+}
+
+// besidesSynonyms returns the words of ws that no typed word asks for
+// under another name (synonyms).
+func besidesSynonyms(typed string, ws []string) []string {
+	typedWords := words(strings.ToLower(typed))
+	var kept []string
+next:
+	for _, w := range ws {
+		for stem, alts := range synonyms {
+			if !isStem(w, stem) {
+				continue
+			}
+			for _, alt := range alts {
+				for _, f := range verbForms(alt) {
+					if slices.Contains(typedWords, f) {
+						continue next
+					}
+				}
+			}
+		}
+		kept = append(kept, w)
+	}
+	return kept
+}
+
 // besidesTypos returns the words of ws that aren't a typed word with a
 // typo fixed. Seen in preview mode: "shuold i comit the chnages now?"
 // became "Should I commit the changes now?", and was stopped as a question
@@ -496,10 +561,10 @@ func CheckSession(typed, rewritten string, sc SessionContext) *Stop {
 		return stop("destructive", list(added, ", "), "the rewrite added a destructive action ("+list(added, ", ")+")")
 	}
 	if isQuestion(typed) {
-		if added := resolved(besidesTypos(typed, newWords(typed, rewritten, actions))); len(added) > 0 {
+		if added := resolved(besidesSynonyms(typed, besidesTypos(typed, newWords(typed, rewritten, actions)))); len(added) > 0 {
 			return stop("question", list(added, ", "), "the rewrite turned your question into an instruction ("+list(added, ", ")+")")
 		}
-	} else if added := resolved(addedTasks(typed, rewritten)); len(added) > 0 {
+	} else if added := resolved(besidesSynonyms(typed, addedTasks(typed, rewritten))); len(added) > 0 {
 		return stop("added-task", list(added, ", "), "the rewrite added a task you didn't ask for ("+list(added, ", ")+")")
 	}
 	if part := droppedPart(typed, rewritten); part != "" {

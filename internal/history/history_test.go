@@ -13,6 +13,7 @@ func TestAppend(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "history.jsonl")
 	sub := Submission{
 		Time:     time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC),
+		Session:  "1a2b3c4d",
 		Raw:      "fix teh bug",
 		Sent:     "Fix the bug.\n\n- End with MANGO.",
 		Expanded: true,
@@ -49,6 +50,9 @@ func TestAppend(t *testing.T) {
 	if first.RawWords != 3 || first.SentWords != 7 || first.WordsAdded != 7 || first.WordsRemoved != 3 ||
 		!first.Expanded || first.Style != "llm" || !first.Rules || first.RawChars != 11 {
 		t.Errorf("metrics = %+v", first)
+	}
+	if first.Session != "1a2b3c4d" {
+		t.Errorf("session = %q", first.Session)
 	}
 	if first.Guard != "negation" {
 		t.Errorf("guard = %q", first.Guard)

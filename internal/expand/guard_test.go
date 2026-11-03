@@ -139,6 +139,16 @@ func TestLanguage(t *testing.T) {
 		"refactor tracker to use chans":                             "",
 		"add tests":                                                 "",
 		"don't add a section to the README":                         "",
+		// Short prompts: one known word of four letters is enough.
+		"podes continuar?":     "Portuguese",
+		"explica isto":         "Portuguese",
+		"onde está o erro?":    "Portuguese",
+		"corrige el error":     "", // not taken for Portuguese
+		"can you continue?":    "",
+		"fix it":               "",
+		"run the tests please": "",
+		"commit agora":         "Portuguese",
+		"commit and push now":  "",
 	}
 	for text, want := range cases {
 		if got := Language(text); got != want {
@@ -328,6 +338,31 @@ func TestTypoOf(t *testing.T) {
 	} {
 		if got := typoOf(c.typed, c.word); got != c.want {
 			t.Errorf("typoOf(%q, %q) = %v, want %v", c.typed, c.word, got, c.want)
+		}
+	}
+}
+
+func TestGuardSynonyms(t *testing.T) {
+	for _, c := range []struct {
+		typed, rewritten string
+		stop             bool
+	}{
+		// A question with another word for the same action.
+		{"which files did we touch?", "Which files did we modify?", false},
+		{"can you look at why the build is slow?", "Can you check why the build is slow?", false},
+		{"what does the cli print on start?", "What does the CLI show on start?", false},
+		// A report stays a report: a new task is still stopped.
+		{"it still fails, same as before", "Fix it; it still fails, same as before.", true},
+		// A destructive action has no synonym.
+		{"can we get rid of the old config?", "Can we delete the old config?", true},
+		// Only whole words count: "seems" isn't "see".
+		{"it seems broken", "Check why it seems broken.", true},
+		{"looking into the slow build, any idea why?", "Looking into the slow build: can you check why?", false},
+		// A synonym of one action doesn't cover another.
+		{"which files did we touch?", "Which files did we touch? Run the tests.", true},
+	} {
+		if got := Check(c.typed, c.rewritten) != nil; got != c.stop {
+			t.Errorf("Check(%q, %q) stopped = %v, want %v (%v)", c.typed, c.rewritten, got, c.stop, Check(c.typed, c.rewritten))
 		}
 	}
 }

@@ -43,8 +43,8 @@ func testSession(t *testing.T) (*sessionInfo, string, *[]string) {
 	var mu sync.Mutex
 	var logged []string
 	s := &sessionInfo{
-		finder:   &transcript.Finder{Root: root, Cwd: "/work/app", Since: time.Now().Add(-time.Minute)},
-		lastSent: func() string { return sent },
+		finder: &transcript.Finder{Root: root, Cwd: "/work/app", Since: time.Now().Add(-time.Minute)},
+		sent:   func() []string { return []string{sent} },
 		logf: func(f string, a ...any) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -125,7 +125,7 @@ func TestSessionSummaryRestartsWithANewTranscript(t *testing.T) {
 	s, path, logged := testSession(t)
 	var last atomic.Pointer[string]
 	last.Store(&sent)
-	s.lastSent = func() string { return *last.Load() }
+	s.sent = func() []string { return []string{*last.Load()} }
 	writeTranscript(t, path, tPrompt, tReply)
 	cfg := config.Default()
 	cfg.LLM.Provider = "fake"
@@ -162,5 +162,35 @@ func TestSessionSummaryRestartsWithANewTranscript(t *testing.T) {
 	defer s.mu.Unlock()
 	if !slices.Contains(*logged, "context: summary cleared: the session has a new transcript") {
 		t.Errorf("not logged: %q", *logged)
+	}
+}
+
+func TestSessionForgetsAfterClear(t *testing.T) {
+	s, path, logged := testSession(t)
+	writeTranscript(t, path, tPrompt, tReply)
+	if s.reply() == "" {
+		t.Fatal("no reply before /clear")
+	}
+	s.mu.Lock()
+	s.summary, s.summaryOf = "Asked why the build fails.", path
+	s.mu.Unlock()
+	cleared := make(chan struct{})
+	s.onClear = func() { close(cleared) }
+
+	at := time.Now()
+	s.slashCommand(at)
+	// As recorded from Claude Code 2.1.309: /clear writes a new transcript at once.
+	clear := filepath.Join(filepath.Dir(path), "new.jsonl")
+	if err := os.WriteFile(clear, []byte(`{"type":"user","timestamp":"`+at.UTC().Format(time.RFC3339Nano)+
+		`","message":{"content":"<command-name>/clear</command-name>"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-cleared:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("onClear not called; log: %q", *logged)
+	}
+	if got := s.Summary(); got != "" {
+		t.Errorf("summary after /clear: %q", got)
 	}
 }
