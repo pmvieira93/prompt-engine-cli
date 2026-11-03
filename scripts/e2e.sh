@@ -331,6 +331,7 @@ exit' 'expand:
   on_enter: auto
   guards: off'
 	check "the rule didn't stop the rewrite" sent '"Please fix the parser now."'
+	check "the log says guards.txt is ignored" logged 'guards: expand.guards is off: '
 }
 
 case_nested() {

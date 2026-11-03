@@ -203,4 +203,12 @@ func TestGuardLines(t *testing.T) {
 	if !slices.ContainsFunc(logged, func(l string) bool { return strings.Contains(l, "guards: warning: names is off") }) {
 		t.Errorf("warning not logged: %q", logged)
 	}
+
+	// expand.guards off: one line instead of the rules and warnings.
+	if off := guardStatusLines(true, got); len(off) != 1 || !strings.Contains(off[0], "guards.txt ignored (expand.guards: off)") {
+		t.Errorf("off: %q", off)
+	}
+	if on := guardStatusLines(false, got); !slices.Equal(on, got) {
+		t.Errorf("on: %q", on)
+	}
 }

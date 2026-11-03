@@ -282,6 +282,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			}
 			if next.Expand != prev.Expand {
 				applied = append(applied, "expand") // read on each expansion and Enter
+				if next.Expand.Guards != prev.Expand.Guards {
+					if next.Expand.Guards == "off" {
+						logf("guards: expand.guards is off: guards.txt is ignored")
+					} else {
+						logf("guards: expand.guards is on: guards.txt applies")
+					}
+				}
 				if next.Expand.OnEnter != "off" && prev.Expand.OnEnter == "off" {
 					go warmExpander(ctx, next, logf)
 				}
@@ -337,23 +344,35 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		logf("guards: built-in only: %v", err)
 		setGuards("", expand.Rules{}, "")
 	} else {
+		// The file is read with expand.guards off too, so turning it on
+		// needs no restart; only the warning is left out.
+		off := cfg.Expand.Guards == "off"
 		r, err := guards.Load(path)
 		if err != nil {
 			msg := err.Error()
 			logf("guards: %s; using the built-in guards only", msg)
-			warn("%s; using the built-in guards only", msg)
+			if !off {
+				warn("%s; using the built-in guards only", msg)
+			}
 			setGuards(path, r, "guards.txt rejected: "+msg)
 		} else {
 			setGuards(path, r, "")
 		}
+		if off {
+			logf("guards: expand.guards is off: %s is ignored", path)
+		}
 		go config.WatchFile(ctx, path, time.Second, func() {
+			ignored := ""
+			if live.Load().Expand.Guards == "off" {
+				ignored = " (ignored: expand.guards off)"
+			}
 			next, err := guards.Load(path)
 			if err != nil {
 				msg := err.Error()
-				logf("guards: %s; keeping the previous rules", msg)
+				logf("guards: %s; keeping the previous rules%s", msg, ignored)
 				setGuards(path, *guardRules.Load(), "last guards.txt edit rejected: "+msg)
 			} else {
-				logf("guards: reloaded %s", path)
+				logf("guards: reloaded %s%s", path, ignored)
 				setGuards(path, next, "")
 			}
 			ctrl.Redraw()
@@ -1013,11 +1032,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		Tracker:      tracker,
 		PanelPercent: func() int { return live.Load().Panel.Width },
 		Status: func() []string {
-			guardLines := *guardStatus.Load()
-			if live.Load().Expand.Guards == "off" {
-				guardLines = []string{"guards:      guards.txt ignored (expand.guards: off); built-in guards only"}
-			}
-			return append(slices.Clone(*status.Load()), guardLines...)
+			return append(slices.Clone(*status.Load()), guardStatusLines(live.Load().Expand.Guards == "off", *guardStatus.Load())...)
 		},
 		Diff:          panelDiff,
 		PanelLeft:     func() bool { return live.Load().Panel.Side == "left" },
@@ -1195,6 +1210,16 @@ func guardLines(path string, r expand.Rules, logf func(string, ...any)) []string
 	for _, w := range warnings {
 		lines = append(lines, "⚠ "+w)
 		logf("guards: warning: %s", w)
+	}
+	return lines
+}
+
+// guardStatusLines are the Session section's guard lines: lines, from
+// guardLines, or with expand.guards off one line saying guards.txt is
+// ignored, since its rules and warnings don't apply.
+func guardStatusLines(off bool, lines []string) []string {
+	if off {
+		return []string{"guards:      guards.txt ignored (expand.guards: off); built-in guards only"}
 	}
 	return lines
 }

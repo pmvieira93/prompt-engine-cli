@@ -130,7 +130,7 @@ turn off: question
   * a short rule catches more ("stag" is also "staging").
 
   Words are letters, digits, `-`, `_` and `'`, so a file name like `main.go` isn't a valid word; the `names` guard already keeps names. Words only inside a paste don't count, since the rules see the text with pastes masked.
-* **`expand.guards`** (`on` by default) set to `off` ignores `guards.txt` while it's there, live: no rules are told to the model or checked, and `turn off:` lines don't apply. The built-in guards stay on, since a switch for all of them would let an `auto` rewrite out unchecked. The Session section shows `guards.txt ignored (expand.guards: off); built-in guards only`, and `--pe-check-guards` doesn't read the file.
+* **`expand.guards`** (`on` by default) set to `off` ignores `guards.txt` while it's there, live: no rules are told to the model or checked, and `turn off:` lines don't apply. The built-in guards stay on, since a switch for all of them would let an `auto` rewrite out unchecked. The Session section shows `guards.txt ignored (expand.guards: off); built-in guards only`, and `--pe-check-guards` doesn't read the file. The file is still read, so turning it `on` needs no restart, but an invalid one gets no warning at startup. The log says `guards: expand.guards is off: … is ignored` at startup and when the setting changes, and a reload while off ends `(ignored: expand.guards off)`.
 * **Limits:**
   * at most 50 words and phrases in `never add` and `always keep` together, since the model may be told each one;
   * `turn off: empty` is refused, as an empty rewrite would replace the prompt;
@@ -180,21 +180,23 @@ turn off: question
 
 There are two more gaps:
 * **`system.txt` drops the lines.** It replaces `DefaultSystem` whole, so a developer with their own instructions loses every guard line in it unless they copy it.
-* **A guard turned off is still told.** With `turn off: question`, the model would still be told to keep questions as questions, once there's a line for that guard.
+* **A guard turned off is still told.** This happens today for the guards that already have a line: with `turn off: names`, the check stops, but the model is still told "Keep names exactly as written". The same goes for `length`, `pastes` (`MarkerRule`) and `earlier-prompts` (`EarlierRule`). FR-10.8 fixes it for those too, and for every new line.
 
 **FR-10.8: Guard lines.** Each built-in guard can have one short instruction line, added to the rewrite instructions the way `Rules.Instructions(typed)` adds the developer's rules:
 * **Only when it matters for the typed prompt,** to keep the instructions short for a small model:
   * `question`: when the prompt is a question ("Keep it a question; don't turn it into a task.");
   * `negation`: when it has a negation ("Keep every not, never, without and only.");
   * `quotes`: when it has quoted text ("Copy quoted text exactly.");
-  * `language`: always, or only when the prompt isn't English ("Write in the language of the request.");
+  * `language`: "Write in the language of the request." When to add it is open (below);
   * `destructive`: always, as a general rule with no words listed ("Never add actions that delete, reset or overwrite anything."). Naming the words could prompt a small model to write them.
 * **Not for a guard turned off** in `guards.txt`.
-* **Kept with `system.txt`,** so the guard lines don't depend on which instructions are used. The lines already in `DefaultSystem` move into the guard lines, so they aren't told twice.
+* **Kept with `system.txt`,** so the guard lines don't depend on which instructions are used. The lines already in `DefaultSystem` move into the guard lines, so they aren't told twice. `TypoSystem` has the `names` line too, so the move covers it.
 * **The checks stay as they are.** The lines make a stop rarer. Only the check makes it certain.
 
 **Risks**
 * **Longer instructions:** every request costs more tokens and time, and too many rules can blur the rewriting itself. Adding a line only when it matters keeps that low.
-* **Changing what works:** the current instructions were tuned in testing, and moving lines may change rewrites. The e2e and unit tests that check instructions guard against this, and the before and after numbers below show any change.
+* **Changing what works:** the current instructions were tuned in testing, and moving lines may change rewrites. The tests check which text is sent to the model, not how the rewrites turn out, so only the before and after numbers below show such a change.
+
+**Open decision:** whether the `language` line is added to every request, or only when the prompt isn't English. Every request is simpler, but costs tokens on most prompts.
 
 **How to measure:** run the same prompts before and after, and compare the stops per guard (the history's `guard` field) and the tokens per request. This fits [Appendix 5](PRD-APPENDIX-5.md) step 1, the token baseline. Keep a line only if its guard stops fewer rewrites without more stops elsewhere.
