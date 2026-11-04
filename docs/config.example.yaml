@@ -39,6 +39,8 @@ expand:
   preview_pause: 1s    # preview: how long typing must pause
   min_words: 3         # auto: shorter prompts ("yes", "continue") are sent as typed
   auto_timeout: 5s     # auto: after this, the prompt is sent as typed
+  guards: on           # on: use templates/guards.txt, your own guard rails; off: ignore it
+                       # (the built-in guards apply either way)
 
 ghost:
   style: italic        # italic, faint, or color:N (an ANSI 256-colour number, 0-255)
@@ -64,6 +66,7 @@ templates:
   dir: templates       # restart; relative to this file's directory
                        # templates/append.txt: rules added to every prompt you send
                        # templates/system.txt: replaces the rewrite instructions (and every style)
+                       # templates/guards.txt: your own guard rails (see docs/guards.example.txt)
 
 history:
   enabled: true        # one JSON line of metrics per prompt sent

@@ -1,9 +1,9 @@
 # PRD Appendix 4: Guard Rails from a File
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.4 (section 4.4, configuration and custom rules) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7.4, the guard rails)  
-**Appendix Version:** 1.0.0  
-**Date:** 2026-10-30  
-**Status:** Proposed. Agreed as the direction on 2026-10-30; not scheduled.
+**Appendix Version:** 1.3.0  
+**Date:** 2026-11-03  
+**Status:** Built on 2026-11-03 as a plain-text `templates/guards.txt` (section 6), in place of the `guards.yaml` first proposed (section 2). Agreed as the direction on 2026-10-30. Proposed next: built-in guards told to the model (section 7, FR-10.8).
 
 ---
 
@@ -21,6 +21,8 @@ All of it is code, so changing a guard needs a new release, even when the change
 ---
 
 ## 2. Proposal (FR-10)
+
+> **Superseded on 2026-11-03.** This YAML design was built, then replaced on review: the file was too hard to read and write. What was built instead is in section 6. The proposal is kept for the record.
 
 A guard rails file, `~/.config/prompt-engine/guards.yaml` (beside `config.yaml`), that **extends** the built-in guards rather than replacing them. Changes to the built-in defaults in later releases then still apply.
 
@@ -83,12 +85,118 @@ custom:
 
 ## 4. Open decisions
 
-* **Where the file lives:** a separate `guards.yaml` (proposed, since the lists can grow long), or a `guards:` section in `config.yaml`.
-* **Whether `pastes` and `names` may be turned off at all,** or only loosened.
-* **Whether to look at the `question` examples first.** If loosening that guard turns out to be a word-list change, it's a natural first case for the file.
+Decided on 2026-11-03:
+
+* ~~**Where the file lives:** a separate `guards.yaml` (proposed, since the lists can grow long), or a `guards:` section in `config.yaml`.~~ A separate `guards.yaml`, beside `config.yaml`. *Superseded by the format decision below: `templates/guards.txt` (section 6).*
+* ~~**Whether `pastes` and `names` may be turned off at all,** or only loosened.~~ Any guard may be turned off. Turning off `destructive`, `pastes` or `names` gets a warning.
+* **The format (on review of PR #16):** the `guards.yaml` built from section 2 had 15 sections, two kinds of word list (word starts and whole words) and thresholds: "a lot of confuse and very hard to understand". Replaced by `templates/guards.txt`: one rule per line, in near-English, beside `append.txt` and `system.txt`. Its rules are also told to the model, not only checked. The built-in word lists and thresholds stay in code, tuned by tests.
+* ~~**Whether to look at the `question` examples first.**~~ Built without waiting: the history and logs had no `question` stops to look at (the 11 logged stops were `earlier-prompts`, `names`, `dropped-part`, `destructive`, `asked-back` and `added-task`). The `question` lists can now be tuned when a bad stop shows up.
 
 ---
 
 ## 5. Roadmap
 
-Not scheduled. When picked up: FR-10.1 to FR-10.5 first, with the example file and its test. Then FR-10.6 and FR-10.7.
+Built on 2026-11-03 (section 6). Proposed next: built-in guards told to the model (section 7, FR-10.8). Possible later: more kinds of line, such as `also a negation: jamais`, when a real need shows up.
+
+---
+
+## 6. As built (2026-11-03): `templates/guards.txt`
+
+**The file** is `guards.txt` in the templates folder (`templates.dir`, so `~/.config/prompt-engine/templates/guards.txt` by default). It has one rule per line. `#` starts a note, and a blank line is ignored.
+
+```
+never add: deploy, rollback, production
+never add: force push
+always keep: staging, main
+turn off: question
+```
+
+| Line | Meaning | Replaces (section 2) |
+|---|---|---|
+| `never add: …` | The rewrite must not add these words or phrases if the typed prompt has none of them | FR-10.4 "added words" |
+| `always keep: …` | If the typed prompt has one of these, the rewrite must keep it | FR-10.4 "kept words" |
+| `turn off: …` | Turn off built-in guards, by name | FR-10.3 |
+
+**How the rules are used**
+* **Told to the model:** `never add` and `always keep` are added to the rewrite instructions of each request, `system.txt` included. Only the words that matter for the prompt are named: "Never add these words: …" (those not typed) and "Keep these words exactly: …" (those typed). Naming a typed word as one never to add would invite the model to drop it. The rules are read once per rewrite, so the model and the check use the same file even if it's saved meanwhile.
+* **Checked afterwards:** right after `destructive`, as guards named `never-add` and `always-keep`. The reason names the line ("the rewrite added "production" (guards.txt line 3: never add)").
+  * In `auto` and `preview` mode, with every built-in guard.
+  * With the shortcut (Ctrl+Q, e), with `names` and `quotes` only, as before, since the developer sees the rewrite before sending it. `turn off:` applies there too.
+* **Matching:**
+  * whole words, any case, with quotes, apostrophes and a final "'s" ignored;
+  * hyphenated words split into their parts ("production-like" has "production");
+  * forms: -s, -es, -ed, -d and -ing, a doubled last letter ("committed"), and the irregular verb forms;
+  * a phrase ("force push") matches its words in a row, with forms on the last word only;
+  * a short rule catches more ("stag" is also "staging").
+
+  Words are letters, digits, `-`, `_` and `'`, so a file name like `main.go` isn't a valid word; the `names` guard already keeps names. Words only inside a paste don't count, since the rules see the text with pastes masked.
+* **`expand.guards`** (`on` by default) set to `off` ignores `guards.txt` while it's there, live: no rules are told to the model or checked, and `turn off:` lines don't apply. The built-in guards stay on, since a switch for all of them would let an `auto` rewrite out unchecked. The Session section shows `guards.txt ignored (expand.guards: off); built-in guards only`, and `--pe-check-guards` doesn't read the file. The file is still read, so turning it `on` needs no restart, but an invalid one gets no warning at startup. The log says `guards: expand.guards is off: … is ignored` at startup and when the setting changes, and a reload while off ends `(ignored: expand.guards off)`.
+* **Limits:**
+  * at most 50 words and phrases in `never add` and `always keep` together, since the model may be told each one;
+  * `turn off: empty` is refused, as an empty rewrite would replace the prompt;
+  * the file follows `templates.dir`, which needs a restart.
+* **`turn off: pastes`:** a pasted part the rewrite moved is put back where it now is. One dropped or repeated still stops the rewrite.
+
+**Behaviour (FR-10.5 to FR-10.7, as proposed)**
+* **Loading:** read at startup, then polled every second.
+  * A line that isn't a rule, a word that isn't one, or an unknown guard rejects the file, naming the line: `…/guards.txt line 2: no guard "questoin" (the guards: …)`.
+  * While running, the previous rules are kept. At startup, there's a warning and the built-in guards alone.
+  * No file means the built-in guards alone.
+* **Session section:** `guards: …/guards.txt: never add 4; always keep 2; off: question` (or `built-in only (no …)`), and a `⚠` line for each of `destructive`, `pastes` and `names` turned off. A rejected edit adds `last guards.txt edit rejected: …`. The log has the same lines.
+* **`--pe-check-guards "<typed>" "<rewrite>"`:** says whether the rewrite passes, or which guard stops it and why, as in `auto` mode. It uses no session context and no pastes. It exits 0 if the rewrite passes, 1 if a guard stops it, and 2 (with the error on stderr) if `guards.txt` is invalid.
+
+**Dropped from section 2:** editing the built-in word lists (FR-10.1), the thresholds (FR-10.2), `points_back`, and the word-start syntax. These were internal tuning, and confusing to read.
+
+**Template:** `docs/guards.example.txt` explains the three rules, lists every built-in guard with what it stops, and has commented examples. A test checks that it has no active rule, that it lists every guard, and that its examples parse. Release archives include it.
+
+**Tests:**
+* `internal/guards`: parsing, errors by line, the example file and the notes;
+* `internal/expand/rules_test.go`: matching, the checks, a guard turned off, the instructions, `RestoreMoved`;
+* `TestExpandWithGuardRules`: the instructions reach the model, with and without `system.txt`;
+* the check command, and `review` with `pastes` off;
+* the e2e `guards` case: a rule stops an auto rewrite, then an edit while running replaces it, and deleting the file leaves the built-in guards;
+* review fixes (2026-11-03): spellings (quotes, apostrophes, hyphens, doubled letters), `Instructions(typed)`, the shortcut check (`CheckShortcut`), `empty` always on, the word cap, and the panel lines;
+* testing guide, Part Q.
+
+---
+
+## 7. Proposed (2026-11-03): built-in guards told to the model (FR-10.8)
+
+**Status:** Proposed, for after PR #16. Not built.
+
+**Background.** Your own rules are told to the model and then checked (section 6). The built-in guards are only checked. Some already have a matching line in the instructions (`DefaultSystem` in `internal/expand/expand.go`), but others don't. A rewrite that breaks one of those is made and then thrown away.
+
+| Guard | Told to the model today |
+|---|---|
+| `added-task`, `dropped-part`, `replaced` | Partly: "Keep the developer's intent exactly. Never add goals, components, files, or steps…" |
+| `names` | Yes: "Keep names exactly as written…" |
+| `placeholder` | Partly: "If the request is vague, keep it vague…" |
+| `length` | Yes: "under 60 words" |
+| `asked-back` | Partly: "Output only the rewritten prompt" |
+| `pastes` | Yes: `MarkerRule` |
+| `earlier-prompts` | Yes: `EarlierRule` |
+| `destructive`, `question`, `negation`, `language`, `quotes` | No |
+| `empty` | Not needed |
+
+There are two more gaps:
+* **`system.txt` drops the lines.** It replaces `DefaultSystem` whole, so a developer with their own instructions loses every guard line in it unless they copy it.
+* **A guard turned off is still told.** This happens today for the guards that already have a line: with `turn off: names`, the check stops, but the model is still told "Keep names exactly as written". The same goes for `length`, `pastes` (`MarkerRule`) and `earlier-prompts` (`EarlierRule`). FR-10.8 fixes it for those too, and for every new line.
+
+**FR-10.8: Guard lines.** Each built-in guard can have one short instruction line, added to the rewrite instructions the way `Rules.Instructions(typed)` adds the developer's rules:
+* **Only when it matters for the typed prompt,** to keep the instructions short for a small model:
+  * `question`: when the prompt is a question ("Keep it a question; don't turn it into a task.");
+  * `negation`: when it has a negation ("Keep every not, never, without and only.");
+  * `quotes`: when it has quoted text ("Copy quoted text exactly.");
+  * `language`: "Write in the language of the request." When to add it is open (below);
+  * `destructive`: always, as a general rule with no words listed ("Never add actions that delete, reset or overwrite anything."). Naming the words could prompt a small model to write them.
+* **Not for a guard turned off** in `guards.txt`.
+* **Kept with `system.txt`,** so the guard lines don't depend on which instructions are used. The lines already in `DefaultSystem` move into the guard lines, so they aren't told twice. `TypoSystem` has the `names` line too, so the move covers it.
+* **The checks stay as they are.** The lines make a stop rarer. Only the check makes it certain.
+
+**Risks**
+* **Longer instructions:** every request costs more tokens and time, and too many rules can blur the rewriting itself. Adding a line only when it matters keeps that low.
+* **Changing what works:** the current instructions were tuned in testing, and moving lines may change rewrites. The tests check which text is sent to the model, not how the rewrites turn out, so only the before and after numbers below show such a change.
+
+**Open decision:** whether the `language` line is added to every request, or only when the prompt isn't English. Every request is simpler, but costs tokens on most prompts.
+
+**How to measure:** run the same prompts before and after, and compare the stops per guard (the history's `guard` field) and the tokens per request. This fits [Appendix 5](PRD-APPENDIX-5.md) step 1, the token baseline. Keep a line only if its guard stops fewer rewrites without more stops elsewhere.

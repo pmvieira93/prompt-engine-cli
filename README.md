@@ -77,7 +77,7 @@ Every rewrite follows the same rules:
   - adding a task, or something destructive (*delete, reset, force push*), that you didn't ask for;
   - losing a negation, or changing the language.
 
-  In `auto` mode the prompt is then sent as typed; in `preview` mode no rewrite is offered. Set `panel.guard_details: true` to see which guard stopped a rewrite, and why.
+  In `auto` mode the prompt is then sent as typed; in `preview` mode no rewrite is offered. Set `panel.guard_details: true` to see which guard stopped a rewrite, and why. To change the guards, see [Your own guard rails](#your-own-guard-rails).
 
 ### Session context
 
@@ -125,7 +125,7 @@ Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, 
 **Ctrl+Q, then p** opens a panel next to Claude Code. It shows:
 
 - **Prompt diff:** what you typed against what was sent, with every change highlighted.
-- **Session:** the current mode, style and models, and any setting that needs a restart.
+- **Session:** the current mode, style and models, any setting that needs a restart, and your `guards.txt` rules and the guards it turns off.
 - **Guard details:** with `panel.guard_details`, which guard stopped a rewrite and the start of what it stopped.
 
 The panel goes on the right or the left. **Ctrl+Q, then + or −** resizes it.
@@ -321,6 +321,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | `expand.preview_pause` | `1s` | `preview`: how long typing must pause |
 | `expand.min_words` | `3` | `auto`: shorter prompts are sent as typed |
 | `expand.auto_timeout` | `5s` | `auto`: after this, the prompt is sent as typed |
+| `expand.guards` | `on` | `off` ignores `templates/guards.txt`, your own guard rails, while it's there. The built-in guards apply either way |
 | **`ghost`**: ghost text | | |
 | `ghost.style` | `italic` | `italic`, `faint` or `color:N` (0–255) |
 | `ghost.context` | `prompts` | `prompts`: suggestions follow your last prompts; `none` doesn't |
@@ -347,16 +348,48 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 
 Durations use Go's format: `150ms`, `2s`, `1m`.
 
+### Your own guard rails
+
+Add your own rules in **`~/.config/prompt-engine/templates/guards.txt`**, beside `append.txt` and `system.txt`. Write one rule per line; lines starting with `#` are notes:
+
+```
+never add: deploy, rollback, production
+never add: force push
+always keep: staging, main
+turn off: question
+```
+
+| Line | Meaning |
+|---|---|
+| `never add: …` | The rewrite must not add these words or phrases, if you didn't type them |
+| `always keep: …` | If you typed one of these, the rewrite must keep it |
+| `turn off: …` | Turn off built-in guards, by name |
+
+- **Each rule is used twice.**
+  - **Told to the model,** so it keeps the rules to begin with. Only the words that matter for the prompt are named: the `never add` words you didn't type, and the `always keep` words you did.
+  - **Checked after the rewrite,** in case the model ignores them. That holds in every mode, Ctrl+Q, e included.
+- **Words match whole,** in any case, with quotes, apostrophes and a final "'s" ignored. They match in their forms: `deploy` also catches "deploys", "deployed" and "deploying", and `commit` catches "committed". A hyphenated word counts as its parts ("production-like" has "production").
+- **Phrases:** `force push` matches its words in a row, with forms on the last word ("force pushed").
+- **Short words catch more:** `stag` also catches "staging". The rules ignore words that only appear inside a paste.
+- **The built-in guards stay on.** Your rules add to them. `turn off:` takes the guard names the panel and the log show; the template lists them all. `empty` can't be turned off.
+- **Mistakes are caught.** A line that isn't a rule, an unknown guard, or more than 50 words in all is named by its line number. The previous rules are kept, and edits apply as soon as you save. The file follows `templates.dir`, which needs a restart.
+- **Weakening shows.** The panel's Session section lists your rules and the guards turned off. Turning off `destructive`, `pastes` or `names` also gets a warning, since in `auto` mode a rewrite it would stop is then sent unchecked.
+- **Switch your rules off** without deleting the file: `expand.guards: off` in `config.yaml`. The built-in guards stay on, and the panel says the file is ignored.
+- **Try a rule first:** `prompt-engine --pe-check-guards "<what you typed>" "<a rewrite>"` says which guard stops the rewrite, or that it passes. It needs no model, and checks as `auto` and `preview` do. Ctrl+Q, e checks less, since you see the rewrite before sending it: only names, quotes and your rules.
+
+**Template:** [`docs/guards.example.txt`](docs/guards.example.txt) explains each rule and lists every built-in guard.
+
 ---
 
 ## Flags
 
-Every argument goes on to `claude`, except these two, which start with `--pe-`:
+Every argument goes on to `claude`, except these, which start with `--pe-`:
 
 | Flag | Purpose |
 |---|---|
 | `--pe-config <file>` | Use this config file (wins over `PROMPT_ENGINE_CONFIG`) |
 | `--pe-version` | Print `prompt-engine`'s version and exit (`--version` still gives Claude Code's) |
+| `--pe-check-guards "<typed>" "<rewrite>"` | Say which guard rail stops the rewrite, or that it passes, with your `guards.txt`. Exits 0 if it passes, 1 if stopped, 2 if `guards.txt` is invalid |
 
 ## Environment variables
 
@@ -387,6 +420,7 @@ Every argument goes on to `claude`, except these two, which start with `--pe-`:
 | `~/.config/prompt-engine/config.yaml` | Your settings |
 | `~/.config/prompt-engine/templates/append.txt` | Rules added to every prompt |
 | `~/.config/prompt-engine/templates/system.txt` | Your own rewrite instructions (replaces every style) |
+| `~/.config/prompt-engine/templates/guards.txt` | Your own guard rails (optional) |
 | `~/.local/state/prompt-engine/history.jsonl` | The history of sent prompts |
 | `~/.claude/projects/<project>/<session>.jsonl` | Claude Code's transcript: read, never written, with `expand.context: reply` or `session` |
 | `~/.local/bin/prompt-engine` | The binary, as installed by the script |

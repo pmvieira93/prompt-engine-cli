@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept style history nested
+#   scripts/e2e.sh [case]...   cases: ghost rules panel preview auto accept style history guards guards_off nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -280,6 +280,60 @@ exit'
 	check "not to the default file" test ! -e "$dir/state/prompt-engine/history.jsonl"
 }
 
+case_guards() {
+	echo "guards: templates/guards.txt adds a rule, an edit applies at once, and deleting it leaves the built-in guards"
+	local g="$work/guards/templates/guards.txt" sent="$work/guards/sent.jsonl"
+	mkdir -p "$work/guards/templates"
+	printf -- '# no please\nnever add: please\n' >"$g"
+	# Each edit waits for claude to receive a prompt, not for a time, so a
+	# slow start can't move it before the prompt it should follow.
+	(
+		lines() { [ -f "$sent" ] && wc -l <"$sent" || echo 0; }
+		for _ in $(seq 150); do [ "$(lines)" -ge 1 ] && break; sleep 0.1; done
+		printf -- 'turn off: question\n' >"$g"
+		for _ in $(seq 150); do [ "$(lines)" -ge 2 ] && break; sleep 0.1; done
+		rm -f "$g"
+	) &
+	run_case guards 'reply on
+wait "❯" 5s
+send "fix the parser now"
+sleep 300ms
+send "\r"
+sleep 3s
+send "fix the lexer now"
+sleep 300ms
+send "\r"
+sleep 3s
+send "\x04"
+exit' 'expand:
+  on_enter: auto'
+	wait
+	check "the rule was read" logged 'guards.txt: never add 1'
+	check "it stopped the rewrite" logged 'not used (guard never-add: the rewrite added "please" (guards.txt line 2: never add)); sending as typed'
+	check "claude received the prompt as typed" first_sent '"fix the parser now"'
+	check "the edit was read" logged 'guards.txt: off: question'
+	check "the next prompt was rewritten" grep -qF '"Please fix the lexer now.' "$dir/sent.jsonl"
+	check "deleting the file leaves the built-in guards" logged 'guards: built-in only (no '
+}
+
+case_guards_off() {
+	echo "guards_off: expand.guards: off ignores templates/guards.txt"
+	mkdir -p "$work/guards_off/templates"
+	printf -- 'never add: please\n' >"$work/guards_off/templates/guards.txt"
+	run_case guards_off 'reply on
+wait "❯" 5s
+send "fix the parser now"
+sleep 300ms
+send "\r"
+sleep 1s
+send "\x04"
+exit' 'expand:
+  on_enter: auto
+  guards: off'
+	check "the rule didn't stop the rewrite" sent '"Please fix the parser now."'
+	check "the log says guards.txt is ignored" logged 'guards: expand.guards is off: '
+}
+
 case_nested() {
 	echo "nested: inside prompt-engine already, it hands over and says so"
 	NESTED=1 run_case nested 'reply on
@@ -290,7 +344,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept style history nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules panel preview auto accept style history guards guards_off nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

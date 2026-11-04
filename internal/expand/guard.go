@@ -548,6 +548,16 @@ func Check(typed, rewritten string, earlier ...string) *Stop {
 // CheckSession is Check with all the session context the model was given
 // (PRD Appendix 1, FR-6).
 func CheckSession(typed, rewritten string, sc SessionContext) *Stop {
+	return (&Rules{}).CheckSession(typed, rewritten, sc)
+}
+
+// CheckSession is the package's CheckSession with the developer's rules
+// from guards.txt (PRD Appendix 4): guards turned off, and words never to
+// add or always to keep. A nil r is no rules.
+func (r *Rules) CheckSession(typed, rewritten string, sc SessionContext) *Stop {
+	if r == nil {
+		r = &Rules{}
+	}
 	typed, rewritten = StripContext(typed), StripContext(rewritten)
 	stop := func(guard, detail, reason string) *Stop { return &Stop{Guard: guard, Detail: detail, Reason: reason} }
 	list := strings.Join
@@ -559,42 +569,47 @@ func CheckSession(typed, rewritten string, sc SessionContext) *Stop {
 		resolved = func(ws []string) []string { return ws }
 	}
 	switch {
-	case rewritten == "":
+	case rewritten == "": // always on: guards.txt can't turn it off
 		return stop("empty", "", "the rewrite was empty")
-	case placeholder.MatchString(rewritten) && !placeholder.MatchString(typed):
+	case placeholder.MatchString(rewritten) && !placeholder.MatchString(typed) && r.on("placeholder"):
 		return stop("placeholder", placeholder.FindString(rewritten), "the rewrite has a placeholder to fill in")
-	case strings.HasSuffix(rewritten, "?") && !isQuestion(typed):
+	case strings.HasSuffix(rewritten, "?") && !isQuestion(typed) && r.on("asked-back"):
 		return stop("asked-back", "", "the model asked a question instead of rewriting")
-	case Language(typed) != Language(rewritten):
+	case Language(typed) != Language(rewritten) && r.on("language"):
 		return stop("language", languageName(typed)+" → "+languageName(rewritten), "the rewrite changed the language")
 	}
-	if lost := LostNames(typed, rewritten); len(lost) > 0 {
+	if lost := LostNames(typed, rewritten); len(lost) > 0 && r.on("names") {
 		return stop("names", "lost "+list(lost, ", "), "the rewrite dropped or changed "+list(lost, ", "))
 	}
-	if lost := LostQuotes(typed, rewritten); len(lost) > 0 {
+	if lost := LostQuotes(typed, rewritten); len(lost) > 0 && r.on("quotes") {
 		return stop("quotes", "changed "+list(lost, ", "), "the rewrite changed quoted text "+list(lost, ", "))
 	}
-	if added := newWords(typed, rewritten, destructive); len(added) > 0 {
+	if added := newWords(typed, rewritten, destructive); len(added) > 0 && r.on("destructive") {
 		return stop("destructive", list(added, ", "), "the rewrite added a destructive action ("+list(added, ", ")+")")
 	}
-	if isQuestion(typed) {
+	if stop := r.check(typed, rewritten); stop != nil {
+		return stop
+	}
+	if question := isQuestion(typed); question && r.on("question") {
 		if added := resolved(besidesSynonyms(typed, rewritten, besidesTypos(typed, newWords(typed, rewritten, actions)))); len(added) > 0 {
 			return stop("question", list(added, ", "), "the rewrite turned your question into an instruction ("+list(added, ", ")+")")
 		}
-	} else if added := resolved(besidesSynonyms(typed, rewritten, addedTasks(typed, rewritten))); len(added) > 0 {
-		return stop("added-task", list(added, ", "), "the rewrite added a task you didn't ask for ("+list(added, ", ")+")")
+	} else if !question && r.on("added-task") {
+		if added := resolved(besidesSynonyms(typed, rewritten, addedTasks(typed, rewritten))); len(added) > 0 {
+			return stop("added-task", list(added, ", "), "the rewrite added a task you didn't ask for ("+list(added, ", ")+")")
+		}
 	}
-	if part := droppedPart(typed, rewritten); part != "" {
+	if part := droppedPart(typed, rewritten); part != "" && r.on("dropped-part") {
 		return stop("dropped-part", "“"+part+"”", "the rewrite dropped part of what you typed (“"+part+"”)")
 	}
-	if n, m := negations(typed), negations(rewritten); n != m && !(m > n && m-n <= contextNegations(typed, sc)) {
+	if n, m := negations(typed), negations(rewritten); n != m && !(m > n && m-n <= contextNegations(typed, sc)) && r.on("negation") {
 		return stop("negation", fmt.Sprintf("negations %d → %d", n, m), "the rewrite changed a negation (not, never, without, only…)")
 	}
-	if leaked := fromEarlier(typed, rewritten, sc); len(leaked) > 0 {
+	if leaked := fromEarlier(typed, rewritten, sc); len(leaked) > 0 && r.on("earlier-prompts") {
 		return stop("earlier-prompts", "from earlier: "+list(leaked, ", "), "the rewrite added details from your earlier prompts ("+list(leaked, ", ")+")")
 	}
-	if t, r := len(strings.Fields(typed)), len(strings.Fields(rewritten)); r > 3*t+15 {
-		return stop("length", fmt.Sprintf("%d → %d words", t, r), "the rewrite is much longer than what you typed")
+	if t, n := len(strings.Fields(typed)), len(strings.Fields(rewritten)); n > 3*t+15 && r.on("length") {
+		return stop("length", fmt.Sprintf("%d → %d words", t, n), "the rewrite is much longer than what you typed")
 	}
 	typedWords := words(strings.ToLower(typed))
 	have := map[string]bool{}
@@ -607,7 +622,7 @@ func CheckSession(typed, rewritten string, sc SessionContext) *Stop {
 			missing++
 		}
 	}
-	if len(typedWords) > 0 && float64(missing)/float64(len(typedWords)) > MaxRemoved && !pointsAtReply(typed, sc) {
+	if len(typedWords) > 0 && float64(missing)/float64(len(typedWords)) > MaxRemoved && !pointsAtReply(typed, sc) && r.on("replaced") {
 		return stop("replaced", fmt.Sprintf("%d of %d words gone", missing, len(typedWords)), "the rewrite replaced most of what you typed")
 	}
 	return nil

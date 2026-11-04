@@ -121,6 +121,10 @@ type ExpandConfig struct {
 	// prompt is sent as typed. Shorter than llm.expand_timeout, which
 	// applies when the developer chose to wait.
 	AutoTimeout time.Duration `yaml:"auto_timeout"`
+	// Guards is "on" to use templates/guards.txt, the developer's own
+	// guard rails (PRD Appendix 4), or "off" to ignore it while it's
+	// there. The built-in guards apply either way.
+	Guards string `yaml:"guards"`
 }
 
 // GhostConfig controls ghost text.
@@ -191,7 +195,7 @@ func Default() Config {
 		// earlier topic, which is easy to ignore in a suggestion.
 		Ghost: GhostConfig{Style: "italic", Context: "prompts", ContextPrompts: 3},
 		Expand: ExpandConfig{Context: "prompts", ContextPrompts: 3, OnEnter: "off", Style: "default", MinWords: 3, AutoTimeout: 5 * time.Second,
-			PreviewPause: time.Second},
+			PreviewPause: time.Second, Guards: "on"},
 	}
 }
 
@@ -284,6 +288,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("expand.on_enter must be \"off\", \"auto\" or \"preview\", got %q", c.Expand.OnEnter)
 	case !slices.Contains(expand.Styles, c.Expand.Style):
 		return fmt.Errorf("expand.style must be \"default\", \"llm\", \"human\" or \"both\", got %q", c.Expand.Style)
+	case c.Expand.Guards != "on" && c.Expand.Guards != "off":
+		return fmt.Errorf("expand.guards must be \"on\" or \"off\", got %q", c.Expand.Guards)
 	case c.Expand.PreviewPause <= 0:
 		return errors.New("expand.preview_pause must be positive")
 	case c.Expand.AutoTimeout <= 0:
