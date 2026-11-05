@@ -1,9 +1,9 @@
 # PRD Appendix 4: Guard Rails from a File
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.4 (section 4.4, configuration and custom rules) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7.4, the guard rails)  
-**Appendix Version:** 1.3.0  
-**Date:** 2026-11-03  
-**Status:** Built on 2026-11-03 as a plain-text `templates/guards.txt` (section 6), in place of the `guards.yaml` first proposed (section 2). Agreed as the direction on 2026-10-30. Proposed next: built-in guards told to the model (section 7, FR-10.8).
+**Appendix Version:** 1.4.0  
+**Date:** 2026-11-05  
+**Status:** Built on 2026-11-03 as a plain-text `templates/guards.txt` (section 6), in place of the `guards.yaml` first proposed (section 2). Agreed as the direction on 2026-10-30. Built-in guards told to the model (section 7, FR-10.8): dropped on 2026-11-05 after a spike.
 
 ---
 
@@ -96,7 +96,7 @@ Decided on 2026-11-03:
 
 ## 5. Roadmap
 
-Built on 2026-11-03 (section 6). Proposed next: built-in guards told to the model (section 7, FR-10.8). Possible later: more kinds of line, such as `also a negation: jamais`, when a real need shows up.
+Built on 2026-11-03 (section 6). Built-in guards told to the model (section 7, FR-10.8) was dropped on 2026-11-05. Possible later: more kinds of line, such as `also a negation: jamais`, when a real need shows up.
 
 ---
 
@@ -160,9 +160,9 @@ turn off: question
 
 ---
 
-## 7. Proposed (2026-11-03): built-in guards told to the model (FR-10.8)
+## 7. Dropped (2026-11-05): built-in guards told to the model (FR-10.8)
 
-**Status:** Proposed, for after PR #16. Not built.
+**Status:** Proposed on 2026-11-03, dropped on 2026-11-05. In a [spike](spikes/guard-lines.md), the lines took stops from 21 to 19 across 129 runs, with the same 8 of 43 prompts stopped, so they failed the test at the end of this section. A false alarm in `names` was fixed instead, which removes the same 2 stops at no cost in tokens. The two gaps below are still open. The section is kept as the record of the idea.
 
 **Background.** Your own rules are told to the model and then checked (section 6). The built-in guards are only checked. Some already have a matching line in the instructions (`DefaultSystem` in `internal/expand/expand.go`), but others don't. A rewrite that breaks one of those is made and then thrown away.
 
@@ -175,7 +175,8 @@ turn off: question
 | `asked-back` | Partly: "Output only the rewritten prompt" |
 | `pastes` | Yes: `MarkerRule` |
 | `earlier-prompts` | Yes: `EarlierRule` |
-| `destructive`, `question`, `negation`, `language`, `quotes` | No |
+| `language` | Partly: `Expand` names a non-English language in the request label ("Request (in Portuguese; write the rewrite in Portuguese): …") |
+| `destructive`, `question`, `negation`, `quotes` | No |
 | `empty` | Not needed |
 
 There are two more gaps:

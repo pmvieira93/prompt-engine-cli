@@ -4,7 +4,7 @@ Branch `spike/shared-run`, 2026-11-05. Prototype, not production code.
 
 **Question:** if the rewrite instructions name the built-in guards, do fewer rewrites get stopped, without more stops elsewhere?
 
-**Short answer:** no. Stops went from 21 to 19 across 129 runs, and the same 8 of 43 prompts were stopped. Two guards stopped firing, but others fired more, so the lines fail the test in Appendix 4 §7. The recommendation is to drop them and fix a false alarm in the `names` check instead, which removes more stops.
+**Short answer:** no. Stops went from 21 to 19 across 129 runs, and the same 8 of 43 prompts were stopped. Two guards stopped firing, but others fired more, so the lines fail the test in Appendix 4 §7. The lines were dropped. A false alarm in the `names` check was fixed instead, which removes the same 2 stops of today's 21 at no cost in tokens.
 
 ---
 
@@ -61,7 +61,7 @@ Run by run, 15 stops happened in both variants, 6 went away and 4 were new.
 
 * **`negation` went to 0, but the prompts didn't get through.** One prompt stopped by `negation` today was stopped by `names` with the line, because the rewrite then lost a label instead.
 * **The biggest guards weren't helped.** `names` and `replaced` make up 14 of today's 21 stops, and both already have a line in `DefaultSystem`. Telling the model more doesn't reach them.
-* **`names` has false alarms.** One prompt was stopped 9 times across the 3 variants (3 today) with the rewrite otherwise fine. The rewrite had reworded a word pair written with a slash, and had dropped an abbreviation with a dot. `LostNames` (`internal/expand/guard.go`) treats any word with one of `nameChars` as a name, and both contain one. That's 9 of all 53 stops in the three variants of the run, more than the lines removed.
+* **`names` has false alarms.** One prompt was stopped 9 times across the 3 variants (3 today) with the rewrite otherwise fine. The rewrite had reworded a word pair written with a slash, and had dropped an abbreviation with a dot. `LostNames` (`internal/expand/guard.go`) treats any word with one of `nameChars` as a name, and both contain one. Section 5 has what fixing this really changed, which is less than these 9 suggest.
 * **The other `names` stops were real:** the rewrite dropped a test label or a timestamp from a bug report.
 
 ---
@@ -76,10 +76,18 @@ Run by run, 15 stops happened in both variants, 6 went away and 4 were new.
 
 ---
 
-## 5. Recommendation
+## 5. Decision (2026-11-05)
 
 **Drop the new lines.** They add about 28 tokens to every request with no measurable gain.
 
-**Fix the `names` false alarms instead:** don't treat ordinary words with a slash, or abbreviations with a dot, as names. This needs care, because paths such as `src/app` have a slash too and must stay protected.
+**Fix the `names` false alarms instead.** `LostNames` now skips "e.g" and "i.e", and accepts a pair of plain words joined by one slash when the rewrite still has both words. Other names stay protected. A two-word path reworded as "src and app" now passes, which is the cost of the rule.
 
-The decision is the developer's, and Appendix 4 isn't updated yet.
+Replaying all 387 stored rewrites through the fixed guards:
+
+| Guard stops | Before | After |
+|---|---|---|
+| Today | 21 | **19** |
+| Guard lines | 19 | 19 |
+| JSON | 13 | 13 |
+
+The fix helped less than the 9 stops above suggested, because only 5 of them cleared. In the other 4, the rewrite really had lost one word of the pair. In 3 of the 5 that cleared, all with guard lines, `negation` then stopped the rewrite anyway. So the fix removes 2 of today's 21 stops: the same as the lines, with no extra tokens or change to the rewrites.

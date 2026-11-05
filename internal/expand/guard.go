@@ -21,6 +21,14 @@ var placeholder = regexp.MustCompile(`\[[^\]\n]{3,}\]`)
 // ("code-reviewer"), a file, a path, a mention, an issue number.
 const nameChars = "-_/.@#!0123456789"
 
+// notNames have nameChars but are ordinary abbreviations.
+var notNames = map[string]bool{"e.g": true, "i.e": true}
+
+// wordPair is two plain words joined by a slash ("using/try"). The length
+// and the single slash keep short or deep paths out, such as "a/b" or
+// "src/app/main".
+var wordPair = regexp.MustCompile(`^([a-zA-Z]{3,})/([a-zA-Z]{3,})$`)
+
 // LostQuotes returns the spans of typed in `backticks` or "double quotes"
 // (commands, error messages, strings) that the rewrite doesn't contain
 // exactly.
@@ -492,6 +500,8 @@ func words(text string) []string {
 // review the code in merge request !110?". Comparison ignores case,
 // hyphens and underscores, so "e2e" → "E2E" and "multi-line" →
 // "multiline" are fine, but "code-reviewer" → "code reviewer" isn't.
+// Abbreviations are skipped, and a word pair only needs both words: "using
+// or trying" keeps "using/try". So "src/app" → "src and app" isn't caught.
 func LostNames(typed, rewritten string) []string {
 	norm := func(s string) string {
 		return strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(s))
@@ -504,6 +514,12 @@ func LostNames(typed, rewritten string) []string {
 		w = strings.TrimRight(strings.TrimLeft(w, "\"'(["), "\"')],.;:?")
 		if !strings.ContainsAny(w, nameChars) || strings.Trim(w, "0123456789") == "" {
 			continue // an ordinary word, or a plain number ("3" may become "three")
+		}
+		if notNames[strings.ToLower(w)] {
+			continue
+		}
+		if m := wordPair.FindStringSubmatch(w); m != nil && strings.Contains(have, norm(m[1])) && strings.Contains(have, norm(m[2])) {
+			continue
 		}
 		if !strings.Contains(have, norm(w)) {
 			lost = append(lost, w)
