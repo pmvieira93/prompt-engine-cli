@@ -120,7 +120,7 @@ always keep: staging
 
 Try it first: `prompt-engine --pe-check-guards "restart the api" "Restart the production api."` says which guard stops the rewrite.
 
-**Add your rules to every prompt.** Write them, one per line, in `~/.config/prompt-engine/templates/append.txt`:
+**Add your rules to your prompts.** Short prompts like "yes" don't get them. Write them, one per line, in `~/.config/prompt-engine/templates/append.txt`:
 
 ```text
 Run the tests before saying it works.

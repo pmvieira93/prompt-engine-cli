@@ -15,6 +15,7 @@ import (
 
 	"github.com/rivo/uniseg"
 
+	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 )
 
@@ -32,7 +33,10 @@ type Injector struct {
 	// cursor is in its prompt (not a dialog) and it accepts bracketed
 	// paste, so the rules' newlines don't submit early. Nil means ready.
 	Ready func() bool
-	Logf  func(format string, a ...any)
+	// MinWords returns the fewest words a prompt needs to get the rules,
+	// so "yes" or "continue" stays as typed. Nil means any prompt.
+	MinWords func() int
+	Logf     func(format string, a ...any)
 
 	mu       sync.Mutex
 	cached   string
@@ -62,6 +66,10 @@ func (in *Injector) Prepare(s input.State) (insert []byte, appended string) {
 		in.logf("rules: not added (%s)", reason)
 		return nil, ""
 	}
+	if in.short(s.Text) {
+		in.logf("rules: not added (short prompt)")
+		return nil, ""
+	}
 	if in.Ready != nil && !in.Ready() {
 		in.logf("rules: not added (cursor not in the prompt, or no bracketed paste)")
 		return nil, ""
@@ -84,10 +92,19 @@ func (in *Injector) Prepare(s input.State) (insert []byte, appended string) {
 	return []byte(b.String()), text
 }
 
-// Text returns the rules that would be appended now, for previews. It
-// reads the template at most once a second, since a preview is redrawn
-// far more often than that.
-func (in *Injector) Text() string {
+// short reports whether text has too few words to get the rules. The
+// context lines a rewrite ends with don't count: they alone are 3 words.
+func (in *Injector) short(text string) bool {
+	return in.MinWords != nil && len(strings.Fields(expand.StripContext(text))) < in.MinWords()
+}
+
+// Text returns the rules that would be appended now to prompt, for
+// previews. It reads the template at most once a second, since a preview
+// is redrawn far more often than that.
+func (in *Injector) Text(prompt string) string {
+	if in.short(prompt) {
+		return ""
+	}
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	if time.Since(in.cachedAt) > time.Second {

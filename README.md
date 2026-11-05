@@ -9,7 +9,7 @@
 
 - **Ghost text**: grey completions that finish your words and sentences as you type.
 - **Prompt rewrites**: a rough prompt becomes a clear one, with typos fixed and names kept.
-- **Rules**: your standing guidelines are added to every prompt you send.
+- **Rules**: your standing guidelines are added to the prompts you send.
 
 Everything runs **locally** through [Ollama](https://ollama.com). Your prompts never leave your machine before they reach Claude Code.
 
@@ -115,7 +115,7 @@ To use your own instructions instead, write them in `templates/system.txt`.
 
 ### Rules
 
-Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send.
+Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3).
 
 - Slash commands, `!` shell commands, `#` memory notes and empty prompts are skipped.
 - Edits to the file apply to your next prompt.
@@ -341,6 +341,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | `keys.panel_narrower` | `-` | Narrow the panel by 5% |
 | **`templates`** | | |
 | `templates.dir` | `templates` | Folder for `append.txt` and `system.txt`, relative to the config file. *Restart* |
+| `templates.min_words` | `3` | Shorter prompts don't get `append.txt`. `1` adds it to every prompt |
 | **`history`** | | |
 | `history.enabled` | `true` | Record one line per prompt sent |
 | `history.include_text` | `false` | Also record the prompts' text |
@@ -418,7 +419,7 @@ Every argument goes on to `claude`, except these, which start with `--pe-`:
 | Path | What it holds |
 |---|---|
 | `~/.config/prompt-engine/config.yaml` | Your settings |
-| `~/.config/prompt-engine/templates/append.txt` | Rules added to every prompt |
+| `~/.config/prompt-engine/templates/append.txt` | Rules added to the prompts you send |
 | `~/.config/prompt-engine/templates/system.txt` | Your own rewrite instructions (replaces every style) |
 | `~/.config/prompt-engine/templates/guards.txt` | Your own guard rails (optional) |
 | `~/.local/state/prompt-engine/history.jsonl` | The history of sent prompts |
