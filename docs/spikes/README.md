@@ -28,7 +28,7 @@ The reports are kept as written at the time; file and switch names in them may h
 
 | Report | Question | Status |
 |---|---|---|
-| [guard-lines.md](guard-lines.md) | Appendix 4, FR-10.8: does telling the model the guards mean fewer stops? | Done. Proposed: drop the lines, fix the `names` false alarms |
+| [guard-lines.md](guard-lines.md) | Appendix 4, FR-10.8: does telling the model the guards mean fewer stops? | Done. Decided: lines dropped, `names` false alarms fixed |
 | [intent.md](intent.md) | Appendix 6, FR-12: can the rewrite reply carry a reliable intent? | Done. Proposed: use keyword sections, leave the rewrite alone |
 | [token-baseline.md](token-baseline.md) | Appendix 5, step 1: where do Claude Code's tokens go? | Partly done |
 

@@ -71,6 +71,13 @@ func TestLostNames(t *testing.T) {
 		{"review (#110), then merge", "Review #110, then merge.", ""},
 		{"run it 3 times", "Run it three times.", ""},
 		{"fix the error `dial tcp [::1]:11434`in the client", "Fix the error `dial tcp [::1]:11434` in the client.", ""},
+		{"it fails after using/try the '@', e.g. typing", "It fails after trying or using the '@', for example typing.", ""},
+		{"keep it short, i.e. one line", "Keep it to one line.", ""},
+		{"it fails after using/try the '@'", "It fails after trying the '@'.", "using/try"},
+		{"fix src/app first", "Fix the app folder first.", "src/app"},
+		{"fix src/app/main first", "Fix src, app and main first.", "src/app/main"},
+		{"fix docs/main.go first", "Fix docs and main.go first.", "docs/main.go"},
+		{"fix main.go and C1", "Fix the main file.", "main.go C1"},
 	}
 	for _, tc := range cases {
 		if got := strings.Join(LostNames(tc.typed, tc.rewritten), " "); got != tc.lost {
