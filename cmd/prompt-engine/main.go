@@ -184,6 +184,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	// The config in use: reloaded when the file is edited (FR-4.3).
 	var live atomic.Pointer[config.Config]
 	live.Store(&cfg)
+	if injector != nil {
+		injector.MinWords = func() int { return live.Load().Expand.MinWords }
+	}
 	// The prompts sent in this session, as sent without the rules, for the
 	// models' context (expand.context, ghost.context).
 	var recent struct {
@@ -974,7 +977,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		if s := tracker.Snapshot(); expanded != "" && s.Synced && s.Text == expanded {
 			preview := expanded
 			if injector != nil {
-				if r := injector.Text(); r != "" {
+				if r := injector.Text(expanded); r != "" {
 					preview += rules.Separator + r
 				}
 			}

@@ -114,8 +114,8 @@ type ExpandConfig struct {
 	// PreviewPause is how long typing must pause before preview mode
 	// prepares a rewrite.
 	PreviewPause time.Duration `yaml:"preview_pause"`
-	// MinWords: in auto mode, shorter prompts ("yes", "continue") are sent
-	// as typed.
+	// MinWords: shorter prompts ("yes", "continue") are sent as typed: auto
+	// mode doesn't rewrite them, and they don't get templates/append.txt.
 	MinWords int `yaml:"min_words"`
 	// AutoTimeout bounds how long auto mode holds back Enter; after it the
 	// prompt is sent as typed. Shorter than llm.expand_timeout, which

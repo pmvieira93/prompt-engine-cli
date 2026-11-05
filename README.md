@@ -9,7 +9,7 @@
 
 - **Ghost text**: grey completions that finish your words and sentences as you type.
 - **Prompt rewrites**: a rough prompt becomes a clear one, with typos fixed and names kept.
-- **Rules**: your standing guidelines are added to every prompt you send.
+- **Rules**: your standing guidelines are added to the prompts you send.
 
 Everything runs **locally** through [Ollama](https://ollama.com). Your prompts never leave your machine before they reach Claude Code.
 
@@ -115,7 +115,7 @@ To use your own instructions instead, write them in `templates/system.txt`.
 
 ### Rules
 
-Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send.
+Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send, except short ones like "yes" or "ok thanks": those with fewer words than `expand.min_words` (3).
 
 - Slash commands, `!` shell commands, `#` memory notes and empty prompts are skipped.
 - Edits to the file apply to your next prompt.
@@ -319,7 +319,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | `expand.context` | `prompts` | `none`, `prompts`, `reply` or `session` ([levels](#session-context)) |
 | `expand.context_prompts` | `3` | How many earlier prompts the model sees (1–20) |
 | `expand.preview_pause` | `1s` | `preview`: how long typing must pause |
-| `expand.min_words` | `3` | `auto`: shorter prompts are sent as typed |
+| `expand.min_words` | `3` | Shorter prompts are sent as typed: `auto` doesn't rewrite them, and they don't get `append.txt` |
 | `expand.auto_timeout` | `5s` | `auto`: after this, the prompt is sent as typed |
 | `expand.guards` | `on` | `off` ignores `templates/guards.txt`, your own guard rails, while it's there. The built-in guards apply either way |
 | **`ghost`**: ghost text | | |
@@ -418,7 +418,7 @@ Every argument goes on to `claude`, except these, which start with `--pe-`:
 | Path | What it holds |
 |---|---|
 | `~/.config/prompt-engine/config.yaml` | Your settings |
-| `~/.config/prompt-engine/templates/append.txt` | Rules added to every prompt |
+| `~/.config/prompt-engine/templates/append.txt` | Rules added to the prompts you send |
 | `~/.config/prompt-engine/templates/system.txt` | Your own rewrite instructions (replaces every style) |
 | `~/.config/prompt-engine/templates/guards.txt` | Your own guard rails (optional) |
 | `~/.local/state/prompt-engine/history.jsonl` | The history of sent prompts |

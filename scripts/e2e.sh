@@ -93,14 +93,20 @@ case_rules() {
 	printf -- '- Run the tests before saying it works.\n' >"$work/rules/templates/append.txt"
 	run_case rules 'reply on
 wait "❯" 5s
-send "say hello"
+send "say hello there"
+sleep 300ms
+send "\r"
+sleep 500ms
+send "ok thanks"
 sleep 300ms
 send "\r"
 sleep 500ms
 send "\x04"
 exit'
 	check "rules appended" logged 'rules: appended append.txt (1 line)'
-	check "claude received the prompt and the rules" sent '"say hello\n\n- Run the tests before saying it works."'
+	check "claude received the prompt and the rules" first_sent '"say hello there\n\n- Run the tests before saying it works."'
+	check "a short prompt gets no rules" logged 'rules: not added (short prompt)'
+	check "claude received the short prompt as typed" sent '"ok thanks"'
 }
 
 case_panel() {

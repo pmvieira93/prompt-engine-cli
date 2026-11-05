@@ -37,7 +37,8 @@ expand:
                        #   session  all that, and a running summary of the session (uses the model after each reply)
   context_prompts: 3   # how many earlier prompts (1-20)
   preview_pause: 1s    # preview: how long typing must pause
-  min_words: 3         # auto: shorter prompts ("yes", "continue") are sent as typed
+  min_words: 3         # shorter prompts ("yes", "continue") are sent as typed: auto doesn't
+                       # rewrite them, and they don't get templates/append.txt
   auto_timeout: 5s     # auto: after this, the prompt is sent as typed
   guards: on           # on: use templates/guards.txt, your own guard rails; off: ignore it
                        # (the built-in guards apply either way)
@@ -64,7 +65,7 @@ keys:                  # shortcuts are leader-prefixed, like tmux: press leader,
 
 templates:
   dir: templates       # restart; relative to this file's directory
-                       # templates/append.txt: rules added to every prompt you send
+                       # templates/append.txt: rules added to the prompts you send (not short ones)
                        # templates/system.txt: replaces the rewrite instructions (and every style)
                        # templates/guards.txt: your own guard rails (see docs/guards.example.txt)
 

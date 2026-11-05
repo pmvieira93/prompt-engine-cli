@@ -457,7 +457,7 @@ Send `say hello in three words in portuguese` (a harmless prompt) and wait for t
 
 ## 8. Part G: Rules added to your prompts
 
-`prompt-engine` appends the contents of `~/.config/prompt-engine/templates/append.txt` to each prompt you submit, just before the Enter. To make that visible, these tests use a rule whose effect shows up in `claude`'s reply.
+`prompt-engine` appends the contents of `~/.config/prompt-engine/templates/append.txt` to each prompt you submit, just before the Enter, unless it's shorter than `expand.min_words` (3). To make that visible, these tests use a rule whose effect shows up in `claude`'s reply.
 
 > ⚠️ **G1, G4, G5 and G7 send real prompts** to `claude`, so they use a little of your account. Keep the prompts short, as below.
 
@@ -478,6 +478,7 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 | G5 | While it's running, in Terminal B: `printf -- '- End your reply with the word MANGO.\n' > ~/.config/prompt-engine/templates/append.txt`. Then in Terminal A, type `say hi again in three words` and **Enter** | The reply ends with **MANGO**: edits apply without a restart |
 | G6 | Type `look at @READ` and stop | `claude`'s file menu appears, and **no** dimmed ghost text from `prompt-engine` appears next to it (Tab belongs to `claude`'s menu). Press **Tab**: `claude` completes it to `@README.md` |
 | G7 | Then type ` and say what it is in five words` and press **Enter** | Submitted with the rule: the reply ends with MANGO. Log: `rules: appended append.txt (1 line)`. (Enter with the menu still open also submits, as typed, with the rule) |
+| G7a | Type `ok thanks` and press **Enter** | Sent as typed: the reply doesn't end with MANGO. Log: `rules: not added (short prompt)` |
 | G8 | In Terminal B: `rm ~/.config/prompt-engine/templates/append.txt`. Then type `say ok` and **Enter** | Sent as typed, no `rules:` line in the log. (Skip if you'd rather not send another prompt) |
 
 **Cleanup:** `rm -f ~/.config/prompt-engine/templates/append.txt`. To keep using rules, put your own guidelines in that file.

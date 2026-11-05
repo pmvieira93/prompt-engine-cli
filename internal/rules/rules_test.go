@@ -71,6 +71,28 @@ func TestBeforeSubmitSkips(t *testing.T) {
 	}
 }
 
+func TestBeforeSubmitSkipsShort(t *testing.T) {
+	in, logs := injector(t, "rules")
+	in.MinWords = func() int { return 3 }
+	for _, text := range []string{"yes", "ok thanks", "  ok   thanks  "} {
+		if got := in.BeforeSubmit(state(text)); got != nil {
+			t.Errorf("%q: injected %q", text, got)
+		}
+		if in.Text(text) != "" {
+			t.Errorf("%q: the preview has the rules", text)
+		}
+	}
+	if !strings.Contains((*logs)[0], "not added (short prompt)") {
+		t.Errorf("logs = %q", *logs)
+	}
+	if in.BeforeSubmit(state("run the tests")) == nil {
+		t.Error("three words: rules not added")
+	}
+	if in.Text("run the tests") != "rules" {
+		t.Error("three words: the preview has no rules")
+	}
+}
+
 func TestBeforeSubmitNeedsReady(t *testing.T) {
 	in, _ := injector(t, "rules")
 	in.Ready = func() bool { return false }

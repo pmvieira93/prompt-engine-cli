@@ -3,8 +3,8 @@
 ## Project Name: `prompt-engine-cli` (Working Title)
 **Target Execution Language:** Go (Golang)  
 **Primary Integration (MVP):** Claude Code CLI  
-**Document Version:** 1.3.5  
-**Last Updated:** 2026-11-04  
+**Document Version:** 1.3.6  
+**Last Updated:** 2026-11-05  
 **Appendices:**  
 * [Appendix 1: Session Context and Automatic Enhancement](docs/PRD-APPENDIX-1.md): built (Phase 4.5, then FR-6.2 and FR-6.3)
 * [Appendix 2: Rewrite Styles](docs/PRD-APPENDIX-2.md): built (FR-8.1 to FR-8.6, including a style for one prompt)
@@ -82,7 +82,7 @@ The primary goal is to lower developer friction and improve the quality of AI in
 
 ### 4.4. Configuration & Custom System Rules
 * **FR-4.1:** Read user settings from `~/.config/prompt-engine/config.yaml` on startup (following XDG Base Directory standards).
-* **FR-4.2:** Support static prompt suffix/prefix injection from local template files (e.g., `templates/append.txt` for global guidelines such as "DO" and "DON'T" rules).
+* **FR-4.2:** Support static prompt suffix/prefix injection from local template files (e.g., `templates/append.txt` for global guidelines such as "DO" and "DON'T" rules). Prompts shorter than `expand.min_words` don't get them.
 * **FR-4.3:** Allow dynamic hot-reloading of configuration files without restarting the session.
 
 ### 4.5. Side-Panel Prompt Diff & Learning UI
