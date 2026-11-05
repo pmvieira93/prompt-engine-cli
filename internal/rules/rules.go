@@ -15,6 +15,7 @@ import (
 
 	"github.com/rivo/uniseg"
 
+	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 )
 
@@ -91,9 +92,10 @@ func (in *Injector) Prepare(s input.State) (insert []byte, appended string) {
 	return []byte(b.String()), text
 }
 
-// short reports whether text has too few words to get the rules.
+// short reports whether text has too few words to get the rules. The
+// context lines a rewrite ends with don't count: they alone are 3 words.
 func (in *Injector) short(text string) bool {
-	return in.MinWords != nil && len(strings.Fields(text)) < in.MinWords()
+	return in.MinWords != nil && len(strings.Fields(expand.StripContext(text))) < in.MinWords()
 }
 
 // Text returns the rules that would be appended now to prompt, for

@@ -185,7 +185,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	var live atomic.Pointer[config.Config]
 	live.Store(&cfg)
 	if injector != nil {
-		injector.MinWords = func() int { return live.Load().Expand.MinWords }
+		injector.MinWords = func() int { return live.Load().Templates.MinWords }
 	}
 	// The prompts sent in this session, as sent without the rules, for the
 	// models' context (expand.context, ghost.context).
@@ -308,8 +308,11 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			if next.Command != prev.Command || !slices.Equal(next.Args, prev.Args) || !maps.Equal(next.Env, prev.Env) {
 				restart = append(restart, "command/args/env")
 			}
-			if next.Templates != prev.Templates {
-				restart = append(restart, "templates")
+			if next.Templates.MinWords != prev.Templates.MinWords {
+				applied = append(applied, "templates.min_words") // read on each submit
+			}
+			if next.Templates.Dir != prev.Templates.Dir {
+				restart = append(restart, "templates.dir")
 			}
 			logf("config: reloaded %s; applied: %s; needs a restart: %s",
 				path, listOrNone(applied), listOrNone(restart))

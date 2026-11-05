@@ -114,8 +114,8 @@ type ExpandConfig struct {
 	// PreviewPause is how long typing must pause before preview mode
 	// prepares a rewrite.
 	PreviewPause time.Duration `yaml:"preview_pause"`
-	// MinWords: shorter prompts ("yes", "continue") are sent as typed: auto
-	// mode doesn't rewrite them, and they don't get templates/append.txt.
+	// MinWords: in auto mode, shorter prompts ("yes", "continue") are sent
+	// as typed.
 	MinWords int `yaml:"min_words"`
 	// AutoTimeout bounds how long auto mode holds back Enter; after it the
 	// prompt is sent as typed. Shorter than llm.expand_timeout, which
@@ -150,6 +150,9 @@ type HistoryConfig struct {
 // the config directory.
 type TemplatesConfig struct {
 	Dir string `yaml:"dir"`
+	// MinWords: shorter prompts ("yes", "continue") don't get
+	// templates/append.txt.
+	MinWords int `yaml:"min_words"`
 }
 
 // Default returns the built-in configuration used when no file exists.
@@ -176,7 +179,8 @@ func Default() Config {
 			Width: 40,
 		},
 		Templates: TemplatesConfig{
-			Dir: "templates",
+			Dir:      "templates",
+			MinWords: 3,
 		},
 		Keys: KeysConfig{
 			Leader:   "ctrl+q", // a letter, so it types the same on every layout
@@ -294,6 +298,8 @@ func (c Config) Validate() error {
 		return errors.New("expand.preview_pause must be positive")
 	case c.Expand.AutoTimeout <= 0:
 		return errors.New("expand.auto_timeout must be positive")
+	case c.Templates.MinWords < 1:
+		return fmt.Errorf("templates.min_words must be at least 1, got %d", c.Templates.MinWords)
 	case c.Expand.MinWords < 1:
 		return fmt.Errorf("expand.min_words must be at least 1, got %d", c.Expand.MinWords)
 	case c.Expand.ContextPrompts < 1 || c.Expand.ContextPrompts > 20:

@@ -457,7 +457,7 @@ Send `say hello in three words in portuguese` (a harmless prompt) and wait for t
 
 ## 8. Part G: Rules added to your prompts
 
-`prompt-engine` appends the contents of `~/.config/prompt-engine/templates/append.txt` to each prompt you submit, just before the Enter, unless it's shorter than `expand.min_words` (3). To make that visible, these tests use a rule whose effect shows up in `claude`'s reply.
+`prompt-engine` appends the contents of `~/.config/prompt-engine/templates/append.txt` to each prompt you submit, just before the Enter, unless it's shorter than `templates.min_words` (3). To make that visible, these tests use a rule whose effect shows up in `claude`'s reply.
 
 > ⚠️ **G1, G4, G5 and G7 send real prompts** to `claude`, so they use a little of your account. Keep the prompts short, as below.
 
@@ -911,6 +911,7 @@ export PROMPT_ENGINE_CONFIG="$T/config.yaml"
 | A typo the model misreads as a name can get through in auto mode (e.g. `rfcator tracker` → `the RFCator tracker`) | The rewrite keeps nearly all your words, so no word-based check can tell it from a good typo fix. Use the shortcut and review when a prompt has heavy typos |
 | Session context only includes your prompts, not `claude`'s replies | Level L1 of PRD Appendix 1. Replies (L2) and session summaries (L3) are later candidates |
 | Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
+| Languages written without spaces (Chinese, Japanese, Thai) count as one word, so those prompts are short and get no rules | `templates.min_words` counts words split by spaces. Set it to `1` to add the rules to every prompt |
 | Rules aren't added when the prompt text is unknown (`synced=false`, e.g. while a menu is open) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 

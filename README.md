@@ -115,7 +115,7 @@ To use your own instructions instead, write them in `templates/system.txt`.
 
 ### Rules
 
-Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send, except short ones like "yes" or "ok thanks": those with fewer words than `expand.min_words` (3).
+Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3).
 
 - Slash commands, `!` shell commands, `#` memory notes and empty prompts are skipped.
 - Edits to the file apply to your next prompt.
@@ -319,7 +319,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | `expand.context` | `prompts` | `none`, `prompts`, `reply` or `session` ([levels](#session-context)) |
 | `expand.context_prompts` | `3` | How many earlier prompts the model sees (1–20) |
 | `expand.preview_pause` | `1s` | `preview`: how long typing must pause |
-| `expand.min_words` | `3` | Shorter prompts are sent as typed: `auto` doesn't rewrite them, and they don't get `append.txt` |
+| `expand.min_words` | `3` | `auto`: shorter prompts are sent as typed |
 | `expand.auto_timeout` | `5s` | `auto`: after this, the prompt is sent as typed |
 | `expand.guards` | `on` | `off` ignores `templates/guards.txt`, your own guard rails, while it's there. The built-in guards apply either way |
 | **`ghost`**: ghost text | | |
@@ -341,6 +341,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | `keys.panel_narrower` | `-` | Narrow the panel by 5% |
 | **`templates`** | | |
 | `templates.dir` | `templates` | Folder for `append.txt` and `system.txt`, relative to the config file. *Restart* |
+| `templates.min_words` | `3` | Shorter prompts don't get `append.txt`. `1` adds it to every prompt |
 | **`history`** | | |
 | `history.enabled` | `true` | Record one line per prompt sent |
 | `history.include_text` | `false` | Also record the prompts' text |

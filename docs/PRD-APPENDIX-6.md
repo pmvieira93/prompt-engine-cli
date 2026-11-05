@@ -19,7 +19,7 @@ The rewrite already asks the local model about each prompt, so it can also say w
 
 ## 2. Proposal (FR-12)
 
-* **FR-12.1: Sections in `append.txt`.** A line `[name]` starts a section, which runs to the next one. Several names for one section are separated by `|`. Text before the first section is added to every prompt that isn't short (`expand.min_words`), as today.
+* **FR-12.1: Sections in `append.txt`.** A line `[name]` starts a section, which runs to the next one. Several names for one section are separated by `|`. Text before the first section is added to every prompt that isn't short (`templates.min_words`), as today.
 
   ```
   Keep changes small.

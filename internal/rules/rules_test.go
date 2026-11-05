@@ -91,6 +91,14 @@ func TestBeforeSubmitSkipsShort(t *testing.T) {
 	if in.Text("run the tests") != "rules" {
 		t.Error("three words: the preview has no rules")
 	}
+	// A rewrite's context lines aren't words of the prompt.
+	rewrite := "Please ok.\n\nContext:\n- Branch: main\n- Staged changes: 1 file"
+	if got := in.BeforeSubmit(state(rewrite)); got != nil {
+		t.Errorf("short rewrite: injected %q", got)
+	}
+	if in.Text(rewrite) != "" {
+		t.Error("short rewrite: the preview has the rules")
+	}
 }
 
 func TestBeforeSubmitNeedsReady(t *testing.T) {

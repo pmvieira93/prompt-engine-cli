@@ -82,7 +82,7 @@ The primary goal is to lower developer friction and improve the quality of AI in
 
 ### 4.4. Configuration & Custom System Rules
 * **FR-4.1:** Read user settings from `~/.config/prompt-engine/config.yaml` on startup (following XDG Base Directory standards).
-* **FR-4.2:** Support static prompt suffix/prefix injection from local template files (e.g., `templates/append.txt` for global guidelines such as "DO" and "DON'T" rules). Prompts shorter than `expand.min_words` don't get them.
+* **FR-4.2:** Support static prompt suffix/prefix injection from local template files (e.g., `templates/append.txt` for global guidelines such as "DO" and "DON'T" rules). Prompts shorter than `templates.min_words` don't get them.
 * **FR-4.3:** Allow dynamic hot-reloading of configuration files without restarting the session.
 
 ### 4.5. Side-Panel Prompt Diff & Learning UI

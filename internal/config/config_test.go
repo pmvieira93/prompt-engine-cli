@@ -112,6 +112,7 @@ func TestLoadFileErrorsFallBackToDefaults(t *testing.T) {
 		"bad ghost":    "ghost:\n  style: color:300\n",
 		"ghost level":  "ghost:\n  context: reply\n",
 		"ghost count":  "ghost:\n  context_prompts: 21\n",
+		"rules words":  "templates:\n  min_words: 0\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
