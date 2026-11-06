@@ -1,7 +1,7 @@
 # PRD Appendix 6: Rules Chosen by Intent
 
 **Extends:** [PRD.md](../PRD.md) version 1.3.5 (FR-4.2, static rules from `templates/append.txt`) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7, the rewrite on Enter)  
-**Appendix Version:** 2.2.1  
+**Appendix Version:** 2.3.0  
 **Date:** 2026-11-06  
 **Status:** Built on 2026-11-06 in `internal/rules`. Raised on 2026-11-04 with the local model naming the intent. Changed on 2026-11-05 to matching words the developer lists, after a [spike](spikes/intent.md) (section 4).
 
@@ -99,4 +99,52 @@ A wrong section is the repeated text this appendix sets out to remove, while a m
 
 ## 6. Roadmap
 
-FR-12.1 to FR-12.5 were built on 2026-11-06. What's left is the open decisions in section 5.
+FR-12.1 to FR-12.5 were built on 2026-11-06. What's left is the open decisions in section 5, and section 7, measured and set aside.
+
+---
+
+## 7. Set aside (2026-11-06): sections for confirmations (FR-12.6)
+
+**Status:** Measured and not built. Kept so the idea and its numbers aren't lost.
+
+**Background.** Claude often ends a reply with a question or a next step, and the answer is just "yes, go ahead". That prompt has no words to match, so it gets no section, even when the work has one.
+
+**FR-12.6: Proposal.** When a prompt is a confirmation, the section comes from the end of Claude's last reply:
+* **A confirmation** starts with "yes", "ok", "go ahead" or similar, has about 4 words at most, and has no section word of its own.
+* **It reads the last paragraph,** usually where the question is, with the same section words. `transcript.LastTurn` already reads the last reply.
+* **No model is involved.** Reading the file can happen in the background when the reply ends, so Enter doesn't wait, and the match itself is instant.
+* **Only the matching section is added,** with its `# Guidance` heading, not the always-added text. This is an exception to `templates.min_words`, accepted by the developer, so "yes" stays clean unless a section matches.
+
+**Measured** on the developer's history, with the example section words from FR-12.1:
+
+| Typed prompts | Count |
+|---|---|
+| All | 526 |
+| Start with a confirmation | 86 |
+| Of those, no section word of their own | 62 |
+| Of those, 4 words at most | 18 |
+
+| Where the words were looked for (of the 62) | Prompts matched |
+|---|---|
+| Last sentence | 11 |
+| Last paragraph | 18 |
+| Whole reply | 53, of which 31 matched several sections |
+
+Reading the whole reply matches almost everything, so only its end can work. Of the 18 short confirmations, read by hand against the last paragraph:
+
+| Result | Prompts |
+|---|---|
+| No section matched | 14 |
+| Matched, but wrong | 3 |
+| Matched, and arguable | 1 |
+| Matched, and clearly right | 0 |
+
+**Why it's set aside.**
+* **Claude's questions name the action or the item, not the kind of work:** "Should I start on this?" or "Want me to start with #123?". Those have no section word.
+* **The matches it did make were mostly wrong.** All 3 were `PR` matching `[review]` in a question like "Shall I commit and push this to PR #123?", where the task was committing.
+* **Doing better needs the earlier conversation,** not the last paragraph. That points back to a model reading the exchange, which is slower and which section 4 found less reliable at picking a section.
+
+**Limits of the measurement:** 18 prompts, one developer, and only the example words. A developer's own sections may fit better, for example one for `commit`.
+
+**If picked up:** repeat this on the developer's own sections first. Other CLIs (Phase 5) have no Claude transcript, so the reply would have to be read from the screen.
+
