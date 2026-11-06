@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules rules_all panel preview auto accept style history guards guards_off nested
+#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections panel preview auto accept style history guards guards_off nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -125,6 +125,27 @@ exit' 'expand:
 templates:
   min_words: 1'
 	check "claude received the short prompt and the rules" sent '"ok thanks\n\n- Run the tests before saying it works."'
+}
+
+case_rules_sections() {
+	echo "rules_sections: a section of append.txt is added only to prompts with its words"
+	mkdir -p "$work/rules_sections/templates"
+	printf -- 'Keep changes small.\n\n[test|tests]\nRun them first.\n' >"$work/rules_sections/templates/append.txt"
+	run_case rules_sections 'reply on
+wait "❯" 5s
+send "explain the loader"
+sleep 300ms
+send "\r"
+sleep 500ms
+send "fix the failing tests"
+sleep 300ms
+send "\r"
+sleep 500ms
+send "\x04"
+exit'
+	check "no match: only the always-added text" first_sent '"explain the loader\n\nKeep changes small."'
+	check "a match adds the section" sent '"fix the failing tests\n\nKeep changes small.\n\nRun them first."'
+	check "the log names the section" logged 'rules: appended append.txt (3 lines; sections: test)'
 }
 
 case_panel() {
@@ -368,7 +389,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all panel preview auto accept style history guards guards_off nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections panel preview auto accept style history guards guards_off nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

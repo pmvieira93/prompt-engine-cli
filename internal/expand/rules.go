@@ -158,6 +158,11 @@ func isForm(w, word string) bool {
 	return slices.Contains(verbForms(word), w)
 }
 
+// Words returns text's words in lower case, as the guards read them.
+func Words(text string) []string {
+	return words(strings.ToLower(text))
+}
+
 // IsPhrase reports whether p, in lower case, is words as the guards read
 // them: letters, digits, apostrophes, hyphens and underscores, separated
 // by single spaces.

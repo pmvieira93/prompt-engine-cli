@@ -65,7 +65,8 @@ keys:                  # shortcuts are leader-prefixed, like tmux: press leader,
 templates:
   dir: templates       # restart; relative to this file's directory
   min_words: 3         # shorter prompts ("yes", "continue") don't get append.txt
-                       # templates/append.txt: rules added to the prompts you send (not short ones)
+                       # templates/append.txt: rules added to the prompts you send (not short ones);
+                       # a line like [test|tests] starts a section, added only to prompts with those words
                        # templates/system.txt: replaces the rewrite instructions (and every style)
                        # templates/guards.txt: your own guard rails (see docs/guards.example.txt)
 

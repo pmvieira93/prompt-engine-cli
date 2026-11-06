@@ -186,6 +186,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	live.Store(&cfg)
 	if injector != nil {
 		injector.MinWords = func() int { return live.Load().Templates.MinWords }
+		if err := injector.Check(); err != nil {
+			warn("%v; no rules are added until it's fixed", err)
+		}
 	}
 	// The prompts sent in this session, as sent without the rules, for the
 	// models' context (expand.context, ghost.context).
@@ -892,26 +895,37 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 
 	// On each prompt sent: append the rules, and record what was typed
 	// against what was sent, for the panel and the history (FR-5).
-	var record func(s input.State, appended string)
+	var record func(s input.State, appended string, sections []string)
+	if injector != nil {
+		injector.Typed = func(prompt string) string {
+			expansion.Lock()
+			defer expansion.Unlock()
+			if expansion.expanded != "" && prompt == expansion.expanded {
+				return expansion.original
+			}
+			return prompt
+		}
+	}
 	ctrl.BeforeSubmit = func(s input.State) []byte {
 		var insert []byte
 		var appended string
+		var sections []string
 		if injector != nil {
-			insert, appended = injector.Prepare(s)
+			insert, appended, sections = injector.Prepare(s)
 		}
-		record(s, appended)
+		record(s, appended, sections)
 		return insert
 	}
 	// Leader then Enter sends the prompt as typed: no rules, but recorded.
-	ctrl.OnSubmitAsTyped = func(s input.State) { record(s, "") }
-	record = func(s input.State, appended string) {
+	ctrl.OnSubmitAsTyped = func(s input.State) { record(s, "", nil) }
+	record = func(s input.State, appended string, sections []string) {
 		if strings.HasPrefix(strings.TrimSpace(s.Text), "/") {
 			sess.slashCommand(time.Now()) // /clear starts the conversation again
 		}
 		if rules.SkipReason(s) != "" {
 			return // not a message to the model
 		}
-		sub := history.Submission{Time: time.Now(), Session: sessionID, Raw: s.Text, Sent: s.Text, Rules: appended != ""}
+		sub := history.Submission{Time: time.Now(), Session: sessionID, Raw: s.Text, Sent: s.Text, Rules: appended != "", Sections: sections}
 		expansion.Lock()
 		if expansion.expanded != "" && s.Text == expansion.expanded {
 			sub.Raw, sub.Expanded, sub.Style = expansion.original, true, expansion.style
@@ -1008,6 +1022,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		}
 		if sub.Rules {
 			note += " · rules added"
+			if len(sub.Sections) > 0 {
+				note += " (" + strings.Join(sub.Sections, ", ") + ")"
+			}
 		}
 		notes := []string{note}
 		if c := chosen(""); c != "" {
@@ -1038,7 +1055,11 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		Tracker:      tracker,
 		PanelPercent: func() int { return live.Load().Panel.Width },
 		Status: func() []string {
-			return append(slices.Clone(*status.Load()), guardStatusLines(live.Load().Expand.Guards == "off", *guardStatus.Load())...)
+			lines := append(slices.Clone(*status.Load()), guardStatusLines(live.Load().Expand.Guards == "off", *guardStatus.Load())...)
+			if injector != nil {
+				lines = append(lines, injector.Status()...)
+			}
+			return lines
 		},
 		Diff:          panelDiff,
 		PanelLeft:     func() bool { return live.Load().Panel.Side == "left" },

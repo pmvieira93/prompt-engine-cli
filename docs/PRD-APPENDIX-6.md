@@ -1,9 +1,9 @@
 # PRD Appendix 6: Rules Chosen by Intent
 
 **Extends:** [PRD.md](../PRD.md) version 1.3.5 (FR-4.2, static rules from `templates/append.txt`) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7, the rewrite on Enter)  
-**Appendix Version:** 2.0.0  
-**Date:** 2026-11-05  
-**Status:** Proposed, not built. Raised on 2026-11-04 with the local model naming the intent. Changed on 2026-11-05 to matching words the developer lists, after a [spike](spikes/intent.md) (section 4).
+**Appendix Version:** 2.1.0  
+**Date:** 2026-11-06  
+**Status:** Built on 2026-11-06 in `internal/rules`. Raised on 2026-11-04 with the local model naming the intent. Changed on 2026-11-05 to matching words the developer lists, after a [spike](spikes/intent.md) (section 4).
 
 ---
 
@@ -35,11 +35,11 @@ The words of the prompt usually show what kind of work it is, so they can decide
   Find the cause before proposing a fix.
   ```
 
-  A file with no sections works exactly as it does today. A word used in two sections, or one that isn't a word, rejects the file, naming the line, as `guards.txt` does.
+  A file with no sections works exactly as it does today. A word used twice, one that isn't a word, or a section with no text rejects the file, naming the line, as `guards.txt` does. A rejected file adds no rules until it's fixed: the warning shows at startup and in the Session section, and the log names it on each prompt.
 
 * **FR-12.2: Matching.** On Enter, each section's words are looked for in the typed prompt.
   * It's a whole-word match that ignores case, so `bug` matches "Bug" but not "debug", and `test` doesn't match "tests" unless that's listed too.
-  * It reads what was typed, not the rewrite, and leaves out `Context:` lines, as `templates.min_words` does.
+  * It reads what was typed, not the rewrite, which adds words of its own (in the spike, "review" in 9 of 129 rewrites), and leaves out `Context:` lines, as `templates.min_words` does.
   * No model is involved, so it works with every `expand.on_enter` setting and adds no time.
 
 * **FR-12.3: What gets added.** The text before the first section is added, then each section with a matching word, in the file's order:
@@ -53,7 +53,7 @@ The words of the prompt usually show what kind of work it is, so they can decide
 
 * **FR-12.4: Expand doesn't change.** The rewrite request, the guards, the diff and the styles stay exactly as they are. The rewrite's reply stays plain text.
 
-* **FR-12.5: Visible.** The Session section shows the sections added to the last prompt, the `preview` panel shows the rules that will really be added, and the history records which sections were added.
+* **FR-12.5: Visible.** The Session section shows the sections added to the last prompt, the "Ready to send" panel shows the rules that will really be added, and the history has a `sections` field.
 
 ---
 
@@ -63,6 +63,7 @@ The words of the prompt usually show what kind of work it is, so they can decide
 * **A word that's only mentioned still matches.** "all tests passed, commit it" gets the `[test]` section. The developer can remove the word from the list.
 * **Word lists take some tuning.** Words typed often need adding, and languages other than the one the list is written in won't match, so a developer who writes in two languages lists both.
 * **A section's words sit in its header.** A long list makes a long line. That's accepted to keep one simple format.
+* **A line that is only `[…]` now starts a section.** An `append.txt` with such a line changes behaviour, or is rejected if the line isn't words.
 
 ---
 
@@ -93,4 +94,4 @@ A wrong section is the repeated text this appendix sets out to remove, while a m
 
 ## 6. Roadmap
 
-Not scheduled. When picked up: FR-12.1 to FR-12.3, then FR-12.5. FR-12.4 needs no work.
+FR-12.1 to FR-12.5 were built on 2026-11-06. What's left is the open decisions in section 5.

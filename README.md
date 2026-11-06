@@ -120,6 +120,29 @@ Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, 
 - Slash commands, `!` shell commands, `#` memory notes and empty prompts are skipped.
 - Edits to the file apply to your next prompt.
 
+To add some rules only when they fit, put them in sections. A line like `[test|tests]` starts a section, and it's added only to prompts with one of its words. The sections and words are your own:
+
+```text
+Keep changes small.
+
+[review|PR|MR]
+Check the error paths too.
+
+[test|tests|coverage]
+Test behaviour, not implementation.
+
+[investigate|analysis|why]
+Don't change any code yet: report what you find.
+
+[debug|bug|crash]
+Find the cause before proposing a fix.
+```
+
+- **Text before the first section is added to every prompt,** so a rule that must always apply goes there. "Fix the crash" gets "Keep changes small." and the `[debug|bug|crash]` text.
+- **Whole words only, ignoring case.** `bug` matches "Bug" but not "debug", and `test` doesn't match "tests" unless you list it. A prompt can get several sections.
+- **Your typed words count,** not the rewrite's, and a word that's only mentioned still matches: "all tests passed" gets the test section.
+- **A mistake stops all the rules** until it's fixed: a word used twice, a section with no text, or a `[line]` that isn't words. The warning names the line, and it also shows in the side panel. A file with no such lines works as before.
+
 ### Side panel
 
 **Ctrl+Q, then p** opens a panel next to Claude Code. It shows:
@@ -132,7 +155,7 @@ The panel goes on the right or the left. **Ctrl+Q, then + or −** resizes it.
 
 ### History
 
-Each prompt you send adds one JSON line to `~/.local/state/prompt-engine/history.jsonl`. The line records whether the prompt was rewritten, in which style, whether rules were added, and which guard stopped a rewrite. The text itself is recorded only with `history.include_text: true`. Each line also names the session (`"session"`, a short id that the debug log names too), so the lines of sessions running at once can be told apart.
+Each prompt you send adds one JSON line to `~/.local/state/prompt-engine/history.jsonl`. The line records whether the prompt was rewritten, in which style, whether rules were added and from which sections, and which guard stopped a rewrite. The text itself is recorded only with `history.include_text: true`. Each line also names the session (`"session"`, a short id that the debug log names too), so the lines of sessions running at once can be told apart.
 
 ### Built to stay out of the way
 

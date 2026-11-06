@@ -127,6 +127,13 @@ Run the tests before saying it works.
 Keep changes minimal; don't refactor unrelated code.
 ```
 
+To add a rule only when it fits, start a section with its words. This one goes only on prompts with "bug" or "crash" in them:
+
+```text
+[bug|crash]
+Find the cause before proposing a fix.
+```
+
 **Change how ghost text looks:**
 
 ```yaml
