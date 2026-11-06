@@ -471,7 +471,7 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 
 | # | Do this | Expected |
 |---|---|---|
-| G1 | Type `say hi in three words` and press **Enter** | The prompt briefly shows `[Pasted text #1 +2 lines]` after your text, then `claude` replies, **ending with PINEAPPLE**. Log: `rules: appended append.txt (1 line)` |
+| G1 | Type `say hi in three words` and press **Enter** | The prompt briefly shows `[Pasted text #1 +3 lines]` after your text, then `claude` replies, **ending with PINEAPPLE**. Log: `rules: appended append.txt (1 line)` |
 | G2 | Type `/help` and press **Enter** | Help opens normally (Esc closes it). Log: `rules: not added (slash command)` |
 | G3 | Type `!echo hi` and press **Enter** | Runs as a bash command, as usual. Log: `rules: not added (bash mode)` |
 | G4 | Type `say bye in three words`, press **Ctrl+Q**, then **Enter** | `claude` replies **without** PINEAPPLE. Log: `leader: submit as typed` |

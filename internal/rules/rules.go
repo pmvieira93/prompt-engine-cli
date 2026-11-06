@@ -93,13 +93,14 @@ func (in *Injector) Prepare(s input.State) (insert []byte, appended string, sect
 	for range uniseg.GraphemeClusterCount(string([]rune(s.Text)[s.Cursor:])) {
 		b.WriteString("\x1b[C")
 	}
-	b.WriteString("\x1b[200~" + Separator)
-	b.WriteString(text)
-	b.WriteString("\x1b[201~")
 	unit, lines := "lines", strings.Count(text, "\n")+1
 	if lines == 1 {
 		unit = "line"
 	}
+	text = Heading + "\n" + text
+	b.WriteString("\x1b[200~" + Separator)
+	b.WriteString(text)
+	b.WriteString("\x1b[201~")
 	note := fmt.Sprintf("%d %s", lines, unit)
 	if len(sections) > 0 {
 		note += "; sections: " + strings.Join(sections, ", ")
@@ -123,7 +124,10 @@ func (in *Injector) Text(prompt string) string {
 	}
 	t, _ := in.loadCached()
 	text, _ := t.forPrompt(typed, pastes)
-	return text
+	if text == "" {
+		return ""
+	}
+	return Heading + "\n" + text
 }
 
 // Check returns what's wrong with the template now, if anything.
@@ -187,6 +191,9 @@ func (in *Injector) load() (template, error) {
 
 // Separator goes between a prompt and the rules appended to it.
 const Separator = "\n\n"
+
+// Heading starts the rules appended to a prompt, so they read apart from it.
+const Heading = "# Guidance"
 
 // SkipReason says why Enter on s doesn't send a message to the model (so
 // it gets no rules), or "" if it does.

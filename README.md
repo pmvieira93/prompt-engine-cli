@@ -113,9 +113,18 @@ How much the rewrite model knows about the session is set by `expand.context`. E
 
 To use your own instructions instead, write them in `templates/system.txt`.
 
-### Rules
+### Guidelines
 
-Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3).
+Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send, under a `# Guidance` heading, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3).
+
+```text
+fix the login form
+
+# Guidance
+Run the tests before saying it works.
+```
+
+This is guidance, not enforcement: Claude reads it, but nothing checks that it was followed, and some prompts don't get it. For an instruction that should always be there, use `CLAUDE.md`. For something that must never happen, use Claude Code's permissions or hooks.
 
 - Slash commands, `!` shell commands, `#` memory notes and empty prompts are skipped.
 - Edits to the file apply to your next prompt.
@@ -138,7 +147,7 @@ Don't change any code yet: report what you find.
 Find the cause before proposing a fix.
 ```
 
-- **Text before the first section is added to every prompt,** so a rule that must always apply goes there. "Fix the crash" gets "Keep changes small." and the `[debug|bug|crash]` text.
+- **Text before the first section is added to every prompt that gets guidelines,** so it's the most reliable place in this file, though not a guarantee. "Fix the crash" gets "Keep changes small." and the `[debug|bug|crash]` text.
 - **Whole words only, ignoring case.** `bug` matches "Bug", "'bug'" and "bug's" but not "debug", and `test` doesn't match "tests" unless you list it. A prompt can get several sections.
 - **Only what you wrote counts:** not the rewrite's words, pastes or code blocks, unless a paste is the whole prompt. A word that's only mentioned still matches: "all tests passed" gets the test section.
 - **A mistake stops all the rules** until it's fixed: a word used twice, a section with no text, or a line that is only `[…]` and isn't words. The warning names the line, and it also shows in the side panel. A file with no such lines works as before.

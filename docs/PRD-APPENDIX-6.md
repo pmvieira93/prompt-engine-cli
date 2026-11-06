@@ -1,7 +1,7 @@
 # PRD Appendix 6: Rules Chosen by Intent
 
 **Extends:** [PRD.md](../PRD.md) version 1.3.5 (FR-4.2, static rules from `templates/append.txt`) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7, the rewrite on Enter)  
-**Appendix Version:** 2.1.0  
+**Appendix Version:** 2.2.0  
 **Date:** 2026-11-06  
 **Status:** Built on 2026-11-06 in `internal/rules`. Raised on 2026-11-04 with the local model naming the intent. Changed on 2026-11-05 to matching words the developer lists, after a [spike](spikes/intent.md) (section 4).
 
@@ -51,6 +51,8 @@ The words of the prompt usually show what kind of work it is, so they can decide
   | Has none of the words | The always-added text |
   | Short (`templates.min_words`) | Nothing, as today |
 
+  What's added starts with the line `# Guidance`, always, so it reads apart from the prompt.
+
 * **FR-12.4: Expand doesn't change.** The rewrite request, the guards, the diff and the styles stay exactly as they are. The rewrite's reply stays plain text.
 
 * **FR-12.5: Visible.** The Session section shows the sections added to the last prompt, the "Ready to send" panel shows the rules that will really be added, and the history has a `sections` field.
@@ -59,7 +61,8 @@ The words of the prompt usually show what kind of work it is, so they can decide
 
 ## 3. Risks
 
-* **A prompt without the words gets no section.** "Please have a look" gets no `[review]` unless `look` is listed. In the spike, keywords missed a section on 28% of the prompts that needed one. A policy that must hold belongs in the always-added text, and sections are for reminders that are fine to miss. The documentation and the template say so.
+* **A prompt without the words gets no section.** "Please have a look" gets no `[review]` unless `look` is listed. In the spike, keywords missed a section on 28% of the prompts that needed one. The always-added text is the more reliable place, and sections are for reminders that are fine to miss.
+* **This is guidance, not enforcement.** Claude reads the text, but nothing checks that it's followed, and some prompts don't get it: short ones, slash commands, and Leader then Enter. `CLAUDE.md` is the place for an instruction that should always be there, and Claude Code's permissions or hooks for something that must never happen. The documentation says so.
 * **A word that's only mentioned still matches.** "all tests passed, commit it" gets the `[test]` section. The developer can remove the word from the list.
 * **An edited rewrite is matched as it stands.** Once the text in the box isn't the rewrite, it counts as typed, words the model added included. A second rewrite is the same: it starts from the first one.
 * **The panel reads `append.txt`** at most once a second while open. That's only noticeable on a slow network folder.

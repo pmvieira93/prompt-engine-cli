@@ -114,7 +114,7 @@ func TestSectionsOnly(t *testing.T) {
 	if !strings.Contains(strings.Join(*logs, ""), "not added (no section matches)") {
 		t.Errorf("logs = %q", *logs)
 	}
-	if _, text, names := in.Prepare(state("run the test")); text != "Run them first." || !slices.Equal(names, []string{"test"}) {
+	if _, text, names := in.Prepare(state("run the test")); text != Heading+"\nRun them first." || !slices.Equal(names, []string{"test"}) {
 		t.Errorf("match: %q %q", text, names)
 	}
 }

@@ -104,7 +104,7 @@ sleep 500ms
 send "\x04"
 exit'
 	check "rules appended" logged 'rules: appended append.txt (1 line)'
-	check "claude received the prompt and the rules" first_sent '"say hello there\n\n- Run the tests before saying it works."'
+	check "claude received the prompt and the rules" first_sent '"say hello there\n\n# Guidance\n- Run the tests before saying it works."'
 	check "a short prompt gets no rules" logged 'rules: not added (short prompt)'
 	check "claude received the short prompt as typed" sent '"ok thanks"'
 }
@@ -124,7 +124,7 @@ exit' 'expand:
   min_words: 10
 templates:
   min_words: 1'
-	check "claude received the short prompt and the rules" sent '"ok thanks\n\n- Run the tests before saying it works."'
+	check "claude received the short prompt and the rules" sent '"ok thanks\n\n# Guidance\n- Run the tests before saying it works."'
 }
 
 case_rules_sections() {
@@ -143,8 +143,8 @@ send "\r"
 sleep 500ms
 send "\x04"
 exit'
-	check "no match: only the always-added text" first_sent '"explain the loader\n\nKeep changes small."'
-	check "a match adds the section" sent '"fix the failing tests\n\nKeep changes small.\n\nRun them first."'
+	check "no match: only the always-added text" first_sent '"explain the loader\n\n# Guidance\nKeep changes small."'
+	check "a match adds the section" sent '"fix the failing tests\n\n# Guidance\nKeep changes small.\n\nRun them first."'
 	check "the log names the section" logged 'rules: appended append.txt (3 lines; sections: test)'
 }
 
@@ -210,7 +210,7 @@ sleep 500ms
 send "\x04"
 exit'
 	check "the prompt was read from the screen at Enter" logged 'buffer resynced from screen at Enter'
-	check "claude received its suggestion with the rules" sent '"show me main.go\n\n- Run the tests before saying it works."'
+	check "claude received its suggestion with the rules" sent '"show me main.go\n\n# Guidance\n- Run the tests before saying it works."'
 }
 
 case_style() {

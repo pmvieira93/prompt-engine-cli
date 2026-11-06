@@ -28,7 +28,7 @@ func state(text string) input.State {
 func TestBeforeSubmitAppends(t *testing.T) {
 	in, _ := injector(t, "\r\n- Keep answers short.\r\n- Ask before \x1b[201~editing.\n\n")
 	got := string(in.BeforeSubmit(state("explain the tracker")))
-	want := "\x1b[200~\n\n- Keep answers short.\n- Ask before [201~editing.\x1b[201~"
+	want := "\x1b[200~\n\n# Guidance\n- Keep answers short.\n- Ask before [201~editing.\x1b[201~"
 	if got != want {
 		t.Fatalf("got  %q\nwant %q", got, want)
 	}
@@ -88,7 +88,7 @@ func TestBeforeSubmitSkipsShort(t *testing.T) {
 	if in.BeforeSubmit(state("run the tests")) == nil {
 		t.Error("three words: rules not added")
 	}
-	if in.Text("run the tests") != "rules" {
+	if in.Text("run the tests") != Heading+"\nrules" {
 		t.Error("three words: the preview has no rules")
 	}
 	// A rewrite's context lines aren't words of the prompt.
