@@ -15,8 +15,7 @@ var header = regexp.MustCompile(`^\[([^\[\]]*)\]$`)
 // section is a part of the template added only to prompts with one of its
 // words (PRD Appendix 6).
 type section struct {
-	names []string   // as written, in lower case; names[0] names the section
-	words [][]string // each name as expand.Words: "bug-fix" is two in a row
+	words []string // as expand.SectionWord; words[0] names the section
 	text  string
 }
 
@@ -26,14 +25,16 @@ type template struct {
 	sections []section
 }
 
-// parse reads a template's text. A file with no header is all always text.
-// A header with a word that isn't one, a word in two sections or a section
-// with no text is an error naming the line.
+// parse reads a template's text. A file with no header is all always text,
+// and a header in a code block is the block's text. A header with a word
+// that isn't one, a word in two sections or a section with no text is an
+// error naming the line.
 func parse(text string) (template, error) {
 	var t template
 	var seen []string
 	var body []string
 	headerAt := 0
+	inCode := false
 	flush := func() error {
 		joined := strings.TrimSpace(strings.Join(body, "\n"))
 		body = nil
@@ -42,14 +43,17 @@ func parse(text string) (template, error) {
 			return nil
 		}
 		if joined == "" {
-			return fmt.Errorf("line %d: [%s] has no text", headerAt, strings.Join(t.sections[len(t.sections)-1].names, "|"))
+			return fmt.Errorf("line %d: [%s] has no text", headerAt, strings.Join(t.sections[len(t.sections)-1].words, "|"))
 		}
 		t.sections[len(t.sections)-1].text = joined
 		return nil
 	}
 	for i, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inCode = !inCode
+		}
 		m := header.FindStringSubmatch(strings.TrimSpace(line))
-		if m == nil {
+		if m == nil || inCode {
 			body = append(body, line)
 			continue
 		}
@@ -59,17 +63,15 @@ func parse(text string) (template, error) {
 		headerAt = i + 1
 		var s section
 		for _, w := range strings.Split(m[1], "|") {
-			w = strings.ToLower(strings.TrimSpace(w))
-			run := expand.Words(w)
-			if !expand.IsPhrase(w) || strings.Contains(w, " ") || len(run) == 0 {
-				return template{}, fmt.Errorf("line %d: %q isn't a word (letters, digits, -, _ and ')", headerAt, w)
+			word, ok := expand.SectionWord(w)
+			if !ok {
+				return template{}, fmt.Errorf("line %d: %q isn't a word (letters, digits, -, _ and ')", headerAt, strings.TrimSpace(w))
 			}
-			if slices.Contains(seen, w) {
-				return template{}, fmt.Errorf("line %d: %q is already used", headerAt, w)
+			if slices.Contains(seen, word) {
+				return template{}, fmt.Errorf("line %d: %q is already used", headerAt, word)
 			}
-			seen = append(seen, w)
-			s.names = append(s.names, w)
-			s.words = append(s.words, run)
+			seen = append(seen, word)
+			s.words = append(s.words, word)
 		}
 		t.sections = append(t.sections, s)
 	}
@@ -87,26 +89,19 @@ func (t template) empty() bool {
 // forPrompt returns the text to add to typed, which had pastes in it, and
 // the names of the sections in it.
 func (t template) forPrompt(typed string, pastes []string) (text string, names []string) {
+	if len(t.sections) == 0 {
+		return t.always, nil
+	}
 	words := expand.TypedWords(typed, pastes)
 	var parts []string
 	if t.always != "" {
 		parts = append(parts, t.always)
 	}
 	for _, s := range t.sections {
-		if slices.ContainsFunc(s.words, func(run []string) bool { return hasRun(words, run) }) {
+		if slices.ContainsFunc(s.words, func(w string) bool { return slices.Contains(words, w) }) {
 			parts = append(parts, s.text)
-			names = append(names, s.names[0])
+			names = append(names, s.words[0])
 		}
 	}
 	return strings.Join(parts, "\n\n"), names
-}
-
-// hasRun reports whether words has run, in a row.
-func hasRun(words, run []string) bool {
-	for i := 0; i+len(run) <= len(words); i++ {
-		if slices.Equal(words[i:i+len(run)], run) {
-			return true
-		}
-	}
-	return false
 }

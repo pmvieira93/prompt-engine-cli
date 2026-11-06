@@ -45,8 +45,31 @@ func TestHyphenatedWord(t *testing.T) {
 	if text, _ := tmpl.forPrompt("start the bug-fix branch", nil); text != "text" {
 		t.Errorf("no match: %q", text)
 	}
-	if text, _ := tmpl.forPrompt("fix the bug", nil); text != "" {
-		t.Errorf("matched part of the word: %q", text)
+	for _, typed := range []string{"fix the bug", "there is a bug. Fix the loader", "bug fix please"} {
+		if text, _ := tmpl.forPrompt(typed, nil); text != "" {
+			t.Errorf("%q: matched part of the word: %q", typed, text)
+		}
+	}
+}
+
+func TestApostropheWord(t *testing.T) {
+	tmpl, err := parse("[what's]\ntext\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := tmpl.forPrompt("what's this loader", nil); text != "text" {
+		t.Errorf("no match: %q", text)
+	}
+	if text, _ := tmpl.forPrompt("what is this loader", nil); text != "" {
+		t.Errorf("matched the bare word: %q", text)
+	}
+}
+
+func TestParseKeepsCodeBlocks(t *testing.T) {
+	const always = "rules\n\n```toml\n[tool.poetry]\n[tool]\n```"
+	got, err := parse(always + "\n\n[test]\nRun them first.\n")
+	if err != nil || got.always != always || len(got.sections) != 1 {
+		t.Fatalf("got %+v, %v", got, err)
 	}
 }
 
@@ -58,6 +81,7 @@ func TestParseErrors(t *testing.T) {
 		"symbol":       {"[c++]\ntext\n", `line 1: "c++" isn't a word`},
 		"same section": {"[test|tests|TEST]\ntext\n", `line 1: "test" is already used`},
 		"two sections": {"[test]\ntext\n\n[check|test]\ntext\n", `line 4: "test" is already used`},
+		"quoted twice": {"[bug]\ntext\n\n[“bug”|bug_]\ntext\n", `line 4: "bug" is already used`},
 		"no letters":   {"[---]\ntext\n", `line 1: "---" isn't a word`},
 		"no text":      {"[test]\n\n[debug]\ntext\n", "line 1: [test] has no text"},
 		"last no text": {"[test]\ntext\n\n[debug]\n", "line 4: [debug] has no text"},
@@ -97,6 +121,7 @@ func TestForPrompt(t *testing.T) {
 		{"fix the “bug” here", always + "\n\nFind the cause first.", []string{"debug"}},
 		{"fix the bug-fix branch", always + "\n\nFind the cause first.", []string{"debug"}},
 		{"see [Pasted text #1 +5 lines] and the `crash`\n```\na bug\n```", always, nil},
+		{"use ``` to open a fence, and fix the bug", always + "\n\nFind the cause first.", []string{"debug"}},
 	}
 	for _, tc := range cases {
 		text, names := tmpl.forPrompt(tc.typed, nil)
@@ -195,6 +220,28 @@ func TestSectionsSkipPastes(t *testing.T) {
 	s.Pastes = []string{paste}
 	if in.BeforeSubmit(s) == nil {
 		t.Error("no match on the typed words")
+	}
+}
+
+func TestPasteWithContextLines(t *testing.T) {
+	in, _ := injector(t, "[crash]\nFind the cause first.\n")
+	const paste = "line 1: crash\n\nContext:\n- Branch: main\nline 3: failed"
+	s := state("look at this\n" + paste)
+	s.Pastes = []string{paste}
+	if got := in.BeforeSubmit(s); got != nil {
+		t.Fatalf("matched a paste: %q", got)
+	}
+}
+
+func TestOnlyAPaste(t *testing.T) {
+	in, _ := injector(t, "[crash]\nFind the cause first.\n")
+	const paste = "explain this crash in the loader"
+	for name, text := range map[string]string{"in the text": paste, "behind claude's placeholder": "[Pasted text #1 +40 lines]"} {
+		s := state(text)
+		s.Pastes = []string{paste}
+		if in.BeforeSubmit(s) == nil {
+			t.Errorf("%s: no match on the paste", name)
+		}
 	}
 }
 

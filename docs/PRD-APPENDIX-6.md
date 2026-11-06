@@ -1,7 +1,7 @@
 # PRD Appendix 6: Rules Chosen by Intent
 
 **Extends:** [PRD.md](../PRD.md) version 1.3.5 (FR-4.2, static rules from `templates/append.txt`) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7, the rewrite on Enter)  
-**Appendix Version:** 2.2.0  
+**Appendix Version:** 2.2.1  
 **Date:** 2026-11-06  
 **Status:** Built on 2026-11-06 in `internal/rules`. Raised on 2026-11-04 with the local model naming the intent. Changed on 2026-11-05 to matching words the developer lists, after a [spike](spikes/intent.md) (section 4).
 
@@ -35,10 +35,10 @@ The words of the prompt usually show what kind of work it is, so they can decide
   Find the cause before proposing a fix.
   ```
 
-  A file with no sections works exactly as it does today. A word used twice, one that isn't a word, or a section with no text rejects the file, naming the line, as `guards.txt` does. A rejected file adds no rules until it's fixed: the warning shows at startup and in the Session section, and the log names it on each prompt.
+  A file with no sections works exactly as it does today. A `[word]` line inside a code block is the block's text. A word used twice, one that isn't a word, or a section with no text rejects the file, naming the line, as `guards.txt` does. A rejected file adds no rules until it's fixed: the warning shows at startup and in the Session section, and the log names it on each prompt.
 
 * **FR-12.2: Matching.** On Enter, each section's words are looked for in the typed prompt.
-  * It's a whole-word match that ignores case, as `guards.txt` reads words, so `bug` matches "Bug", "'bug'" and "bug's" but not "debug", and `test` doesn't match "tests" unless that's listed too. A hyphenated word in a section matches only as a whole.
+  * It's a whole-word match that ignores case, as `guards.txt` reads words, so `bug` matches "Bug", "'bug'" and "bug's" but not "debug", and `test` doesn't match "tests" unless that's listed too. A hyphenated or apostrophe word in a section matches only as a whole: `[bug-fix]` needs "bug-fix", and `[what's]` isn't matched by "what".
   * It reads what was typed, not the rewrite, which adds words of its own (in the spike, "review" in 9 of 129 rewrites), and leaves out `Context:` lines, as `templates.min_words` does. Pastes and code blocks are left out too, or a pasted log would match every section, unless a paste is the whole prompt. `templates.min_words` also counts the typed text.
   * No model is involved, so it works with every `expand.on_enter` setting and adds no time.
 

@@ -52,6 +52,7 @@ var (
 	// what the screen gave, the pasted text itself is unknown.
 	claudePlaceholder = regexp.MustCompile(`\[Pasted text #\d+`)
 	pastedText        = regexp.MustCompile(`\[Pasted text #\d+[^\]]*\]`)
+	closedCode        = regexp.MustCompile("(?s)```.*?```")
 )
 
 // PlanRewrite splits text into what is rewritten and what is kept, given
@@ -167,17 +168,17 @@ func pasteSpans(text string, pastes []string) [][2]int {
 	return spans
 }
 
-// TypedWords returns the words the developer wrote in text, as Words: the
-// context lines, pastes, code blocks and claude's [Pasted text] placeholders
-// are left out. A prompt that is only a paste was written elsewhere, so its
-// words count.
+// TypedWords returns the words the developer wrote in text, as wordForms:
+// pastes, claude's [Pasted text] placeholders, the context lines and code
+// blocks are left out. A prompt that is only a paste was written elsewhere,
+// so the paste's words count. Pastes go first, as they may hold lines that
+// look like context.
 func TypedWords(text string, pastes []string) []string {
-	text = StripContext(text)
-	typed := remove(text, pasteSpans(text, pastes))
-	if len(Words(typed)) == 0 {
-		typed = text
+	typed := pastedText.ReplaceAllString(remove(text, pasteSpans(text, pastes)), " ")
+	if len(wordForms(StripContext(typed))) == 0 {
+		typed = strings.Join(pastes, "\n")
 	}
-	return Words(pastedText.ReplaceAllString(codeBlock.ReplaceAllString(typed, " "), " "))
+	return wordForms(closedCode.ReplaceAllString(StripContext(typed), " "))
 }
 
 // ForContext is text as given to the model as an earlier prompt, with

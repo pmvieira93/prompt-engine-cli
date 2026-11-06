@@ -159,15 +159,44 @@ func isForm(w, word string) bool {
 	return slices.Contains(verbForms(word), w)
 }
 
-// Words returns text's words as ruleWords, with non-ASCII punctuation such
-// as dashes and curly double quotes between words, not part of them.
-func Words(text string) []string {
-	return ruleWords(strings.Map(func(r rune) rune {
-		if r > 127 && r != '’' && r != '‘' && !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.IsMark(r) {
+// wordText is text in lower case with straight apostrophes, and with
+// non-ASCII punctuation such as dashes and curly double quotes as spaces, so
+// it's between words, not part of them.
+func wordText(text string) string {
+	text = strings.NewReplacer("’", "'", "‘", "'").Replace(strings.ToLower(text))
+	return strings.Map(func(r rune) rune {
+		if r > 127 && !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.IsMark(r) {
 			return ' '
 		}
 		return r
-	}, text))
+	}, text)
+}
+
+// SectionWord returns w as a section word is compared: one word, in lower
+// case, with no quotes or apostrophes around it. It's false if w isn't one.
+func SectionWord(w string) (string, bool) {
+	fields := strings.Fields(wordText(w))
+	if len(fields) != 1 {
+		return "", false
+	}
+	word := strings.Trim(fields[0], "'_")
+	if !IsPhrase(word) || !strings.ContainsFunc(word, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsNumber(r) }) {
+		return "", false
+	}
+	return word, true
+}
+
+// wordForms returns text's words for matching SectionWord: each one whole
+// ("bug's", "bug-fix") and as ruleWords ("bug", "fix").
+func wordForms(text string) []string {
+	var out []string
+	for _, w := range words(wordText(text)) {
+		if whole := strings.Trim(w, "'_"); whole != "" {
+			out = append(out, whole)
+		}
+		out = append(out, ruleWords(w)...)
+	}
+	return out
 }
 
 // IsPhrase reports whether p, in lower case, is words as the guards read
