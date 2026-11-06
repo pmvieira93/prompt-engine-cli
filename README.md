@@ -139,9 +139,9 @@ Find the cause before proposing a fix.
 ```
 
 - **Text before the first section is added to every prompt,** so a rule that must always apply goes there. "Fix the crash" gets "Keep changes small." and the `[debug|bug|crash]` text.
-- **Whole words only, ignoring case.** `bug` matches "Bug" but not "debug", and `test` doesn't match "tests" unless you list it. A prompt can get several sections.
-- **Your typed words count,** not the rewrite's, and a word that's only mentioned still matches: "all tests passed" gets the test section.
-- **A mistake stops all the rules** until it's fixed: a word used twice, a section with no text, or a `[line]` that isn't words. The warning names the line, and it also shows in the side panel. A file with no such lines works as before.
+- **Whole words only, ignoring case.** `bug` matches "Bug", "'bug'" and "bug's" but not "debug", and `test` doesn't match "tests" unless you list it. A prompt can get several sections.
+- **Only what you wrote counts:** not the rewrite's words, pastes or code blocks, unless a paste is the whole prompt. A word that's only mentioned still matches: "all tests passed" gets the test section.
+- **A mistake stops all the rules** until it's fixed: a word used twice, a section with no text, or a line that is only `[…]` and isn't words. The warning names the line, and it also shows in the side panel. A file with no such lines works as before.
 
 ### Side panel
 

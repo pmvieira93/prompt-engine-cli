@@ -187,6 +187,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	if injector != nil {
 		injector.MinWords = func() int { return live.Load().Templates.MinWords }
 		if err := injector.Check(); err != nil {
+			logf("rules: %v; no rules are added until it's fixed", err)
 			warn("%v; no rules are added until it's fixed", err)
 		}
 	}
@@ -897,13 +898,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	// against what was sent, for the panel and the history (FR-5).
 	var record func(s input.State, appended string, sections []string)
 	if injector != nil {
-		injector.Typed = func(prompt string) string {
+		injector.Typed = func(s input.State) (string, []string) {
 			expansion.Lock()
 			defer expansion.Unlock()
-			if expansion.expanded != "" && prompt == expansion.expanded {
-				return expansion.original
+			if expansion.expanded != "" && s.Text == expansion.expanded {
+				return expansion.original, expansion.pastes
 			}
-			return prompt
+			return s.Text, s.Pastes
 		}
 	}
 	ctrl.BeforeSubmit = func(s input.State) []byte {
@@ -1057,7 +1058,11 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		Status: func() []string {
 			lines := append(slices.Clone(*status.Load()), guardStatusLines(live.Load().Expand.Guards == "off", *guardStatus.Load())...)
 			if injector != nil {
-				lines = append(lines, injector.Status()...)
+				var last []string
+				if sub := lastSent.Load(); sub != nil {
+					last = sub.Sections
+				}
+				lines = append(lines, injector.Status(last)...)
 			}
 			return lines
 		},

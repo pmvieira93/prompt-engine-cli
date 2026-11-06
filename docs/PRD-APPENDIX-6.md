@@ -38,8 +38,8 @@ The words of the prompt usually show what kind of work it is, so they can decide
   A file with no sections works exactly as it does today. A word used twice, one that isn't a word, or a section with no text rejects the file, naming the line, as `guards.txt` does. A rejected file adds no rules until it's fixed: the warning shows at startup and in the Session section, and the log names it on each prompt.
 
 * **FR-12.2: Matching.** On Enter, each section's words are looked for in the typed prompt.
-  * It's a whole-word match that ignores case, so `bug` matches "Bug" but not "debug", and `test` doesn't match "tests" unless that's listed too.
-  * It reads what was typed, not the rewrite, which adds words of its own (in the spike, "review" in 9 of 129 rewrites), and leaves out `Context:` lines, as `templates.min_words` does.
+  * It's a whole-word match that ignores case, as `guards.txt` reads words, so `bug` matches "Bug", "'bug'" and "bug's" but not "debug", and `test` doesn't match "tests" unless that's listed too. A hyphenated word in a section matches only as a whole.
+  * It reads what was typed, not the rewrite, which adds words of its own (in the spike, "review" in 9 of 129 rewrites), and leaves out `Context:` lines, as `templates.min_words` does. Pastes and code blocks are left out too, or a pasted log would match every section, unless a paste is the whole prompt. `templates.min_words` also counts the typed text.
   * No model is involved, so it works with every `expand.on_enter` setting and adds no time.
 
 * **FR-12.3: What gets added.** The text before the first section is added, then each section with a matching word, in the file's order:
@@ -61,9 +61,11 @@ The words of the prompt usually show what kind of work it is, so they can decide
 
 * **A prompt without the words gets no section.** "Please have a look" gets no `[review]` unless `look` is listed. In the spike, keywords missed a section on 28% of the prompts that needed one. A policy that must hold belongs in the always-added text, and sections are for reminders that are fine to miss. The documentation and the template say so.
 * **A word that's only mentioned still matches.** "all tests passed, commit it" gets the `[test]` section. The developer can remove the word from the list.
+* **An edited rewrite is matched as it stands.** Once the text in the box isn't the rewrite, it counts as typed, words the model added included. A second rewrite is the same: it starts from the first one.
+* **The panel reads `append.txt`** at most once a second while open. That's only noticeable on a slow network folder.
 * **Word lists take some tuning.** Words typed often need adding, and languages other than the one the list is written in won't match, so a developer who writes in two languages lists both.
 * **A section's words sit in its header.** A long list makes a long line. That's accepted to keep one simple format.
-* **A line that is only `[…]` now starts a section.** An `append.txt` with such a line changes behaviour, or is rejected if the line isn't words.
+* **A line that is only `[…]`, with no other brackets inside, now starts a section.** An `append.txt` with such a line changes behaviour, or is rejected if the line isn't words. `[NOTE]` or `[1]` can't be told from a section meant as one, so the rules after them stop going on every prompt. The Session line's section count is the way to spot it.
 
 ---
 

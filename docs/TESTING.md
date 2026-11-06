@@ -493,6 +493,7 @@ Start `prompt-engine` as in the setup, and open the panel with **Ctrl+Q, p**.
 |---|---|---|
 | G9 | Type `say hi in three words` and press **Enter** | The reply ends with MANGO, not KIWI. Log: `rules: appended append.txt (1 line)`. Session section: `rules: 1 section; last prompt: none` |
 | G10 | Type `write a haiku about rain` and press **Enter** | The rules sent include KIWI. Log: `rules: appended append.txt (3 lines; sections: poem)`. Session section: `last prompt: poem`, and the panel's note says `rules added (poem)` |
+| G10a | Type `say what this is in five words: ` then paste the text `a poem` and press **Enter** | The rules don't include KIWI: pasted words don't count. Log: `rules: appended append.txt (1 line)` |
 | G11 | In Terminal B: `printf '[two words]\ntext\n' > ~/.config/prompt-engine/templates/append.txt`. Wait 2 seconds, then type `say hi in three words` and press **Enter** | Sent with no rules. Session section: `⚠ rules not added: append.txt line 1: …`. Log: `rules: not added: append.txt line 1: …` |
 
 **Cleanup:** `rm -f ~/.config/prompt-engine/templates/append.txt`. To keep using rules, put your own guidelines in that file.

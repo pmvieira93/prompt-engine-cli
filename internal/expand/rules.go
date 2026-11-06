@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // GuardsFile, in the templates directory, holds the developer's own guard
@@ -158,9 +159,15 @@ func isForm(w, word string) bool {
 	return slices.Contains(verbForms(word), w)
 }
 
-// Words returns text's words in lower case, as the guards read them.
+// Words returns text's words as ruleWords, with non-ASCII punctuation such
+// as dashes and curly double quotes between words, not part of them.
 func Words(text string) []string {
-	return words(strings.ToLower(text))
+	return ruleWords(strings.Map(func(r rune) rune {
+		if r > 127 && r != '’' && r != '‘' && !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.IsMark(r) {
+			return ' '
+		}
+		return r
+	}, text))
 }
 
 // IsPhrase reports whether p, in lower case, is words as the guards read

@@ -10,12 +10,13 @@ import (
 )
 
 // header is a line that starts a section: "[test|tests|coverage]".
-var header = regexp.MustCompile(`^\[(.*)\]$`)
+var header = regexp.MustCompile(`^\[([^\[\]]*)\]$`)
 
 // section is a part of the template added only to prompts with one of its
 // words (PRD Appendix 6).
 type section struct {
-	words []string // in lower case; words[0] names the section
+	names []string   // as written, in lower case; names[0] names the section
+	words [][]string // each name as expand.Words: "bug-fix" is two in a row
 	text  string
 }
 
@@ -41,7 +42,7 @@ func parse(text string) (template, error) {
 			return nil
 		}
 		if joined == "" {
-			return fmt.Errorf("line %d: [%s] has no text", headerAt, strings.Join(t.sections[len(t.sections)-1].words, "|"))
+			return fmt.Errorf("line %d: [%s] has no text", headerAt, strings.Join(t.sections[len(t.sections)-1].names, "|"))
 		}
 		t.sections[len(t.sections)-1].text = joined
 		return nil
@@ -59,14 +60,16 @@ func parse(text string) (template, error) {
 		var s section
 		for _, w := range strings.Split(m[1], "|") {
 			w = strings.ToLower(strings.TrimSpace(w))
-			if !expand.IsPhrase(w) || strings.Contains(w, " ") {
+			run := expand.Words(w)
+			if !expand.IsPhrase(w) || strings.Contains(w, " ") || len(run) == 0 {
 				return template{}, fmt.Errorf("line %d: %q isn't a word (letters, digits, -, _ and ')", headerAt, w)
 			}
 			if slices.Contains(seen, w) {
 				return template{}, fmt.Errorf("line %d: %q is already used", headerAt, w)
 			}
 			seen = append(seen, w)
-			s.words = append(s.words, w)
+			s.names = append(s.names, w)
+			s.words = append(s.words, run)
 		}
 		t.sections = append(t.sections, s)
 	}
@@ -81,20 +84,29 @@ func (t template) empty() bool {
 	return t.always == "" && len(t.sections) == 0
 }
 
-// forPrompt returns the text to add to typed, and the names of the sections
-// in it. The context lines a rewrite ends with aren't read: they hold
-// branch and file names, not the request.
-func (t template) forPrompt(typed string) (text string, names []string) {
-	words := expand.Words(expand.StripContext(typed))
+// forPrompt returns the text to add to typed, which had pastes in it, and
+// the names of the sections in it.
+func (t template) forPrompt(typed string, pastes []string) (text string, names []string) {
+	words := expand.TypedWords(typed, pastes)
 	var parts []string
 	if t.always != "" {
 		parts = append(parts, t.always)
 	}
 	for _, s := range t.sections {
-		if slices.ContainsFunc(s.words, func(w string) bool { return slices.Contains(words, w) }) {
+		if slices.ContainsFunc(s.words, func(run []string) bool { return hasRun(words, run) }) {
 			parts = append(parts, s.text)
-			names = append(names, s.words[0])
+			names = append(names, s.names[0])
 		}
 	}
 	return strings.Join(parts, "\n\n"), names
+}
+
+// hasRun reports whether words has run, in a row.
+func hasRun(words, run []string) bool {
+	for i := 0; i+len(run) <= len(words); i++ {
+		if slices.Equal(words[i:i+len(run)], run) {
+			return true
+		}
+	}
+	return false
 }

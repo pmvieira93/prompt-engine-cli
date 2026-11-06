@@ -37,17 +37,16 @@ type Injector struct {
 	// MinWords returns the fewest words a prompt needs to get the rules,
 	// so "yes" or "continue" stays as typed. Nil means any prompt.
 	MinWords func() int
-	// Typed returns what the developer typed to get prompt, which may be a
-	// rewrite: rewrites add words, so sections match on the typed text.
-	// Nil means prompt was typed.
-	Typed func(prompt string) string
+	// Typed returns what the developer typed to get s, and the pastes in
+	// it, since s may be a rewrite: rewrites add words, so the rules go by
+	// the typed text. Nil means s was typed.
+	Typed func(s input.State) (string, []string)
 	Logf  func(format string, a ...any)
 
 	mu        sync.Mutex
 	cached    template
 	cachedErr error
 	cachedAt  time.Time
-	last      []string // the sections added to the last prompt
 }
 
 // BeforeSubmit returns the input to send just before the Enter that
@@ -73,12 +72,12 @@ func (in *Injector) Prepare(s input.State) (insert []byte, appended string, sect
 		in.logf("rules: not added (%s)", reason)
 		return nil, "", nil
 	}
-	in.setLast(nil)
-	if in.short(s.Text) {
+	typed, pastes := in.typed(s)
+	if in.short(typed) {
 		in.logf("rules: not added (short prompt)")
 		return nil, "", nil
 	}
-	text, sections := t.forPrompt(in.typed(s.Text))
+	text, sections := t.forPrompt(typed, pastes)
 	if text == "" {
 		in.logf("rules: not added (no section matches)")
 		return nil, "", nil
@@ -106,7 +105,6 @@ func (in *Injector) Prepare(s input.State) (insert []byte, appended string, sect
 		note += "; sections: " + strings.Join(sections, ", ")
 	}
 	in.logf("rules: appended %s (%s)", AppendFile, note)
-	in.setLast(sections)
 	return []byte(b.String()), text, sections
 }
 
@@ -119,11 +117,12 @@ func (in *Injector) short(text string) bool {
 // Text returns the rules that would be appended now to prompt, for
 // previews.
 func (in *Injector) Text(prompt string) string {
-	if in.short(prompt) {
+	typed, pastes := in.typed(input.State{Text: prompt})
+	if in.short(typed) {
 		return ""
 	}
 	t, _ := in.loadCached()
-	text, _ := t.forPrompt(in.typed(prompt))
+	text, _ := t.forPrompt(typed, pastes)
 	return text
 }
 
@@ -134,8 +133,8 @@ func (in *Injector) Check() error {
 }
 
 // Status returns the side panel's lines about the template: what's wrong
-// with it, or with sections, the ones added to the last prompt.
-func (in *Injector) Status() []string {
+// with it, or with sections, last, the ones added to the last prompt.
+func (in *Injector) Status(last []string) []string {
 	t, err := in.loadCached()
 	if err != nil {
 		return []string{"⚠ rules not added: " + err.Error()}
@@ -143,17 +142,15 @@ func (in *Injector) Status() []string {
 	if len(t.sections) == 0 {
 		return nil
 	}
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	last := "none"
-	if len(in.last) > 0 {
-		last = strings.Join(in.last, ", ")
+	added := "none"
+	if len(last) > 0 {
+		added = strings.Join(last, ", ")
 	}
 	unit := "sections"
 	if len(t.sections) == 1 {
 		unit = "section"
 	}
-	return []string{fmt.Sprintf("rules:       %d %s; last prompt: %s", len(t.sections), unit, last)}
+	return []string{fmt.Sprintf("rules:       %d %s; last prompt: %s", len(t.sections), unit, added)}
 }
 
 // loadCached is load at most once a second, since a preview or the panel
@@ -168,17 +165,11 @@ func (in *Injector) loadCached() (template, error) {
 	return in.cached, in.cachedErr
 }
 
-func (in *Injector) setLast(sections []string) {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	in.last = sections
-}
-
-func (in *Injector) typed(prompt string) string {
+func (in *Injector) typed(s input.State) (string, []string) {
 	if in.Typed != nil {
-		return in.Typed(prompt)
+		return in.Typed(s)
 	}
-	return prompt
+	return s.Text, s.Pastes
 }
 
 // load reads and parses the template. No file means no rules.
@@ -217,8 +208,8 @@ func SkipReason(s input.State) string {
 }
 
 // read returns the template with escape characters removed (one could end
-// the bracketed paste early) and line endings normalized. A missing file
-// means no rules.
+// the bracketed paste early), line endings normalized and any byte order
+// mark dropped. A missing file means no rules.
 func (in *Injector) read() (string, error) {
 	path := filepath.Join(in.Dir, AppendFile)
 	info, err := os.Stat(path)
@@ -235,7 +226,8 @@ func (in *Injector) read() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	text := strings.ReplaceAll(string(data), "\x1b", "")
+	text := strings.TrimPrefix(string(data), "\ufeff")
+	text = strings.ReplaceAll(text, "\x1b", "")
 	return strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), nil
 }
 
