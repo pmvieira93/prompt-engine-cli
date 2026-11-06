@@ -113,12 +113,44 @@ How much the rewrite model knows about the session is set by `expand.context`. E
 
 To use your own instructions instead, write them in `templates/system.txt`.
 
-### Rules
+### Guidelines
 
-Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3).
+Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They are added to the end of every prompt you send, under a `# Guidance` heading, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3).
+
+```text
+fix the login form
+
+# Guidance
+Run the tests before saying it works.
+```
+
+This is guidance, not enforcement: Claude reads it, but nothing checks that it was followed, and some prompts don't get it. For an instruction that should always be there, use `CLAUDE.md`. For something that must never happen, use Claude Code's permissions or hooks.
 
 - Slash commands, `!` shell commands, `#` memory notes and empty prompts are skipped.
 - Edits to the file apply to your next prompt.
+
+To add some rules only when they fit, put them in sections. A line like `[test|tests]` starts a section, and it's added only to prompts with one of its words. The sections and words are your own:
+
+```text
+Keep changes small.
+
+[review|PR|MR]
+Check the error paths too.
+
+[test|tests|coverage]
+Test behaviour, not implementation.
+
+[investigate|analysis|why]
+Don't change any code yet: report what you find.
+
+[debug|bug|crash]
+Find the cause before proposing a fix.
+```
+
+- **Text before the first section is added to every prompt that gets guidelines,** so it's the most reliable place in this file, though not a guarantee. "Fix the crash" gets "Keep changes small." and the `[debug|bug|crash]` text.
+- **Whole words only, ignoring case.** `bug` matches "Bug", "'bug'" and "bug's" but not "debug", and `test` doesn't match "tests" unless you list it. A prompt can get several sections.
+- **Only what you wrote counts:** not the rewrite's words or code blocks, nor pastes, unless a paste is the whole prompt. A word that's only mentioned still matches: "all tests passed" gets the test section.
+- **A mistake stops all the rules** until it's fixed: a word used twice, a section with no text, or a line that is only `[…]` and isn't words. `[…]` lines inside a code block are left as they are. The warning names the line, and it also shows in the side panel. A file with no such lines works as before.
 
 ### Side panel
 
@@ -132,7 +164,7 @@ The panel goes on the right or the left. **Ctrl+Q, then + or −** resizes it.
 
 ### History
 
-Each prompt you send adds one JSON line to `~/.local/state/prompt-engine/history.jsonl`. The line records whether the prompt was rewritten, in which style, whether rules were added, and which guard stopped a rewrite. The text itself is recorded only with `history.include_text: true`. Each line also names the session (`"session"`, a short id that the debug log names too), so the lines of sessions running at once can be told apart.
+Each prompt you send adds one JSON line to `~/.local/state/prompt-engine/history.jsonl`. The line records whether the prompt was rewritten, in which style, whether rules were added and from which sections, and which guard stopped a rewrite. The text itself is recorded only with `history.include_text: true`. Each line also names the session (`"session"`, a short id that the debug log names too), so the lines of sessions running at once can be told apart.
 
 ### Built to stay out of the way
 

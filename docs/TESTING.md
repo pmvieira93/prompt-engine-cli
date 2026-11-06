@@ -39,7 +39,7 @@ Four scripts check whole flows, so a change can be tested in one command before 
 
 | Script | What it runs | Needs |
 |---|---|---|
-| `scripts/e2e.sh [case]…` | The whole wrapper in a test terminal, around a stand-in for `claude` (`tools/fakeclaude`), with the fake suggester. Cases: ghost text and Tab, rules, the panel, preview, auto mode, `claude`'s suggestion taken with → and sent at once, a style for one prompt (Ctrl+Q, s), the history file and session id, and running nested. CI runs it on every push | Go only: no account, network or model |
+| `scripts/e2e.sh [case]…` | The whole wrapper in a test terminal, around a stand-in for `claude` (`tools/fakeclaude`), with the fake suggester. Cases: ghost text and Tab, rules, sections of the rules, the panel, preview, auto mode, `claude`'s suggestion taken with → and sent at once, a style for one prompt (Ctrl+Q, s), the history file and session id, and running nested. CI runs it on every push | Go only: no account, network or model |
 | `scripts/smoke.sh [--keep]` | The same flows against the real `claude` and the local models, driven by [VHS](https://github.com/charmbracelet/vhs) in a throwaway project (`~/pe-demo/smoke-app`). It sends three harmless prompts, then checks the debug log for each flow and prints ✓, ✗, or – (skipped, e.g. when `claude` offered no suggestion). The log, screenshots and a GIF are kept | `vhs`, `claude` signed in, Ollama with both models |
 | `scripts/install-test.sh [--latest]` | `install.sh`'s release install against releases built on the spot and served from a folder (`PROMPT_ENGINE_RELEASES_URL=file://…`): a pinned version, the same version again, an upgrade that keeps the config, a bad checksum, a missing config file, an old binary without `--pe-version`, the script piped in outside a clone, and a missing version. `--latest` also installs the latest release from GitHub. CI runs it on every push | Go; the network only for `--latest` |
 | `scripts/test-env.sh [NAME=value]… command` | Any command in a clean environment. It removes every `PROMPT_ENGINE_*` and `CLAUDE*` variable, and keeps the history and config in a throwaway folder. The other scripts use it | — |
@@ -471,7 +471,7 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 
 | # | Do this | Expected |
 |---|---|---|
-| G1 | Type `say hi in three words` and press **Enter** | The prompt briefly shows `[Pasted text #1 +2 lines]` after your text, then `claude` replies, **ending with PINEAPPLE**. Log: `rules: appended append.txt (1 line)` |
+| G1 | Type `say hi in three words` and press **Enter** | The prompt briefly shows `[Pasted text #1 +3 lines]` after your text, then `claude` replies, **ending with PINEAPPLE**. Log: `rules: appended append.txt (1 line)` |
 | G2 | Type `/help` and press **Enter** | Help opens normally (Esc closes it). Log: `rules: not added (slash command)` |
 | G3 | Type `!echo hi` and press **Enter** | Runs as a bash command, as usual. Log: `rules: not added (bash mode)` |
 | G4 | Type `say bye in three words`, press **Ctrl+Q**, then **Enter** | `claude` replies **without** PINEAPPLE. Log: `leader: submit as typed` |
@@ -480,6 +480,21 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 | G7 | Then type ` and say what it is in five words` and press **Enter** | Submitted with the rule: the reply ends with MANGO. Log: `rules: appended append.txt (1 line)`. (Enter with the menu still open also submits, as typed, with the rule) |
 | G7a | Type `ok thanks` and press **Enter** | Sent as typed: the reply doesn't end with MANGO. Log: `rules: not added (short prompt)` |
 | G8 | In Terminal B: `rm ~/.config/prompt-engine/templates/append.txt`. Then type `say ok` and **Enter** | Sent as typed, no `rules:` line in the log. (Skip if you'd rather not send another prompt) |
+
+**Sections (PRD Appendix 6).** These send real prompts too. Quit, then in Terminal B write a file with a section:
+
+```sh
+printf 'End your reply with the word MANGO.\n\n[poem|haiku]\nEnd your reply with the word KIWI.\n' > ~/.config/prompt-engine/templates/append.txt
+```
+
+Start `prompt-engine` as in the setup, and open the panel with **Ctrl+Q, p**.
+
+| # | Do this | Expect |
+|---|---|---|
+| G9 | Type `say hi in three words` and press **Enter** | The reply ends with MANGO, not KIWI. Log: `rules: appended append.txt (1 line)`. Session section: `rules: 1 section; last prompt: none` |
+| G10 | Type `write a haiku about rain` and press **Enter** | The rules sent include KIWI. Log: `rules: appended append.txt (3 lines; sections: poem)`. Session section: `last prompt: poem`, and the panel's note says `rules added (poem)` |
+| G10a | Type `say what this is in five words: ` then paste the text `a poem` and press **Enter** | The rules don't include KIWI: pasted words don't count. Log: `rules: appended append.txt (1 line)` |
+| G11 | In Terminal B: `printf '[two words]\ntext\n' > ~/.config/prompt-engine/templates/append.txt`. Wait 2 seconds, then type `say hi in three words` and press **Enter** | Sent with no rules. Session section: `⚠ rules not added: append.txt line 1: …`. Log: `rules: not added: append.txt line 1: …` |
 
 **Cleanup:** `rm -f ~/.config/prompt-engine/templates/append.txt`. To keep using rules, put your own guidelines in that file.
 

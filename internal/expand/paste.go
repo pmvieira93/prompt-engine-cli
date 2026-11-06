@@ -51,6 +51,8 @@ var (
 	// claude shows a long paste as "[Pasted text #1 +5 lines]"; if that's
 	// what the screen gave, the pasted text itself is unknown.
 	claudePlaceholder = regexp.MustCompile(`\[Pasted text #\d+`)
+	pastedText        = regexp.MustCompile(`\[Pasted text #\d+[^\]]*\]`)
+	closedCode        = regexp.MustCompile("(?s)```.*?```")
 )
 
 // PlanRewrite splits text into what is rewritten and what is kept, given
@@ -64,28 +66,7 @@ func PlanRewrite(text string, pastes []string) Plan {
 		return Plan{Skip: "the prompt contains a " + Marker(1) + "-style marker"}
 	}
 
-	var spans [][2]int
-	for _, p := range pastes {
-		// Surrounding blank lines may have been trimmed off text.
-		if p = strings.TrimSpace(p); p == "" {
-			continue
-		}
-		// A paste may have been edited since: then it's no longer found
-		// and counts as typed.
-		from := 0
-		for {
-			i := strings.Index(text[from:], p)
-			if i < 0 {
-				break
-			}
-			start, end := from+i, from+i+len(p)
-			if !overlaps(spans, start, end) {
-				spans = append(spans, [2]int{start, end})
-				break
-			}
-			from = start + 1
-		}
-	}
+	spans := pasteSpans(text, pastes)
 	pasted := len(spans) > 0
 	typed := words(strings.ToLower(remove(text, spans)))
 	if pasted && len(typed) == 0 {
@@ -158,6 +139,46 @@ func (p Plan) restore(rewritten string, moved bool) (string, error) {
 		rewritten = strings.Replace(rewritten, Marker(i+1), k, 1)
 	}
 	return rewritten, nil
+}
+
+// pasteSpans returns where pastes are in text.
+func pasteSpans(text string, pastes []string) [][2]int {
+	var spans [][2]int
+	for _, p := range pastes {
+		// Surrounding blank lines may have been trimmed off text.
+		if p = strings.TrimSpace(p); p == "" {
+			continue
+		}
+		// A paste may have been edited since: then it's no longer found
+		// and counts as typed.
+		from := 0
+		for {
+			i := strings.Index(text[from:], p)
+			if i < 0 {
+				break
+			}
+			start, end := from+i, from+i+len(p)
+			if !overlaps(spans, start, end) {
+				spans = append(spans, [2]int{start, end})
+				break
+			}
+			from = start + 1
+		}
+	}
+	return spans
+}
+
+// TypedWords returns the words the developer wrote in text, as wordForms:
+// pastes, claude's [Pasted text] placeholders, the context lines and code
+// blocks are left out. A prompt that is only a paste was written elsewhere,
+// so the paste's words count. Pastes go first, as they may hold lines that
+// look like context.
+func TypedWords(text string, pastes []string) []string {
+	typed := pastedText.ReplaceAllString(remove(text, pasteSpans(text, pastes)), " ")
+	if len(wordForms(StripContext(typed))) == 0 {
+		typed = strings.Join(pastes, "\n")
+	}
+	return wordForms(closedCode.ReplaceAllString(StripContext(typed), " "))
 }
 
 // ForContext is text as given to the model as an earlier prompt, with

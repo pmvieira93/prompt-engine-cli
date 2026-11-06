@@ -19,15 +19,16 @@ import (
 // Submission is one prompt sent to the wrapped CLI.
 type Submission struct {
 	Time     time.Time
-	Session  string // the prompt-engine run it was sent in
-	Raw      string // what the user typed
-	Sent     string // what the CLI received
-	Expanded bool   // Raw was rewritten by expansion
-	Style    string // the rewrite's style, when Expanded (expand.Expander.StyleName)
-	Rules    bool   // rules were appended
-	Auto     bool   // expansion ran automatically on Enter
-	Stopped  string // why an automatic rewrite wasn't used, if it wasn't
-	Guard    string // the guard rail that stopped it, if one did (expand.Stop)
+	Session  string   // the prompt-engine run it was sent in
+	Raw      string   // what the user typed
+	Sent     string   // what the CLI received
+	Expanded bool     // Raw was rewritten by expansion
+	Style    string   // the rewrite's style, when Expanded (expand.Expander.StyleName)
+	Rules    bool     // rules were appended
+	Sections []string // the sections of append.txt in those rules
+	Auto     bool     // expansion ran automatically on Enter
+	Stopped  string   // why an automatic rewrite wasn't used, if it wasn't
+	Guard    string   // the guard rail that stopped it, if one did (expand.Stop)
 	// GuardDetail is what tripped it, for the panel; not recorded.
 	GuardDetail string
 	Rejected    string // the rewrite it stopped
@@ -50,6 +51,7 @@ type record struct {
 	Expanded     bool      `json:"expanded"`
 	Style        string    `json:"style,omitempty"`
 	Rules        bool      `json:"rules"`
+	Sections     []string  `json:"sections,omitempty"`
 	Auto         bool      `json:"auto,omitempty"`
 	Stopped      string    `json:"stopped,omitempty"`
 	Guard        string    `json:"guard,omitempty"`
@@ -95,6 +97,7 @@ func (l *Log) Append(s Submission) error {
 		Expanded:     s.Expanded,
 		Style:        s.Style,
 		Rules:        s.Rules,
+		Sections:     s.Sections,
 		Auto:         s.Auto,
 		Stopped:      s.Stopped,
 		Guard:        s.Guard,

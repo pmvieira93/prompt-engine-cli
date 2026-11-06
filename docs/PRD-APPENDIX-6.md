@@ -1,9 +1,9 @@
 # PRD Appendix 6: Rules Chosen by Intent
 
 **Extends:** [PRD.md](../PRD.md) version 1.3.5 (FR-4.2, static rules from `templates/append.txt`) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7, the rewrite on Enter)  
-**Appendix Version:** 2.0.0  
-**Date:** 2026-11-05  
-**Status:** Proposed, not built. Raised on 2026-11-04 with the local model naming the intent. Changed on 2026-11-05 to matching words the developer lists, after a [spike](spikes/intent.md) (section 4).
+**Appendix Version:** 2.2.1  
+**Date:** 2026-11-06  
+**Status:** Built on 2026-11-06 in `internal/rules`. Raised on 2026-11-04 with the local model naming the intent. Changed on 2026-11-05 to matching words the developer lists, after a [spike](spikes/intent.md) (section 4).
 
 ---
 
@@ -35,11 +35,11 @@ The words of the prompt usually show what kind of work it is, so they can decide
   Find the cause before proposing a fix.
   ```
 
-  A file with no sections works exactly as it does today. A word used in two sections, or one that isn't a word, rejects the file, naming the line, as `guards.txt` does.
+  A file with no sections works exactly as it does today. A `[word]` line inside a code block is the block's text. A word used twice, one that isn't a word, or a section with no text rejects the file, naming the line, as `guards.txt` does. A rejected file adds no rules until it's fixed: the warning shows at startup and in the Session section, and the log names it on each prompt.
 
 * **FR-12.2: Matching.** On Enter, each section's words are looked for in the typed prompt.
-  * It's a whole-word match that ignores case, so `bug` matches "Bug" but not "debug", and `test` doesn't match "tests" unless that's listed too.
-  * It reads what was typed, not the rewrite, and leaves out `Context:` lines, as `templates.min_words` does.
+  * It's a whole-word match that ignores case, as `guards.txt` reads words, so `bug` matches "Bug", "'bug'" and "bug's" but not "debug", and `test` doesn't match "tests" unless that's listed too. A hyphenated or apostrophe word in a section matches only as a whole: `[bug-fix]` needs "bug-fix", and `[what's]` isn't matched by "what".
+  * It reads what was typed, not the rewrite, which adds words of its own (in the spike, "review" in 9 of 129 rewrites), and leaves out `Context:` lines, as `templates.min_words` does. Pastes and code blocks are left out too, or a pasted log would match every section, unless a paste is the whole prompt. `templates.min_words` also counts the typed text.
   * No model is involved, so it works with every `expand.on_enter` setting and adds no time.
 
 * **FR-12.3: What gets added.** The text before the first section is added, then each section with a matching word, in the file's order:
@@ -51,18 +51,24 @@ The words of the prompt usually show what kind of work it is, so they can decide
   | Has none of the words | The always-added text |
   | Short (`templates.min_words`) | Nothing, as today |
 
+  What's added starts with the line `# Guidance`, always, so it reads apart from the prompt.
+
 * **FR-12.4: Expand doesn't change.** The rewrite request, the guards, the diff and the styles stay exactly as they are. The rewrite's reply stays plain text.
 
-* **FR-12.5: Visible.** The Session section shows the sections added to the last prompt, the `preview` panel shows the rules that will really be added, and the history records which sections were added.
+* **FR-12.5: Visible.** The Session section shows the sections added to the last prompt, the "Ready to send" panel shows the rules that will really be added, and the history has a `sections` field.
 
 ---
 
 ## 3. Risks
 
-* **A prompt without the words gets no section.** "Please have a look" gets no `[review]` unless `look` is listed. In the spike, keywords missed a section on 28% of the prompts that needed one. A policy that must hold belongs in the always-added text, and sections are for reminders that are fine to miss. The documentation and the template say so.
+* **A prompt without the words gets no section.** "Please have a look" gets no `[review]` unless `look` is listed. In the spike, keywords missed a section on 28% of the prompts that needed one. The always-added text is the more reliable place, and sections are for reminders that are fine to miss.
+* **This is guidance, not enforcement.** Claude reads the text, but nothing checks that it's followed, and some prompts don't get it: short ones, slash commands, and Leader then Enter. `CLAUDE.md` is the place for an instruction that should always be there, and Claude Code's permissions or hooks for something that must never happen. The documentation says so.
 * **A word that's only mentioned still matches.** "all tests passed, commit it" gets the `[test]` section. The developer can remove the word from the list.
+* **An edited rewrite is matched as it stands.** Once the text in the box isn't the rewrite, it counts as typed, words the model added included. A second rewrite is the same: it starts from the first one.
+* **The panel reads `append.txt`** at most once a second while open. That's only noticeable on a slow network folder.
 * **Word lists take some tuning.** Words typed often need adding, and languages other than the one the list is written in won't match, so a developer who writes in two languages lists both.
 * **A section's words sit in its header.** A long list makes a long line. That's accepted to keep one simple format.
+* **A line that is only `[…]`, with no other brackets inside, now starts a section.** An `append.txt` with such a line changes behaviour, or is rejected if the line isn't words. `[NOTE]` or `[1]` can't be told from a section meant as one, so the rules after them stop going on every prompt. The Session line's section count is the way to spot it.
 
 ---
 
@@ -93,4 +99,4 @@ A wrong section is the repeated text this appendix sets out to remove, while a m
 
 ## 6. Roadmap
 
-Not scheduled. When picked up: FR-12.1 to FR-12.3, then FR-12.5. FR-12.4 needs no work.
+FR-12.1 to FR-12.5 were built on 2026-11-06. What's left is the open decisions in section 5.
