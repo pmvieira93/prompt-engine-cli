@@ -12,7 +12,7 @@
 Since v0.1.0, each tag publishes a release with a ready-built binary for macOS and Linux (arm64 and amd64) and `checksums.txt` (`.github/workflows/release.yml`). Installing still means one of two things:
 
 * **`install.sh`** (at the repository root since v0.1.2), which builds from source, so it needs Go and a clone of the repository; or
-* **by hand**, following the README's "From a release" steps: download, extract, move the binary, and clear the macOS quarantine flag.
+* **by hand**, following the README's "From a release" steps (now in [Install](install.md)): download, extract, move the binary, and clear the macOS quarantine flag.
 
 The script already does everything else a new user needs:
 * the system check;
@@ -47,7 +47,7 @@ One install script, with two ways to get the binary. A second script would repea
   curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/install.sh | bash
   ```
 
-  The README also shows the URL pinned to a tag, for a reproducible install. The script already asks its questions on the terminal (`/dev/tty`) when it's piped in, so consent still works.
+  The README (now [Install](install.md)) also shows the URL pinned to a tag, for a reproducible install. The script already asks its questions on the terminal (`/dev/tty`) when it's piped in, so consent still works.
 * **FR-9.5: Upgrades.** Running the script again:
   * replaces the binary;
   * keeps the config file;
@@ -65,12 +65,12 @@ One install script, with two ways to get the binary. A second script would repea
 
 ### 2.1 Documentation
 
-* **README, Installation:**
+* **README, Installation** (moved to [Install](install.md) on 2026-11-07):
   1. the one-line install (recommended);
   2. from a clone, with the same script;
   3. manually from a release;
   4. building by hand.
-* **README, Requirements:** Go only to build from source.
+* **README, Requirements** (now in [Install](install.md#requirements)): Go only to build from source.
 * **Getting Started, step 1:** the one-line install, with the clone as the alternative.
 * **Testing guide:** a new part, covering:
   * a release install;
