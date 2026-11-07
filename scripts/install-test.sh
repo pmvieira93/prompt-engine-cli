@@ -72,9 +72,9 @@ links_resolve() {
 	local dir="$work/unpacked" name="prompt-engine_v9.9.1_${os}_${arch}" link
 	rm -rf "$dir" && mkdir -p "$dir"
 	tar -xzf "$work/releases/download/v9.9.1/$name.tar.gz" -C "$dir"
-	for link in $(grep -oE '\]\([^)# ]+' "$dir/$name/README.md" | sed 's/^](//' | grep -v '://'); do
+	while read -r link; do
 		[ -e "$dir/$name/$link" ] || { echo "    missing: $link"; return 1; }
-	done
+	done < <(grep -oE '\]\([^)# ]+' "$dir/$name/README.md" | sed 's/^](//' | grep -v '://')
 }
 check "the archive has every page the README links to" links_resolve
 
