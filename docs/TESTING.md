@@ -91,7 +91,7 @@ Claude Code switches the terminal into an enhanced keyboard mode, so many keys a
 
 None is needed for testing; without a file, the built-in defaults are used. Part D creates its own throwaway config files.
 
-For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`). `bin/prompt-engine --pe-config <file>` uses another file instead; the flag is removed before the rest of the arguments go to `claude`. `PROMPT_ENGINE_CONFIG=<file>` works too; the flag wins if both are set. Every setting, with its default and a comment, is in [`config.example.yaml`](config.example.yaml); the [configuration reference](reference.md#configuration) has the reference table.
+For reference, the full config lives at `~/.config/prompt-engine/config.yaml` (or `$XDG_CONFIG_HOME/prompt-engine/config.yaml`). `bin/prompt-engine --pe-config <file>` uses another file instead; the flag is removed before the rest of the arguments go to `claude`. `PROMPT_ENGINE_CONFIG=<file>` works too; the flag wins if both are set. Every setting, with its default and a comment, is in [`config.example.yaml`](config.example.yaml), and in the [configuration reference](reference.md#all-settings) as a table.
 
 ---
 

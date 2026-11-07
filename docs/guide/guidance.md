@@ -2,7 +2,7 @@
 
 [README](../../README.md) · [Getting Started](../GETTING_STARTED.md) · [Configuration reference](../reference.md)
 
-Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They reach Claude Code as context for every prompt you send, under a `# Guidance` heading, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3). 
+Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They reach Claude Code as context for every prompt you send, under a `# Guidance` heading, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3).
 
 ```text
 fix the login form

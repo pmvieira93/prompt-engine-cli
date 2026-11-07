@@ -87,7 +87,7 @@ expand:
   context: reply
 ```
 
-Then `tell me more about the second one` is rewritten to name what Claude Code listed second. Details: [Session context](guide/rewrites.md#session-context).
+Then `tell me more about the second one` is rewritten to name what Claude Code listed second. This reads Claude Code's transcript, on your machine. Details: [Session context](guide/rewrites.md#session-context).
 
 **Choose who the wording is for:**
 
@@ -177,3 +177,4 @@ The health check is safe to run at any time and changes nothing:
 - The guides: [ghost text](guide/ghost-text.md), [rewrites](guide/rewrites.md), [guidance](guide/guidance.md), [guard rails](guide/guard-rails.md), [side panel and history](guide/panel.md).
 - [Configuration reference](reference.md): every setting, flag, environment variable and file.
 - [Local models](models.md): which models, and the alternatives.
+- [Testing guide](TESTING.md): a feature-by-feature walk-through, with what to expect.

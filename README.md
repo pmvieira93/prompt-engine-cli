@@ -29,7 +29,7 @@ flowchart LR
 ```
 
 - **Local.** Completions and rewrites come from models on your machine, through [Ollama](https://ollama.com). Your prompts don't go anywhere else before they reach Claude Code.
-- **Drop-in.** Every argument goes on to `claude` (`prompt-engine --resume` works), and every Ctrl key still belongs to Claude Code. `prompt-engine`'s own shortcuts sit behind one leader key, **Ctrl+Q**.
+- **Drop-in.** Every argument goes on to `claude` (`prompt-engine --resume` works), and every other Ctrl key still belongs to Claude Code. `prompt-engine`'s own shortcuts sit behind one leader key, **Ctrl+Q**; press it twice to send a real Ctrl+Q.
 - **Live settings.** Edits to the config file apply while it runs. The side panel says when a setting needs a restart.
 - **Safe fallback.** If its display layer fails, `prompt-engine` switches to plain pass-through and your session goes on. Without a terminal (for example `prompt-engine -p "…" | less`), it hands over to `claude` directly.
 

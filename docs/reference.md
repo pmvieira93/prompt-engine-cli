@@ -62,7 +62,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | `keys.panel_wider` | `+` | Widen the panel by 5% |
 | `keys.panel_narrower` | `-` | Narrow the panel by 5% |
 | **`templates`** | | |
-| `templates.dir` | `templates` | Folder for `append.txt` and `system.txt`, relative to the config file. *Restart* |
+| `templates.dir` | `templates` | Folder for `append.txt`, `system.txt` and `guards.txt`, relative to the config file. *Restart* |
 | `templates.min_words` | `3` | Shorter prompts don't get `append.txt`. `1` adds it to every prompt |
 | **`history`** | | |
 | `history.enabled` | `true` | Record one line per prompt sent |

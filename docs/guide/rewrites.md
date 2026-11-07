@@ -12,7 +12,7 @@ It works in three modes (`expand.on_enter`):
 |---|---|
 | `off` (default) | **Ctrl+Q, then e** rewrites the prompt in place. You review it, edit it or undo it (**Ctrl+Q, then u**), try another style (**Ctrl+Q, then s**), and press Enter yourself. |
 | `preview` | When you pause, a rewrite is prepared in the background and shown in the side panel. **Ctrl+Q, then e** applies it. **Enter** sends what you typed. |
-| `auto` | **Enter** rewrites the prompt, then sends it. Prompts shorter than 3 words (`yes`, `continue`) go as typed, and so does a prompt the model can't rewrite within 5 s. |
+| `auto` | **Enter** rewrites the prompt, then sends it. Prompts shorter than 3 words (`yes`, `continue`) go as typed, and so does a prompt the model can't rewrite within 5 s, or whose rewrite a guard rail stops. |
 
 In `preview` mode, the rewrite waits in the side panel while you type; **Ctrl+Q, then e** takes it:
 
