@@ -1,15 +1,15 @@
 # PRD Appendix 6: Rules Chosen by Intent
 
 **Extends:** [PRD.md](../PRD.md) version 1.3.5 (FR-4.2, static rules from `templates/append.txt`) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7, the rewrite on Enter)  
-**Appendix Version:** 2.3.1  
-**Date:** 2026-11-06  
+**Appendix Version:** 2.3.2  
+**Date:** 2026-11-07  
 **Status:** Built on 2026-11-06 in `internal/rules`. Raised on 2026-11-04 with the local model naming the intent. Changed on 2026-11-05 to matching words the developer lists, after a [spike](spikes/intent.md) (section 4). Sections for confirmations (section 7, FR-12.6): measured and set aside on 2026-11-06.
 
 ---
 
 ## 1. Background
 
-`templates/append.txt` is added to the end of every prompt sent (FR-4.2). That fits a rule that always applies, but not one that only matters for some work: "Run the tests before saying it works" means nothing on a request to explain a function. Seeing the same text on every prompt gets boring, and it costs tokens each time.
+`templates/append.txt` is added to every prompt sent (FR-4.2; [Appendix 7](PRD-APPENDIX-7.md) changes how it reaches the model). That fits a rule that always applies, but not one that only matters for some work: "Run the tests before saying it works" means nothing on a request to explain a function. Seeing the same text on every prompt gets boring, and it costs tokens each time.
 
 The words of the prompt usually show what kind of work it is, so they can decide which rules are added. The sections and their words are the developer's own, in `append.txt`.
 

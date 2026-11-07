@@ -39,7 +39,7 @@ Four scripts check whole flows, so a change can be tested in one command before 
 
 | Script | What it runs | Needs |
 |---|---|---|
-| `scripts/e2e.sh [case]…` | The whole wrapper in a test terminal, around a stand-in for `claude` (`tools/fakeclaude`), with the fake suggester. Cases: ghost text and Tab, rules, sections of the rules, the panel, preview, auto mode, `claude`'s suggestion taken with → and sent at once, a style for one prompt (Ctrl+Q, s), the history file and session id, and running nested. CI runs it on every push | Go only: no account, network or model |
+| `scripts/e2e.sh [case]…` | The whole wrapper in a test terminal, around a stand-in for `claude` (`tools/fakeclaude`), with the fake suggester. Cases: ghost text and Tab, rules, sections of the rules, rules through the hook (the stand-in tags large pastes as `claude` does), the panel, preview, auto mode, `claude`'s suggestion taken with → and sent at once, a style for one prompt (Ctrl+Q, s), the history file and session id, and running nested. CI runs it on every push | Go only: no account, network or model |
 | `scripts/smoke.sh [--keep]` | The same flows against the real `claude` and the local models, driven by [VHS](https://github.com/charmbracelet/vhs) in a throwaway project (`~/pe-demo/smoke-app`). It sends three harmless prompts, then checks the debug log for each flow and prints ✓, ✗, or – (skipped, e.g. when `claude` offered no suggestion). The log, screenshots and a GIF are kept | `vhs`, `claude` signed in, Ollama with both models |
 | `scripts/install-test.sh [--latest]` | `install.sh`'s release install against releases built on the spot and served from a folder (`PROMPT_ENGINE_RELEASES_URL=file://…`): a pinned version, the same version again, an upgrade that keeps the config, a bad checksum, a missing config file, an old binary without `--pe-version`, the script piped in outside a clone, and a missing version. `--latest` also installs the latest release from GitHub. CI runs it on every push | Go; the network only for `--latest` |
 | `scripts/test-env.sh [NAME=value]… command` | Any command in a clean environment. It removes every `PROMPT_ENGINE_*` and `CLAUDE*` variable, and keeps the history and config in a throwaway folder. The other scripts use it | — |
@@ -457,7 +457,7 @@ Send `say hello in three words in portuguese` (a harmless prompt) and wait for t
 
 ## 8. Part G: Rules added to your prompts
 
-`prompt-engine` appends the contents of `~/.config/prompt-engine/templates/append.txt` to each prompt you submit, just before the Enter, unless it's shorter than `templates.min_words` (3). To make that visible, these tests use a rule whose effect shows up in `claude`'s reply.
+`prompt-engine` adds the contents of `~/.config/prompt-engine/templates/append.txt` to each prompt you submit, through a hook ([PRD Appendix 7](PRD-APPENDIX-7.md)), unless it's shorter than `templates.min_words` (3). To make that visible, these tests use a rule whose effect shows up in `claude`'s reply.
 
 > ⚠️ **G1, G4, G5 and G7 send real prompts** to `claude`, so they use a little of your account. Keep the prompts short, as below.
 
@@ -471,7 +471,7 @@ PROMPT_ENGINE_SUGGESTER=fake PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engi
 
 | # | Do this | Expected |
 |---|---|---|
-| G1 | Type `say hi in three words` and press **Enter** | The prompt briefly shows `[Pasted text #1 +3 lines]` after your text, then `claude` replies, **ending with PINEAPPLE**. Log: `rules: appended append.txt (1 line)` |
+| G1 | Type `say hi in three words` and press **Enter** | Nothing is added to the prompt on screen. `claude` replies, **ending with PINEAPPLE**. Log: `rules: appended append.txt (1 line)`, then `rules: hook gave claude …` |
 | G2 | Type `/help` and press **Enter** | Help opens normally (Esc closes it). Log: `rules: not added (slash command)` |
 | G3 | Type `!echo hi` and press **Enter** | Runs as a bash command, as usual. Log: `rules: not added (bash mode)` |
 | G4 | Type `say bye in three words`, press **Ctrl+Q**, then **Enter** | `claude` replies **without** PINEAPPLE. Log: `leader: submit as typed` |
@@ -491,9 +491,10 @@ Start `prompt-engine` as in the setup, and open the panel with **Ctrl+Q, p**.
 
 | # | Do this | Expect |
 |---|---|---|
-| G9 | Type `say hi in three words` and press **Enter** | The reply ends with MANGO, not KIWI. Log: `rules: appended append.txt (1 line)`. Session section: `rules: 1 section; last prompt: none` |
-| G10 | Type `write a haiku about rain` and press **Enter** | The rules sent include KIWI. Log: `rules: appended append.txt (3 lines; sections: poem)`. Session section: `last prompt: poem`, and the panel's note says `rules added (poem)` |
-| G10a | Type `say what this is in five words: ` then paste the text `a poem` and press **Enter** | The rules don't include KIWI: pasted words don't count. Log: `rules: appended append.txt (1 line)` |
+| G9 | Type `say hi in three words` and press **Enter** | The reply ends with MANGO, not KIWI. Log: `rules: appended append.txt (1 line)`, then `rules: hook gave claude …`. Session section: `rules: 1 section; last prompt: none`. `claude` doesn't refuse the rule as pasted text |
+| G10 | Type `write a haiku about rain` and press **Enter** | The rules sent include KIWI, so the reply ends with KIWI, or with MANGO and KIWI: the two rules conflict, and `claude` may follow only the later one. Log: `rules: appended append.txt (3 lines; sections: poem)`. Session section: `last prompt: poem`, and the panel's note says `rules added (poem)` |
+| G10a | Type `say what this is in five words: ` then paste the text `a poem` and press **Enter** | The panel's Last prompt sent has no KIWI line: pasted words don't count. Log: `rules: appended append.txt (1 line)` |
+| G10b | Type `say how many lines this has: ` then paste six short lines and press **Enter** | `claude` shows `[Pasted text #1 +5 lines]`, then answers, and the reply ends with MANGO: a large paste doesn't change how the rules arrive |
 | G11 | In Terminal B: `printf '[two words]\ntext\n' > ~/.config/prompt-engine/templates/append.txt`. Wait 2 seconds, then type `say hi in three words` and press **Enter** | Sent with no rules. Session section: `⚠ rules not added: append.txt line 1: …`. Log: `rules: not added: append.txt line 1: …` |
 
 **Cleanup:** `rm -f ~/.config/prompt-engine/templates/append.txt`. To keep using rules, put your own guidelines in that file.
@@ -925,9 +926,10 @@ export PROMPT_ENGINE_CONFIG="$T/config.yaml"
 | A long paste that `claude` shows as `[Pasted text #1 +N lines]` is never rewritten if the prompt was re-read from the screen | The screen only has the placeholder, not the text |
 | A typo the model misreads as a name can get through in auto mode (e.g. `rfcator tracker` → `the RFCator tracker`) | The rewrite keeps nearly all your words, so no word-based check can tell it from a good typo fix. Use the shortcut and review when a prompt has heavy typos |
 | Session context only includes your prompts, not `claude`'s replies | Level L1 of PRD Appendix 1. Replies (L2) and session summaries (L3) are later candidates |
-| Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
+| Rules don't show in `claude`'s prompt or transcript view | They reach it as hook context ([PRD Appendix 7](PRD-APPENDIX-7.md)). The panel's Last prompt sent and the log show them |
+| `--settings` passed to `claude` turns the rules off, with a warning at startup if you have an `append.txt` | `claude` only uses the last `--settings`, which replaces the hook. `prompt-engine` leaves yours in place |
 | Languages written without spaces (Chinese, Japanese, Thai) count as one word, so those prompts are short and get no rules | `templates.min_words` counts words split by spaces. Set it to `1` to add the rules to every prompt |
-| Rules aren't added when the prompt text is unknown (`synced=false`, e.g. while a menu is open) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
+| Rules aren't added when the prompt text is unknown (`synced=false`, e.g. while a menu is open) | Sections and `templates.min_words` go by the prompt's words. The log says `rules: not added (prompt text unknown)`. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---

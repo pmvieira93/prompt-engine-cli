@@ -245,13 +245,12 @@ func TestBeforeSubmit(t *testing.T) {
 	toggles := 0
 	c := leaderController(&toggles)
 	var seen []input.State
-	c.BeforeSubmit = func(s input.State) []byte {
+	c.BeforeSubmit = func(s input.State) {
 		seen = append(seen, s)
-		return []byte("<rules>")
 	}
 
 	// Text and Enter in one read: BeforeSubmit must see the text.
-	if out := string(c.Filter([]byte("hello\r"))); out != "hello<rules>\r" {
+	if out := string(c.Filter([]byte("hello\r"))); out != "hello\r" {
 		t.Fatalf("child got %q", out)
 	}
 	if len(seen) != 1 || seen[0].Text != "hello" {
@@ -553,9 +552,8 @@ func TestResizeRunInOneRead(t *testing.T) {
 func TestKeyHookAndSubmit(t *testing.T) {
 	c, out, _ := expandController(t)
 	var submitted []string
-	c.BeforeSubmit = func(s input.State) []byte {
+	c.BeforeSubmit = func(s input.State) {
 		submitted = append(submitted, s.Text)
-		return []byte("<rules>")
 	}
 	var held input.State
 	c.KeyHook = func(k input.Key, s input.State) bool {
@@ -580,7 +578,7 @@ func TestKeyHookAndSubmit(t *testing.T) {
 	if err := c.Submit(held.Rev, "fix it"); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "<rules>\r" || strings.Join(submitted, "|") != "fix it" {
+	if out.String() != "\r" || strings.Join(submitted, "|") != "fix it" {
 		t.Fatalf("wrote %q, submitted %q", out.String(), submitted)
 	}
 	if s := c.Tracker.Snapshot(); s.Text != "" {
@@ -620,13 +618,12 @@ func enterController(screen string, readable bool) (*Controller, *recorder, *[]s
 func TestEnterResyncsFromScreen(t *testing.T) {
 	c, _, calls := enterController("what's in src?", true)
 	var seen []input.State
-	c.BeforeSubmit = func(s input.State) []byte {
+	c.BeforeSubmit = func(s input.State) {
 		seen = append(seen, s)
-		return []byte("<rules>")
 	}
 
 	c.Filter([]byte("\x1b[C"))
-	if out := string(c.Filter([]byte("\r"))); out != "<rules>\r" {
+	if out := string(c.Filter([]byte("\r"))); out != "\r" {
 		t.Fatalf("child got %q", out)
 	}
 	if len(seen) != 1 || seen[0].Text != "what's in src?" || !seen[0].Synced {
@@ -645,11 +642,10 @@ func TestEnterResyncsFromScreen(t *testing.T) {
 func TestEnterInSameReadSendsKeysFirst(t *testing.T) {
 	c, rec, calls := enterController("what's in src?", true)
 	var seen []string
-	c.BeforeSubmit = func(s input.State) []byte {
+	c.BeforeSubmit = func(s input.State) {
 		seen = append(seen, s.Text)
-		return []byte("<rules>")
 	}
-	if out := string(c.Filter([]byte("\x1b[C\r"))); out != "<rules>\r" {
+	if out := string(c.Filter([]byte("\x1b[C\r"))); out != "\r" {
 		t.Fatalf("Filter returned %q", out)
 	}
 	if rec.String() != "\x1b[C" || strings.Join(*calls, "|") != `wait after "\x1b[C"|read` {
@@ -683,7 +679,7 @@ func TestEnterResyncReachesKeyHook(t *testing.T) {
 
 func TestEnterInSyncDoesNotReadScreen(t *testing.T) {
 	c, rec, calls := enterController("stale", true)
-	c.BeforeSubmit = func(input.State) []byte { return nil }
+	c.BeforeSubmit = func(input.State) {}
 	if out := string(c.Filter([]byte("hello\r"))); out != "hello\r" {
 		t.Fatalf("child got %q", out)
 	}
@@ -695,9 +691,8 @@ func TestEnterInSyncDoesNotReadScreen(t *testing.T) {
 func TestEnterUnreadableScreenLeavesPromptUnknown(t *testing.T) {
 	c, _, _ := enterController("", false)
 	var seen []input.State
-	c.BeforeSubmit = func(s input.State) []byte {
+	c.BeforeSubmit = func(s input.State) {
 		seen = append(seen, s)
-		return nil
 	}
 	c.Filter([]byte("\x1b[A"))
 	c.Filter([]byte("\r"))

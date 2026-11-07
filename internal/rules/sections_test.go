@@ -133,13 +133,13 @@ func TestForPrompt(t *testing.T) {
 
 func TestSectionsOnly(t *testing.T) {
 	in, logs := injector(t, "[test]\nRun them first.\n")
-	if got := in.BeforeSubmit(state("explain the loader")); got != nil {
+	if got := added(in, state("explain the loader")); got != "" {
 		t.Fatalf("no match: injected %q", got)
 	}
 	if !strings.Contains(strings.Join(*logs, ""), "not added (no section matches)") {
 		t.Errorf("logs = %q", *logs)
 	}
-	if _, text, names := in.Prepare(state("run the test")); text != Heading+"\nRun them first." || !slices.Equal(names, []string{"test"}) {
+	if text, names := in.Prepare(state("run the test")); text != Heading+"\nRun them first." || !slices.Equal(names, []string{"test"}) {
 		t.Errorf("match: %q %q", text, names)
 	}
 }
@@ -153,21 +153,21 @@ func TestSectionsMatchTypedText(t *testing.T) {
 		}
 		return s.Text, s.Pastes
 	}
-	if got := in.BeforeSubmit(state(rewrite)); got != nil {
+	if got := added(in, state(rewrite)); got != "" {
 		t.Fatalf("matched a word only the rewrite has: %q", got)
 	}
 	if in.Text(rewrite) != "" {
 		t.Error("the preview has a section only the rewrite matches")
 	}
 	in.Typed = func(input.State) (string, []string) { return "please review the loader", nil }
-	if got := in.BeforeSubmit(state("Look at the loader.")); got == nil {
+	if got := added(in, state("Look at the loader.")); got == "" {
 		t.Error("no match on the typed text")
 	}
 }
 
 func TestBadTemplateAddsNothing(t *testing.T) {
 	in, logs := injector(t, "keep it small\n\n[two words]\ntext\n")
-	if got := in.BeforeSubmit(state("explain the loader")); got != nil {
+	if got := added(in, state("explain the loader")); got != "" {
 		t.Fatalf("injected %q", got)
 	}
 	if !strings.Contains(strings.Join(*logs, ""), "not added") {
@@ -200,7 +200,7 @@ func TestShortGoesByTypedText(t *testing.T) {
 	in.MinWords = func() int { return 3 }
 	const rewrite = "Please fix the failing tests."
 	in.Typed = func(input.State) (string, []string) { return "fix tests", nil }
-	if got := in.BeforeSubmit(state(rewrite)); got != nil {
+	if got := added(in, state(rewrite)); got != "" {
 		t.Fatalf("a short prompt's rewrite got rules: %q", got)
 	}
 	if in.Text(rewrite) != "" {
@@ -213,12 +213,12 @@ func TestSectionsSkipPastes(t *testing.T) {
 	const paste = "line 1: crash in main\nline 2: failed"
 	s := state("explain this failure\n" + paste)
 	s.Pastes = []string{paste}
-	if got := in.BeforeSubmit(s); got != nil {
+	if got := added(in, s); got != "" {
 		t.Fatalf("matched a paste: %q", got)
 	}
 	s = state("explain this crash\n" + paste)
 	s.Pastes = []string{paste}
-	if in.BeforeSubmit(s) == nil {
+	if added(in, s) == "" {
 		t.Error("no match on the typed words")
 	}
 }
@@ -228,7 +228,7 @@ func TestPasteWithContextLines(t *testing.T) {
 	const paste = "line 1: crash\n\nContext:\n- Branch: main\nline 3: failed"
 	s := state("look at this\n" + paste)
 	s.Pastes = []string{paste}
-	if got := in.BeforeSubmit(s); got != nil {
+	if got := added(in, s); got != "" {
 		t.Fatalf("matched a paste: %q", got)
 	}
 }
@@ -239,7 +239,7 @@ func TestOnlyAPaste(t *testing.T) {
 	for name, text := range map[string]string{"in the text": paste, "behind claude's placeholder": "[Pasted text #1 +40 lines]"} {
 		s := state(text)
 		s.Pastes = []string{paste}
-		if in.BeforeSubmit(s) == nil {
+		if added(in, s) == "" {
 			t.Errorf("%s: no match on the paste", name)
 		}
 	}
@@ -247,7 +247,7 @@ func TestOnlyAPaste(t *testing.T) {
 
 func TestBOM(t *testing.T) {
 	in, _ := injector(t, "\ufeff[test]\nRun them first.\n")
-	if got := in.BeforeSubmit(state("explain the loader")); got != nil {
+	if got := added(in, state("explain the loader")); got != "" {
 		t.Fatalf("the section was read as text: %q", got)
 	}
 }
