@@ -201,7 +201,7 @@ curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master
 This installs the latest release. Go and a clone aren't needed. To pin the script and the release to one version, use the script from that tag:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/v0.1.3/install.sh | bash -s -- --version v0.1.3
+curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/v0.1.4/install.sh | bash -s -- --version v0.1.4
 ```
 
 The script asks before it changes anything, on your terminal even when it's piped in. Read it first if you like: it's [`install.sh`](install.sh). In order, it:
@@ -233,7 +233,7 @@ Options go after `bash -s --` when the script is piped in, or after `./install.s
 |---|---|
 | `--from release` | Install a ready-built binary (the default outside a clone) |
 | `--from source` | Build with Go (the default in a clone) |
-| `--version TAG` | Install that release, e.g. `v0.1.3` (default: the latest); implies `--from release` |
+| `--version TAG` | Install that release, e.g. `v0.1.4` (default: the latest); implies `--from release` |
 | `--binary-only` | Only install or upgrade the binary: no dependencies, models or health check |
 | `--check` | Only run the health check |
 | `--expand-model` | Only download the rewrite model |
