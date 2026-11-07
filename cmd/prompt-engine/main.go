@@ -78,6 +78,10 @@ func main() {
 }
 
 func run() int {
+	if len(os.Args) == 2 && os.Args[1] == hookFlag {
+		runHook()
+		return 0
+	}
 	if wantsVersion(os.Args[1:]) {
 		fmt.Println("prompt-engine", version)
 		return 0
@@ -127,7 +131,12 @@ func run() int {
 		return 126
 	}
 
-	cmd := exec.Command(bin, args...)
+	queue, hookArgs := rulesQueue(args)
+	if queue != nil {
+		defer queue.Close()
+		env = append(env, rules.EnvQueue+"="+queue.Dir)
+	}
+	cmd := exec.Command(bin, append(hookArgs, args...)...)
 	cmd.Env = append(env, envActive+"=1")
 
 	tracker := input.NewTracker()
@@ -148,7 +157,7 @@ func run() int {
 		session := &pty.Session{Filter: tracker, OnFilterError: onFilterError}
 		code, err = session.Run(cmd)
 	} else {
-		code, err = runGhost(cmd, cfg, cfgErr, sessionID, tracker, logf, onFilterError)
+		code, err = runGhost(cmd, cfg, cfgErr, sessionID, tracker, queue, logf, onFilterError)
 	}
 	if err != nil {
 		warn("%v", err)
@@ -163,7 +172,7 @@ func run() int {
 }
 
 // runGhost runs cmd in the emulator UI with fake ghost-text suggestions.
-func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, tracker *input.Tracker, logf func(string, ...any), onFilterError func(error)) (int, error) {
+func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, tracker *input.Tracker, queue *rules.Queue, logf func(string, ...any), onFilterError func(error)) (int, error) {
 	if logf == nil {
 		logf = func(string, ...any) {} // no debug log
 	}
@@ -173,7 +182,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	var injector *rules.Injector
 	if dir, err := cfg.TemplatesDir(); err != nil {
 		logf("rules: off: %v", err)
-	} else {
+	} else if queue != nil {
 		injector = &rules.Injector{Dir: dir, Logf: logf}
 	}
 
@@ -907,18 +916,30 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			return s.Text, s.Pastes
 		}
 	}
+	// queueRules tells the hook what to add when the prompt reaches claude.
+	queueRules := func(s input.State, text string) {
+		if queue == nil || (s.Synced && rules.SkipReason(s) != "") {
+			return // not a message to the model, so the hook won't run
+		}
+		if err := queue.Put(s.Text, text); err != nil {
+			logf("rules: not added: %v", err)
+		}
+	}
 	ctrl.BeforeSubmit = func(s input.State) []byte {
-		var insert []byte
 		var appended string
 		var sections []string
 		if injector != nil {
-			insert, appended, sections = injector.Prepare(s)
+			appended, sections = injector.Prepare(s)
 		}
+		queueRules(s, appended)
 		record(s, appended, sections)
-		return insert
+		return nil
 	}
 	// Leader then Enter sends the prompt as typed: no rules, but recorded.
-	ctrl.OnSubmitAsTyped = func(s input.State) { record(s, "", nil) }
+	ctrl.OnSubmitAsTyped = func(s input.State) {
+		queueRules(s, "")
+		record(s, "", nil)
+	}
 	record = func(s input.State, appended string, sections []string) {
 		if strings.HasPrefix(strings.TrimSpace(s.Text), "/") {
 			sess.slashCommand(time.Now()) // /clear starts the conversation again
@@ -1399,6 +1420,59 @@ func logStates(path string, t *input.Tracker) (logf func(string, ...any), err er
 		}
 	}()
 	return logf, nil
+}
+
+// hookFlag runs prompt-engine as claude's UserPromptSubmit hook.
+const hookFlag = "--pe-hook"
+
+// rulesQueue makes the queue for this session's rules, and the arguments
+// that make claude run the hook that reads it. Rules go that way, not in the
+// prompt, because claude marks a large paste as not written by the user, and
+// the model may then ignore it (PRD Appendix 7). With its own --settings in
+// args, claude would only use that one, so there are no rules.
+func rulesQueue(args []string) (*rules.Queue, []string) {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "--settings" || strings.HasPrefix(a, "--settings=") {
+			warn("no rules are added: --settings replaces the settings prompt-engine gives claude")
+			return nil, nil
+		}
+	}
+	exe, err := os.Executable()
+	if err == nil {
+		exe, err = filepath.Abs(exe)
+	}
+	if err != nil {
+		warn("no rules are added: %v", err)
+		return nil, nil
+	}
+	queue, err := rules.NewQueue()
+	if err != nil {
+		warn("no rules are added: %v", err)
+		return nil, nil
+	}
+	return queue, []string{"--settings", rules.Settings(shellQuote(exe) + " " + hookFlag)}
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// runHook answers claude's hook, in a process of its own. Its log lines go
+// to the session's debug log.
+func runHook() {
+	logf := func(string, ...any) {}
+	if path := os.Getenv(envDebugLog); path != "" {
+		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+			defer f.Close()
+			logf = func(format string, a ...any) {
+				fmt.Fprintf(f, "%s "+format+"\n", append([]any{time.Now().Format("15:04:05.000")}, a...)...)
+			}
+		}
+	}
+	rules.Hook(os.Stdin, os.Stdout, os.Getenv(rules.EnvQueue), logf)
 }
 
 // ownFlags takes prompt-engine's own --pe-config flag out of args and

@@ -212,3 +212,25 @@ func TestGuardLines(t *testing.T) {
 		t.Errorf("on: %q", on)
 	}
 }
+
+func TestRulesQueue(t *testing.T) {
+	queue, args := rulesQueue([]string{"--verbose", "--", "--settings"})
+	if queue == nil {
+		t.Fatal("a --settings after -- is claude's text, not a flag")
+	}
+	defer queue.Close()
+	if len(args) != 2 || args[0] != "--settings" || !strings.Contains(args[1], hookFlag) {
+		t.Fatalf("args = %q", args)
+	}
+	for _, flag := range []string{"--settings", "--settings=my.json"} {
+		if queue, args := rulesQueue([]string{flag, "my.json"}); queue != nil || args != nil {
+			t.Errorf("%s: got a queue and %q", flag, args)
+		}
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	if got := shellQuote("/a b/it's"); got != `'/a b/it'\''s'` {
+		t.Fatalf("got %s", got)
+	}
+}

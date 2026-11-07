@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections panel preview auto accept style history guards guards_off nested
+#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history guards guards_off nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -67,6 +67,7 @@ check() {
 }
 logged() { grep -qF -- "$1" "$dir/pe.log"; }
 sent() { [ "$(tail -n 1 "$dir/sent.jsonl")" = "$1" ]; }
+sent_any() { grep -qF -- "$1" "$dir/sent.jsonl"; }
 first_sent() { [ "$(head -n 1 "$dir/sent.jsonl")" = "$1" ]; }
 shown() { grep -qF -- "$1" "$dir/screen.txt"; }
 fails_shown() { ! shown "$1"; }
@@ -146,6 +147,37 @@ exit'
 	check "no match: only the always-added text" first_sent '"explain the loader\n\n# Guidance\nKeep changes small."'
 	check "a match adds the section" sent '"fix the failing tests\n\n# Guidance\nKeep changes small.\n\nRun them first."'
 	check "the log names the section" logged 'rules: appended append.txt (3 lines; sections: test)'
+}
+
+case_rules_hook() {
+	echo "rules_hook: rules of any length reach claude as hook context, not as a paste"
+	mkdir -p "$work/rules_hook/templates"
+	printf -- 'First line.\nSecond line.\nThird line.\nFourth line.\n' >"$work/rules_hook/templates/append.txt"
+	run_case rules_hook 'reply on
+wait "❯" 5s
+send "explain the loader"
+sleep 300ms
+send "\r"
+sleep 500ms
+send "explain this: "
+sleep 200ms
+send "\x1b[200~a\nb\nc\nd\x1b[201~"
+sleep 300ms
+send "\r"
+sleep 500ms
+send "fix the parser now"
+sleep 300ms
+send "\x11"
+sleep 200ms
+send "\r"
+sleep 500ms
+send "\x04"
+exit'
+	check "long rules arrive untagged" first_sent '"explain the loader\n\n# Guidance\nFirst line.\nSecond line.\nThird line.\nFourth line."'
+	check "a large paste gets the rules too" sent_any 'a\nb\nc\nd'
+	check "the rules stay outside the tags" sent_any '\n\n\n# Guidance\nFirst line.\nSecond line.'
+	check "leader, then Enter sends no rules" sent '"fix the parser now"'
+	check "the hook logged it" logged 'rules: hook gave claude'
 }
 
 case_panel() {
@@ -389,7 +421,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections panel preview auto accept style history guards guards_off nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history guards guards_off nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

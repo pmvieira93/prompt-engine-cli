@@ -6,19 +6,25 @@
 //   - the input box: a "❯ " line between two rules of "─";
 //   - after each reply, a suggested next prompt, faint, in the empty box,
 //     which → or Tab accepts;
-//   - bracketed paste, which prompt-engine uses to append rules.
+//   - bracketed paste, with a paste of 3 or more line breaks marked with
+//     <pasted_content> tags, as claude 2.1.311 does before the model sees it;
+//   - the UserPromptSubmit hook from --settings, which prompt-engine uses to
+//     add rules.
 //
 // Each submitted prompt is appended to the -log file as one JSON string
-// per line, so a test can check exactly what claude would have received.
+// per line, followed by the hook's context, so a test can check exactly what
+// claude would have received.
 //
-//	fakeclaude [-log file] [-suggest "show me main.go"]
+//	fakeclaude [-log file] [-suggest "show me main.go"] [--settings json]
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -39,14 +45,17 @@ type fake struct {
 	text       []rune
 	transcript []string
 	inPaste    bool
+	paste      strings.Builder
+	hook       string // the UserPromptSubmit command
 }
 
 func main() {
 	logPath := flag.String("log", "", "append each submitted prompt here, as a JSON string per line")
 	suggest := flag.String("suggest", "show me main.go", "the suggested next prompt shown after a reply")
+	settings := flag.String("settings", "", "settings as JSON, for the UserPromptSubmit hook")
 	flag.Parse()
 
-	f := &fake{suggestion: *suggest}
+	f := &fake{suggestion: *suggest, hook: hookCommand(*settings)}
 	if *logPath != "" {
 		file, err := os.OpenFile(*logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
@@ -97,10 +106,12 @@ func (f *fake) input(in string) (rest string, quit bool) {
 		if f.inPaste {
 			end := strings.Index(in, pasteEnd)
 			if end < 0 {
-				f.insert(in)
+				f.paste.WriteString(in)
 				return "", false
 			}
-			f.insert(in[:end])
+			f.paste.WriteString(in[:end])
+			f.insert(tagged(f.paste.String()))
+			f.paste.Reset()
 			in, f.inPaste = in[end+len(pasteEnd):], false
 			continue
 		}
@@ -155,6 +166,53 @@ func (f *fake) input(in string) (rest string, quit bool) {
 	return "", false
 }
 
+// tagged marks a large paste as claude does.
+func tagged(paste string) string {
+	if strings.Count(paste, "\n") < 3 {
+		return paste
+	}
+	return "\n\n<pasted_content id=\"abc7\">\n" + paste + "\n</pasted_content id=\"abc7\">\n"
+}
+
+// hookCommand returns the UserPromptSubmit command in settings.
+func hookCommand(settings string) string {
+	var s struct {
+		Hooks struct {
+			UserPromptSubmit []struct {
+				Hooks []struct {
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"UserPromptSubmit"`
+		} `json:"hooks"`
+	}
+	if json.Unmarshal([]byte(settings), &s) != nil || len(s.Hooks.UserPromptSubmit) == 0 ||
+		len(s.Hooks.UserPromptSubmit[0].Hooks) == 0 {
+		return ""
+	}
+	return s.Hooks.UserPromptSubmit[0].Hooks[0].Command
+}
+
+// runHook returns the context the hook adds to prompt.
+func (f *fake) runHook(prompt string) string {
+	if f.hook == "" {
+		return ""
+	}
+	in, _ := json.Marshal(map[string]string{"prompt": prompt, "hook_event_name": "UserPromptSubmit"})
+	cmd := exec.Command("sh", "-c", f.hook)
+	cmd.Stdin = bytes.NewReader(in)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	var reply struct {
+		HookSpecificOutput struct {
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	json.Unmarshal(out, &reply)
+	return reply.HookSpecificOutput.AdditionalContext
+}
+
 func (f *fake) insert(s string) {
 	f.text = append(f.text, []rune(strings.ReplaceAll(s, "\r", "\n"))...)
 	f.offered = ""
@@ -171,6 +229,9 @@ func (f *fake) submit() {
 	sent := string(f.text)
 	if strings.TrimSpace(sent) == "" {
 		return
+	}
+	if context := f.runHook(sent); context != "" {
+		sent += "\n\n" + context
 	}
 	if f.log != nil {
 		line, _ := json.Marshal(sent)

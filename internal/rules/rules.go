@@ -1,7 +1,7 @@
 // Package rules adds the user's standing guidelines to prompts as they are
-// submitted (PRD FR-4.2): the contents of templates/append.txt are pasted
-// at the end of the prompt just before the Enter that sends it. Sections of
-// the file are added only to prompts with their words (PRD Appendix 6).
+// submitted (PRD FR-4.2): the contents of templates/append.txt reach claude
+// through a hook, as context for the prompt (PRD Appendix 7). Sections of the
+// file are added only to prompts with their words (PRD Appendix 6).
 package rules
 
 import (
@@ -14,25 +14,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rivo/uniseg"
-
 	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
 	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 )
 
-// AppendFile is the template appended to submitted prompts.
+// AppendFile is the template added to submitted prompts.
 const AppendFile = "append.txt"
 
-// maxSize bounds a template, so a wrong path can't paste a huge file.
+// maxSize bounds a template, so a wrong path can't send a huge file.
 const maxSize = 64 << 10
 
 // Injector decides, at each submit, whether to add the rules and how.
 type Injector struct {
 	Dir string // the templates directory
 
-	// Ready reports whether text can be inserted right now: the child's
-	// cursor is in its prompt (not a dialog) and it accepts bracketed
-	// paste, so the rules' newlines don't submit early. Nil means ready.
+	// Ready reports whether Enter sends the prompt right now: the child's
+	// cursor is in its prompt, not a dialog. Nil means ready.
 	Ready func() bool
 	// MinWords returns the fewest words a prompt needs to get the rules,
 	// so "yes" or "continue" stays as typed. Nil means any prompt.
@@ -49,64 +46,46 @@ type Injector struct {
 	cachedAt  time.Time
 }
 
-// BeforeSubmit returns the input to send just before the Enter that
-// submits s, or nil to submit it unchanged.
-func (in *Injector) BeforeSubmit(s input.State) []byte {
-	insert, _, _ := in.Prepare(s)
-	return insert
-}
-
-// Prepare is BeforeSubmit that also returns the rules text being appended
-// ("" if none) and the sections in it. The template is read on every call,
-// so edits apply to the next prompt without a restart.
-func (in *Injector) Prepare(s input.State) (insert []byte, appended string, sections []string) {
+// Prepare returns the rules for prompt s ("" if none) and the sections in
+// them. The template is read on every call, so edits apply to the next
+// prompt without a restart.
+func (in *Injector) Prepare(s input.State) (appended string, sections []string) {
 	t, err := in.load()
 	switch {
 	case err != nil:
 		in.logf("rules: not added: %v", err)
-		return nil, "", nil
+		return "", nil
 	case t.empty():
-		return nil, "", nil
+		return "", nil
 	}
 	if reason := SkipReason(s); reason != "" {
 		in.logf("rules: not added (%s)", reason)
-		return nil, "", nil
+		return "", nil
 	}
 	typed, pastes := in.typed(s)
 	if in.short(typed) {
 		in.logf("rules: not added (short prompt)")
-		return nil, "", nil
+		return "", nil
 	}
 	text, sections := t.forPrompt(typed, pastes)
 	if text == "" {
 		in.logf("rules: not added (no section matches)")
-		return nil, "", nil
+		return "", nil
 	}
 	if in.Ready != nil && !in.Ready() {
-		in.logf("rules: not added (cursor not in the prompt, or no bracketed paste)")
-		return nil, "", nil
-	}
-
-	var b strings.Builder
-	// Paste at the end even if the cursor is mid-text. Right moves one
-	// user-perceived character in claude, like the input buffer does.
-	for range uniseg.GraphemeClusterCount(string([]rune(s.Text)[s.Cursor:])) {
-		b.WriteString("\x1b[C")
+		in.logf("rules: not added (cursor not in the prompt)")
+		return "", nil
 	}
 	unit, lines := "lines", strings.Count(text, "\n")+1
 	if lines == 1 {
 		unit = "line"
 	}
-	text = Heading + "\n" + text
-	b.WriteString("\x1b[200~" + Separator)
-	b.WriteString(text)
-	b.WriteString("\x1b[201~")
 	note := fmt.Sprintf("%d %s", lines, unit)
 	if len(sections) > 0 {
 		note += "; sections: " + strings.Join(sections, ", ")
 	}
 	in.logf("rules: appended %s (%s)", AppendFile, note)
-	return []byte(b.String()), text, sections
+	return Heading + "\n" + text, sections
 }
 
 // short reports whether text has too few words to get the rules. The
@@ -189,10 +168,10 @@ func (in *Injector) load() (template, error) {
 	return t, nil
 }
 
-// Separator goes between a prompt and the rules appended to it.
+// Separator goes between a prompt and its rules where they're shown together.
 const Separator = "\n\n"
 
-// Heading starts the rules appended to a prompt, so they read apart from it.
+// Heading starts the rules added to a prompt, so they read apart from it.
 const Heading = "# Guidance"
 
 // SkipReason says why Enter on s doesn't send a message to the model (so
@@ -214,8 +193,7 @@ func SkipReason(s input.State) string {
 	return ""
 }
 
-// read returns the template with escape characters removed (one could end
-// the bracketed paste early), line endings normalized and any byte order
+// read returns the template with line endings normalized and any byte order
 // mark dropped. A missing file means no rules.
 func (in *Injector) read() (string, error) {
 	path := filepath.Join(in.Dir, AppendFile)
@@ -234,7 +212,6 @@ func (in *Injector) read() (string, error) {
 		return "", err
 	}
 	text := strings.TrimPrefix(string(data), "\ufeff")
-	text = strings.ReplaceAll(text, "\x1b", "")
 	return strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), nil
 }
 

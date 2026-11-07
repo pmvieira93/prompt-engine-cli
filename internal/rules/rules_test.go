@@ -25,25 +25,21 @@ func state(text string) input.State {
 	return input.State{Text: text, Cursor: len([]rune(text)), Synced: true}
 }
 
-func TestBeforeSubmitAppends(t *testing.T) {
-	in, _ := injector(t, "\r\n- Keep answers short.\r\n- Ask before \x1b[201~editing.\n\n")
-	got := string(in.BeforeSubmit(state("explain the tracker")))
-	want := "\x1b[200~\n\n# Guidance\n- Keep answers short.\n- Ask before [201~editing.\x1b[201~"
+func added(in *Injector, s input.State) string {
+	text, _ := in.Prepare(s)
+	return text
+}
+
+func TestPrepareAddsHeading(t *testing.T) {
+	in, _ := injector(t, "\r\n- Keep answers short.\r\n- Ask before editing.\n\n")
+	got := added(in, state("explain the tracker"))
+	want := "# Guidance\n- Keep answers short.\n- Ask before editing."
 	if got != want {
 		t.Fatalf("got  %q\nwant %q", got, want)
 	}
 }
 
-func TestBeforeSubmitMovesToEnd(t *testing.T) {
-	in, _ := injector(t, "rules")
-	s := input.State{Text: "fix 👍🏽 bug", Cursor: 4, Synced: true} // cursor before the emoji
-	got := string(in.BeforeSubmit(s))
-	if !strings.HasPrefix(got, strings.Repeat("\x1b[C", 5)+"\x1b[200~") {
-		t.Fatalf("expected 5 Right presses (emoji, space, b, u, g) then the paste, got %q", got)
-	}
-}
-
-func TestBeforeSubmitSkips(t *testing.T) {
+func TestPrepareSkips(t *testing.T) {
 	cases := map[string]input.State{
 		"empty":         state("   "),
 		"slash command": state("/compact"),
@@ -54,7 +50,7 @@ func TestBeforeSubmitSkips(t *testing.T) {
 	for name, s := range cases {
 		t.Run(name, func(t *testing.T) {
 			in, logs := injector(t, "rules")
-			if got := in.BeforeSubmit(s); got != nil {
+			if got := added(in, s); got != "" {
 				t.Fatalf("injected %q", got)
 			}
 			if len(*logs) != 1 || !strings.Contains((*logs)[0], "not added") {
@@ -65,17 +61,17 @@ func TestBeforeSubmitSkips(t *testing.T) {
 	// Enter after a mention submits in claude, so it gets rules too.
 	for _, text := range []string{"look at @inter", "look at @internal/rules "} {
 		in, _ := injector(t, "rules")
-		if in.BeforeSubmit(state(text)) == nil {
+		if added(in, state(text)) == "" {
 			t.Errorf("%q: rules not added", text)
 		}
 	}
 }
 
-func TestBeforeSubmitSkipsShort(t *testing.T) {
+func TestPrepareSkipsShort(t *testing.T) {
 	in, logs := injector(t, "rules")
 	in.MinWords = func() int { return 3 }
 	for _, text := range []string{"yes", "ok thanks", "  ok   thanks  "} {
-		if got := in.BeforeSubmit(state(text)); got != nil {
+		if got := added(in, state(text)); got != "" {
 			t.Errorf("%q: injected %q", text, got)
 		}
 		if in.Text(text) != "" {
@@ -85,7 +81,7 @@ func TestBeforeSubmitSkipsShort(t *testing.T) {
 	if !strings.Contains((*logs)[0], "not added (short prompt)") {
 		t.Errorf("logs = %q", *logs)
 	}
-	if in.BeforeSubmit(state("run the tests")) == nil {
+	if added(in, state("run the tests")) == "" {
 		t.Error("three words: rules not added")
 	}
 	if in.Text("run the tests") != Heading+"\nrules" {
@@ -93,7 +89,7 @@ func TestBeforeSubmitSkipsShort(t *testing.T) {
 	}
 	// A rewrite's context lines aren't words of the prompt.
 	rewrite := "Please ok.\n\nContext:\n- Branch: main\n- Staged changes: 1 file"
-	if got := in.BeforeSubmit(state(rewrite)); got != nil {
+	if got := added(in, state(rewrite)); got != "" {
 		t.Errorf("short rewrite: injected %q", got)
 	}
 	if in.Text(rewrite) != "" {
@@ -101,41 +97,41 @@ func TestBeforeSubmitSkipsShort(t *testing.T) {
 	}
 }
 
-func TestBeforeSubmitNeedsReady(t *testing.T) {
+func TestPrepareNeedsReady(t *testing.T) {
 	in, _ := injector(t, "rules")
 	in.Ready = func() bool { return false }
-	if got := in.BeforeSubmit(state("hello")); got != nil {
-		t.Fatalf("injected while not ready: %q", got)
+	if got := added(in, state("hello")); got != "" {
+		t.Fatalf("added while not ready: %q", got)
 	}
 }
 
-func TestBeforeSubmitWithoutTemplate(t *testing.T) {
+func TestPrepareWithoutTemplate(t *testing.T) {
 	in, logs := injector(t, "")
-	if got := in.BeforeSubmit(state("hello")); got != nil || len(*logs) != 0 {
+	if got := added(in, state("hello")); got != "" || len(*logs) != 0 {
 		t.Fatalf("got %q, logs %q", got, *logs)
 	}
 	blank, _ := injector(t, " \n\t\n")
-	if got := blank.BeforeSubmit(state("hello")); got != nil {
+	if got := added(blank, state("hello")); got != "" {
 		t.Fatalf("blank template injected %q", got)
 	}
 }
 
-func TestBeforeSubmitRereadsTemplate(t *testing.T) {
+func TestPrepareRereadsTemplate(t *testing.T) {
 	in, _ := injector(t, "first")
-	if got := string(in.BeforeSubmit(state("a"))); !strings.Contains(got, "first") {
+	if got := added(in, state("a")); !strings.Contains(got, "first") {
 		t.Fatalf("got %q", got)
 	}
 	if err := os.WriteFile(filepath.Join(in.Dir, AppendFile), []byte("second"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(in.BeforeSubmit(state("a"))); !strings.Contains(got, "second") {
+	if got := added(in, state("a")); !strings.Contains(got, "second") {
 		t.Fatalf("edit not picked up: %q", got)
 	}
 }
 
-func TestBeforeSubmitRejectsHugeTemplate(t *testing.T) {
+func TestPrepareRejectsHugeTemplate(t *testing.T) {
 	in, logs := injector(t, strings.Repeat("x", maxSize+1))
-	if got := in.BeforeSubmit(state("a")); got != nil || !strings.Contains(strings.Join(*logs, ""), "not added") {
+	if got := added(in, state("a")); got != "" || !strings.Contains(strings.Join(*logs, ""), "not added") {
 		t.Fatalf("got %d bytes, logs %q", len(got), *logs)
 	}
 }
