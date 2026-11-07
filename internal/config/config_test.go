@@ -197,25 +197,31 @@ func TestWatch(t *testing.T) {
 			return event{}
 		}
 	}
+	// write replaces the file in one step, as editors do: os.WriteFile
+	// creates it empty first, and Watch could read it in between.
+	write := func(body string) {
+		t.Helper()
+		tmp := filepath.Join(dir, ".config.yaml.tmp")
+		if err := os.WriteFile(tmp, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			t.Fatal(err)
+		}
+	}
 	time.Sleep(30 * time.Millisecond) // let Watch take its first stamp
 
-	if err := os.WriteFile(path, []byte("llm:\n  model: m1\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write("llm:\n  model: m1\n")
 	if e := next("creating the file"); e.err != nil || e.cfg.LLM.Model != "m1" {
 		t.Fatalf("create: %+v", e)
 	}
 
-	if err := os.WriteFile(path, []byte("llm:\n  model: m2-longer\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write("llm:\n  model: m2-longer\n")
 	if e := next("editing the file"); e.err != nil || e.cfg.LLM.Model != "m2-longer" {
 		t.Fatalf("edit: %+v", e)
 	}
 
-	if err := os.WriteFile(path, []byte("comand: typo\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write("comand: typo\n")
 	if e := next("a broken edit"); e.err == nil {
 		t.Fatal("broken edit reported no error")
 	}
