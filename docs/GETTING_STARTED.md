@@ -1,6 +1,6 @@
 # Getting Started
 
-From install to your first rewritten prompt in five minutes. For every setting and option, see the [README](../README.md).
+From install to your first rewritten prompt in five minutes. For every setting, see the [configuration reference](reference.md).
 
 ---
 
@@ -10,13 +10,9 @@ From install to your first rewritten prompt in five minutes. For every setting a
 curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/install.sh | bash
 ```
 
-This installs the latest release; Go isn't needed. To build from source instead, clone the repository and run `./install.sh` in it.
+When it says **✓ prompt-engine is ready**, you're set. If it says `~/.local/bin is not on your PATH`, add the line it prints to `~/.zshrc` or `~/.bashrc`, then open a new terminal.
 
-The script checks your system and installs what's missing, asking first. It downloads the ghost text model and ends with a health check. When it says **✓ prompt-engine is ready**, you're set.
-
-If it says `~/.local/bin is not on your PATH`, add the line it prints to `~/.zshrc` or `~/.bashrc`, then open a new terminal.
-
-To upgrade later, run the same line again: it keeps your config.
+What the script does, its options, other ways to install, and upgrading: [Install](install.md).
 
 The commands below write `./install.sh`, as in a clone. Without one, use `curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/install.sh | bash -s --` followed by the option, e.g. `… | bash -s -- --check`.
 
@@ -75,7 +71,7 @@ expand:
   on_enter: preview
 ```
 
-Pause after typing, and a rewrite appears in the side panel. **Ctrl+Q, then e** uses it; **Enter** sends what you typed.
+How `preview` and `auto` behave: [Modes](guide/rewrites.md#modes).
 
 **Rewrite every prompt on Enter** (auto):
 
@@ -84,8 +80,6 @@ expand:
   on_enter: auto
 ```
 
-Short replies like `yes` or `continue` go as typed. If a guard rail finds the rewrite changed your meaning, your original prompt is sent instead.
-
 **Let rewrites understand "do the first one"** (Claude Code's last reply):
 
 ```yaml
@@ -93,7 +87,7 @@ expand:
   context: reply
 ```
 
-After Claude Code replies with a list or options, `tell me more about the second one` is rewritten to name what the second item says. This reads Claude Code's transcript, on your machine, from your first prompt on.
+Then `tell me more about the second one` is rewritten to name what Claude Code listed second. Details: [Session context](guide/rewrites.md#session-context).
 
 **Choose who the wording is for:**
 
@@ -102,7 +96,7 @@ expand:
   style: llm      # terse and direct; or human, both, default
 ```
 
-For a single prompt, **Ctrl+Q, then s** picks the next style instead, until that prompt is sent.
+For a single prompt, use **Ctrl+Q, then s** instead ([Styles](guide/rewrites.md#styles)).
 
 **See why a rewrite was stopped:**
 
@@ -111,7 +105,7 @@ panel:
   guard_details: true
 ```
 
-**Add your own guard rails.** One rule per line in `~/.config/prompt-engine/templates/guards.txt` (template: [`guards.example.txt`](guards.example.txt)):
+**Add your own guard rails.** One rule per line in `~/.config/prompt-engine/templates/guards.txt` ([how they work](guide/guard-rails.md)):
 
 ```
 never add: deploy, rollback, production
@@ -120,7 +114,7 @@ always keep: staging
 
 Try it first: `prompt-engine --pe-check-guards "restart the api" "Restart the production api."` says which guard stops the rewrite.
 
-**Add your rules to your prompts.** Short prompts like "yes" don't get them. Write them, one per line, in `~/.config/prompt-engine/templates/append.txt`:
+**Add your rules to your prompts.** Write them, one per line, in `~/.config/prompt-engine/templates/append.txt` ([how guidance works](guide/guidance.md)):
 
 ```text
 Run the tests before saying it works.
@@ -180,5 +174,6 @@ The health check is safe to run at any time and changes nothing:
 
 ## Next steps
 
-- [README](../README.md): every feature, setting, environment variable and model option.
-- [Testing guide](TESTING.md): a feature-by-feature walk-through, with what to expect.
+- The guides: [ghost text](guide/ghost-text.md), [rewrites](guide/rewrites.md), [guidance](guide/guidance.md), [guard rails](guide/guard-rails.md), [side panel and history](guide/panel.md).
+- [Configuration reference](reference.md): every setting, flag, environment variable and file.
+- [Local models](models.md): which models, and the alternatives.
