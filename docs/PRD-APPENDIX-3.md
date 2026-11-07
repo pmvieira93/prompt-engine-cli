@@ -47,7 +47,7 @@ One install script, with two ways to get the binary. A second script would repea
   curl -fsSL https://raw.githubusercontent.com/pmvieira93/prompt-engine-cli/master/install.sh | bash
   ```
 
-  The README also shows the URL pinned to a tag, for a reproducible install. The script already asks its questions on the terminal (`/dev/tty`) when it's piped in, so consent still works.
+  The README (now [Install](install.md)) also shows the URL pinned to a tag, for a reproducible install. The script already asks its questions on the terminal (`/dev/tty`) when it's piped in, so consent still works.
 * **FR-9.5: Upgrades.** Running the script again:
   * replaces the binary;
   * keeps the config file;
