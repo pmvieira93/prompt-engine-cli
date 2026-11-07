@@ -3,7 +3,9 @@ package rules
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -44,6 +46,20 @@ func TestTakeDropsOlderEntries(t *testing.T) {
 	q := queue(t)
 	put(t, q, "answered a dialog", "stale")
 	put(t, q, "real prompt", "rules")
+	if got, _ := Take(q.Dir, "real prompt"); got != "rules" {
+		t.Fatalf("got %q", got)
+	}
+	if files, _ := os.ReadDir(q.Dir); len(files) != 0 {
+		t.Fatalf("left %d entries", len(files))
+	}
+}
+
+// The same text sent again replaces the entry an Enter that sent nothing
+// left, so the prompt gets its own rules and none are left over.
+func TestPutReplacesSameText(t *testing.T) {
+	q := queue(t)
+	put(t, q, "fix  the bug", "")
+	put(t, q, "fix the bug", "rules")
 	if got, _ := Take(q.Dir, "real prompt"); got != "rules" {
 		t.Fatalf("got %q", got)
 	}
@@ -123,5 +139,23 @@ func TestHookAddsNothing(t *testing.T) {
 	}
 	if got := hook("/no/such/folder", `{"prompt":"x"}`); got != "" {
 		t.Errorf("no folder: %q", got)
+	}
+}
+
+func TestNewQueueRemovesLeftQueues(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	gone := filepath.Join(os.TempDir(), queuePrefix+"999999999-1")
+	alive := filepath.Join(os.TempDir(), fmt.Sprintf("%s%d-1", queuePrefix, os.Getpid()))
+	for _, dir := range []string{gone, alive} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	queue(t)
+	if _, err := os.Stat(gone); err == nil {
+		t.Error("a dead session's queue was kept")
+	}
+	if _, err := os.Stat(alive); err != nil {
+		t.Error("a running session's queue was removed")
 	}
 }

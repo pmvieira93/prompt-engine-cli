@@ -57,7 +57,7 @@ type Options struct {
 	PanelPercent  func() int
 	OnFilterError func(error)
 	Logf          func(format string, a ...any) // optional
-	// Rules, if set, gets told when the child can take inserted text.
+	// Rules, if set, gets told whether Enter sends the prompt.
 	Rules *rules.Injector
 	// Status, if set, returns lines describing the session (e.g. which
 	// config is in use) for the side panel. It's called at every redraw.
@@ -124,7 +124,7 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	startCols, startRows := a.childSize(cols, rows)
 	a.emu.Resize(startCols, startRows)
 	if opt.Rules != nil {
-		opt.Rules.Ready = a.canInsert
+		opt.Rules.Ready = a.cursorInPrompt
 	}
 	go a.wakeLoop()
 	go func() {

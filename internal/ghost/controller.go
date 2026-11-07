@@ -82,9 +82,9 @@ type Controller struct {
 	KeyHook func(k input.Key, s input.State) bool
 
 	// BeforeSubmit, if set before use, is called on each Enter with the
-	// prompt as it stands, and returns input to send just before that
-	// Enter (e.g. rules to append), or nil. Leader then Enter skips it.
-	BeforeSubmit func(s input.State) []byte
+	// prompt as it stands, before that Enter reaches the child (e.g. to
+	// choose its rules). Leader then Enter skips it.
+	BeforeSubmit func(s input.State)
 	// OnSubmitAsTyped, if set before use, is called on Leader then Enter,
 	// which sends the prompt without BeforeSubmit: e.g. to still record it.
 	OnSubmitAsTyped func(s input.State)
@@ -213,7 +213,7 @@ func (c *Controller) Notice() string {
 
 // Submit sends Enter for the prompt, as if the user had pressed it, if the
 // prompt is still text at revision rev. BeforeSubmit runs as for a typed
-// Enter, so rules are added and the submission recorded.
+// Enter, so rules are chosen and the submission recorded.
 func (c *Controller) Submit(rev uint64, text string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -224,11 +224,10 @@ func (c *Controller) Submit(rev uint64, text string) error {
 	case s.Rev != rev || s.Text != text:
 		return ErrStale
 	}
-	var b []byte
 	if c.BeforeSubmit != nil {
-		b = c.BeforeSubmit(s)
+		c.BeforeSubmit(s)
 	}
-	_, err := c.output.Write(c.Tracker.Filter(append(b, '\r')))
+	_, err := c.output.Write(c.Tracker.Filter([]byte{'\r'}))
 	return err
 }
 
@@ -479,8 +478,8 @@ func (c *Controller) Filter(p []byte) []byte {
 			// Bring the tracker up to this Enter, so BeforeSubmit sees text
 			// typed or pasted in the same read.
 			res = append(res, c.Tracker.Filter(out)...)
-			out = append(out[:0], c.BeforeSubmit(c.Tracker.Snapshot())...)
-			out = append(out, k.Raw...)
+			c.BeforeSubmit(c.Tracker.Snapshot())
+			out = append(out[:0], k.Raw...)
 		case k.Type == input.KeyReport && c.MouseOffset != nil && bytes.HasPrefix(k.Raw, []byte("\x1b[<")):
 			if raw, ok := shiftMouse(k.Raw, c.MouseOffset()); ok {
 				out = append(out, raw...)

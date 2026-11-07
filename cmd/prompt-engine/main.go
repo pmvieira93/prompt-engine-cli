@@ -18,6 +18,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -131,9 +132,14 @@ func run() int {
 		return 126
 	}
 
-	queue, hookArgs := rulesQueue(args)
+	var queue *rules.Queue
+	var hookArgs []string
+	if filepath.Base(cfg.Command) == "claude" && os.Getenv(envPassthrough) == "" {
+		queue, hookArgs = rulesQueue(args, hasRules(cfg))
+	}
 	if queue != nil {
 		defer queue.Close()
+		closeOnHangup(queue)
 		env = append(env, rules.EnvQueue+"="+queue.Dir)
 	}
 	cmd := exec.Command(bin, append(hookArgs, args...)...)
@@ -925,15 +931,17 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			logf("rules: not added: %v", err)
 		}
 	}
-	ctrl.BeforeSubmit = func(s input.State) []byte {
+	ctrl.BeforeSubmit = func(s input.State) {
 		var appended string
 		var sections []string
 		if injector != nil {
 			appended, sections = injector.Prepare(s)
+			if injector.Ready != nil && !injector.Ready() {
+				return // Enter answers a dialog: nothing is sent
+			}
 		}
 		queueRules(s, appended)
 		record(s, appended, sections)
-		return nil
 	}
 	// Leader then Enter sends the prompt as typed: no rules, but recorded.
 	ctrl.OnSubmitAsTyped = func(s input.State) {
@@ -1391,15 +1399,8 @@ func newSuggester(ctx context.Context, cfg config.LLMConfig, earlier func() []st
 // until the process exits. Mouse reports are skipped: with any-motion
 // tracking on, every pointer move would otherwise flood the log.
 func logStates(path string, t *input.Tracker) (logf func(string, ...any), err error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
+	if logf, err = openDebugLog(path); err != nil {
 		return nil, err
-	}
-	var mu sync.Mutex
-	logf = func(format string, a ...any) {
-		mu.Lock()
-		defer mu.Unlock()
-		fmt.Fprintf(f, time.Now().Format("15:04:05.000")+" "+format+"\n", a...)
 	}
 
 	t.OnKeys = func(raw []byte, keys []input.Key) {
@@ -1429,14 +1430,17 @@ const hookFlag = "--pe-hook"
 // that make claude run the hook that reads it. Rules go that way, not in the
 // prompt, because claude marks a large paste as not written by the user, and
 // the model may then ignore it (PRD Appendix 7). With its own --settings in
-// args, claude would only use that one, so there are no rules.
-func rulesQueue(args []string) (*rules.Queue, []string) {
+// args, claude would only use that one, so there are no rules: a warning
+// says so if the developer has any.
+func rulesQueue(args []string, haveRules bool) (*rules.Queue, []string) {
 	for _, a := range args {
 		if a == "--" {
 			break
 		}
 		if a == "--settings" || strings.HasPrefix(a, "--settings=") {
-			warn("no rules are added: --settings replaces the settings prompt-engine gives claude")
+			if haveRules {
+				warn("no rules are added: --settings replaces the settings prompt-engine gives claude")
+			}
 			return nil, nil
 		}
 	}
@@ -1456,6 +1460,29 @@ func rulesQueue(args []string) (*rules.Queue, []string) {
 	return queue, []string{"--settings", rules.Settings(shellQuote(exe) + " " + hookFlag)}
 }
 
+// hasRules reports whether the developer has an append.txt.
+func hasRules(cfg config.Config) bool {
+	dir, err := cfg.TemplatesDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(dir, rules.AppendFile))
+	return err == nil
+}
+
+// closeOnHangup removes the queue when the terminal closes, which ends
+// prompt-engine without running its deferred calls, then ends it as before.
+func closeOnHangup(queue *rules.Queue) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGHUP)
+	go func() {
+		<-ch
+		queue.Close()
+		signal.Reset(syscall.SIGHUP)
+		syscall.Kill(os.Getpid(), syscall.SIGHUP)
+	}()
+}
+
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
@@ -1465,14 +1492,26 @@ func shellQuote(s string) string {
 func runHook() {
 	logf := func(string, ...any) {}
 	if path := os.Getenv(envDebugLog); path != "" {
-		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
-			defer f.Close()
-			logf = func(format string, a ...any) {
-				fmt.Fprintf(f, "%s "+format+"\n", append([]any{time.Now().Format("15:04:05.000")}, a...)...)
-			}
+		if l, err := openDebugLog(path); err == nil {
+			logf = l
 		}
 	}
 	rules.Hook(os.Stdin, os.Stdout, os.Getenv(rules.EnvQueue), logf)
+}
+
+// openDebugLog returns a logger that adds timestamped lines to the debug
+// log at path. The file stays open until the process exits.
+func openDebugLog(path string) (func(string, ...any), error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	var mu sync.Mutex
+	return func(format string, a ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(f, time.Now().Format("15:04:05.000")+" "+format+"\n", a...)
+	}, nil
 }
 
 // ownFlags takes prompt-engine's own --pe-config flag out of args and

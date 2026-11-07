@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 )
 
 // EnvQueue names the folder that holds the rules for each prompt, so the
@@ -29,21 +31,46 @@ type entry struct {
 	Text   string `json:"text"`
 }
 
-// NewQueue makes a private folder for one session's rules. Close removes it.
+// queuePrefix starts each queue's folder name, followed by the process id
+// of the prompt-engine that made it.
+const queuePrefix = "prompt-engine-rules-"
+
+// NewQueue makes a private folder for one session's rules, after removing
+// any left by sessions that ended without Close. Close removes it.
 func NewQueue() (*Queue, error) {
-	dir, err := os.MkdirTemp("", "prompt-engine-rules-")
+	removeLeftQueues()
+	dir, err := os.MkdirTemp("", fmt.Sprintf("%s%d-", queuePrefix, os.Getpid()))
 	if err != nil {
 		return nil, err
 	}
 	return &Queue{Dir: dir}, nil
 }
 
+// removeLeftQueues removes the queues of prompt-engines no longer running.
+func removeLeftQueues() {
+	dirs, _ := filepath.Glob(filepath.Join(os.TempDir(), queuePrefix+"*"))
+	for _, dir := range dirs {
+		pid, _, _ := strings.Cut(strings.TrimPrefix(filepath.Base(dir), queuePrefix), "-")
+		n, err := strconv.Atoi(pid)
+		if err == nil && n > 0 && syscall.Kill(n, 0) == syscall.ESRCH {
+			os.RemoveAll(dir)
+		}
+	}
+}
+
 // Close removes the queue and anything still in it.
 func (q *Queue) Close() error { return os.RemoveAll(q.Dir) }
 
-// Put records the rules for prompt. It must finish before the Enter that
-// sends the prompt, as the hook can run right after it.
+// Put records the rules for prompt, in place of any entry with the same
+// text, which came from an Enter that sent nothing. It must finish before
+// the Enter that sends the prompt, as the hook can run right after it.
 func (q *Queue) Put(prompt, text string) error {
+	names, entries := read(q.Dir)
+	for i, e := range entries {
+		if bare(e.Prompt) == bare(prompt) {
+			os.Remove(names[i])
+		}
+	}
 	data, err := json.Marshal(entry{prompt, text})
 	if err != nil {
 		return err
@@ -62,27 +89,7 @@ func (q *Queue) Put(prompt, text string) error {
 // were sent and claude can change a prompt's text, as Tab on an @-mention
 // can. ok is false if the queue is empty.
 func Take(dir, prompt string) (text string, ok bool) {
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		return "", false
-	}
-	var names []string
-	var entries []entry
-	for _, f := range files {
-		if strings.HasPrefix(f.Name(), ".") {
-			continue // still being written
-		}
-		name := filepath.Join(dir, f.Name())
-		data, err := os.ReadFile(name)
-		if err != nil {
-			continue
-		}
-		var e entry
-		if json.Unmarshal(data, &e) != nil {
-			continue
-		}
-		names, entries = append(names, name), append(entries, e)
-	}
+	names, entries := read(dir)
 	if len(entries) == 0 {
 		return "", false
 	}
@@ -98,6 +105,30 @@ func Take(dir, prompt string) (text string, ok bool) {
 		os.Remove(name)
 	}
 	return entries[found].Text, true
+}
+
+// read returns the queue's entries, oldest first, and their files.
+func read(dir string) (names []string, entries []entry) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil
+	}
+	for _, f := range files {
+		if strings.HasPrefix(f.Name(), ".") {
+			continue // still being written
+		}
+		name := filepath.Join(dir, f.Name())
+		data, err := os.ReadFile(name)
+		if err != nil {
+			continue
+		}
+		var e entry
+		if json.Unmarshal(data, &e) != nil {
+			continue
+		}
+		names, entries = append(names, name), append(entries, e)
+	}
+	return names, entries
 }
 
 // pasteTag is what claude puts around a large paste before the hook sees it.

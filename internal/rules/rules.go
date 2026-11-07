@@ -193,8 +193,9 @@ func SkipReason(s input.State) string {
 	return ""
 }
 
-// read returns the template with line endings normalized and any byte order
-// mark dropped. A missing file means no rules.
+// read returns the template with escape characters removed (the panel
+// draws the rules, and one could move its cursor), line endings normalized
+// and any byte order mark dropped. A missing file means no rules.
 func (in *Injector) read() (string, error) {
 	path := filepath.Join(in.Dir, AppendFile)
 	info, err := os.Stat(path)
@@ -212,6 +213,7 @@ func (in *Injector) read() (string, error) {
 		return "", err
 	}
 	text := strings.TrimPrefix(string(data), "\ufeff")
+	text = strings.ReplaceAll(text, "\x1b", "")
 	return strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), nil
 }
 

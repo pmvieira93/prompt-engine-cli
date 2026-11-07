@@ -214,7 +214,7 @@ func TestGuardLines(t *testing.T) {
 }
 
 func TestRulesQueue(t *testing.T) {
-	queue, args := rulesQueue([]string{"--verbose", "--", "--settings"})
+	queue, args := rulesQueue([]string{"--verbose", "--", "--settings"}, true)
 	if queue == nil {
 		t.Fatal("a --settings after -- is claude's text, not a flag")
 	}
@@ -223,7 +223,7 @@ func TestRulesQueue(t *testing.T) {
 		t.Fatalf("args = %q", args)
 	}
 	for _, flag := range []string{"--settings", "--settings=my.json"} {
-		if queue, args := rulesQueue([]string{flag, "my.json"}); queue != nil || args != nil {
+		if queue, args := rulesQueue([]string{flag, "my.json"}, false); queue != nil || args != nil {
 			t.Errorf("%s: got a queue and %q", flag, args)
 		}
 	}

@@ -20,7 +20,9 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/pe-e2e.XXXXXX")"
 bin="$work/bin"
 mkdir -p "$bin"
 go build -o "$bin/prompt-engine" ./cmd/prompt-engine
-go build -o "$bin/fakeclaude" ./tools/fakeclaude
+# Named claude, as prompt-engine only sets up the rules hook for claude.
+mkdir -p "$bin/fake"
+go build -o "$bin/fake/claude" ./tools/fakeclaude
 go build -o "$bin/vtharness" ./tools/vtharness
 
 failed=0
@@ -34,7 +36,7 @@ run_case() {
 	dir="$work/$name"
 	mkdir -p "$dir/templates"
 	cat >"$dir/config.yaml" <<EOF
-command: $bin/fakeclaude
+command: $bin/fake/claude
 args: ["-log", "$dir/sent.jsonl"]
 $extra
 EOF

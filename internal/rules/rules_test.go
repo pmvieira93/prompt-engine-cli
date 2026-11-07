@@ -31,9 +31,9 @@ func added(in *Injector, s input.State) string {
 }
 
 func TestPrepareAddsHeading(t *testing.T) {
-	in, _ := injector(t, "\r\n- Keep answers short.\r\n- Ask before editing.\n\n")
+	in, _ := injector(t, "\r\n- Keep answers short.\r\n- Ask before \x1b[31mediting.\n\n")
 	got := added(in, state("explain the tracker"))
-	want := "# Guidance\n- Keep answers short.\n- Ask before editing."
+	want := "# Guidance\n- Keep answers short.\n- Ask before [31mediting."
 	if got != want {
 		t.Fatalf("got  %q\nwant %q", got, want)
 	}

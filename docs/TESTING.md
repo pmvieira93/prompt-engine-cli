@@ -927,10 +927,9 @@ export PROMPT_ENGINE_CONFIG="$T/config.yaml"
 | A typo the model misreads as a name can get through in auto mode (e.g. `rfcator tracker` → `the RFCator tracker`) | The rewrite keeps nearly all your words, so no word-based check can tell it from a good typo fix. Use the shortcut and review when a prompt has heavy typos |
 | Session context only includes your prompts, not `claude`'s replies | Level L1 of PRD Appendix 1. Replies (L2) and session summaries (L3) are later candidates |
 | Rules don't show in `claude`'s prompt or transcript view | They reach it as hook context ([PRD Appendix 7](PRD-APPENDIX-7.md)). The panel's Last prompt sent and the log show them |
-| `--settings` passed to `claude` turns the rules off, with a warning at startup | `claude` only uses the last `--settings`, which replaces the hook. `prompt-engine` leaves yours in place |
-| Rules are only appended, not prepended | Adding text at the start means moving the cursor through multi-line prompts, which is fragile. Prepending is planned once appending is proven. |
+| `--settings` passed to `claude` turns the rules off, with a warning at startup if you have an `append.txt` | `claude` only uses the last `--settings`, which replaces the hook. `prompt-engine` leaves yours in place |
 | Languages written without spaces (Chinese, Japanese, Thai) count as one word, so those prompts are short and get no rules | `templates.min_words` counts words split by spaces. Set it to `1` to add the rules to every prompt |
-| Rules aren't added when the prompt text is unknown (`synced=false`, e.g. while a menu is open) | Pasting at the end needs the exact cursor position. The log says `rules: not added (prompt text unknown)`. |
+| Rules aren't added when the prompt text is unknown (`synced=false`, e.g. while a menu is open) | Sections and `templates.min_words` go by the prompt's words. The log says `rules: not added (prompt text unknown)`. |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---

@@ -115,7 +115,7 @@ To use your own instructions instead, write them in `templates/system.txt`.
 
 ### Guidelines
 
-Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They reach Claude Code as context for every prompt you send, under a `# Guidance` heading, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3). They come through a hook that `prompt-engine` sets up when it starts, so they don't show in Claude Code's prompt box or transcript view: the panel's **Last prompt sent** shows them. If you pass your own `--settings` to `claude`, that replaces the hook, so no guidelines are added and `prompt-engine` warns at startup.
+Put your standing guidelines in `~/.config/prompt-engine/templates/append.txt`, for example "Run the tests before saying it works." They reach Claude Code as context for every prompt you send, under a `# Guidance` heading, except short ones like "yes" or "ok thanks": those with fewer words than `templates.min_words` (3). They come through a hook that `prompt-engine` sets up when it starts, so they don't show in Claude Code's prompt box or transcript view: the panel's **Last prompt sent** shows them. If you pass your own `--settings` to `claude`, that replaces the hook, so no guidelines are added and `prompt-engine` warns at startup. The hook is only set up when the wrapped `command` is `claude`.
 
 ```text
 fix the login form

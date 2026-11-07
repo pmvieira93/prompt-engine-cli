@@ -31,12 +31,13 @@ A one-line rule had stayed under the limit by one line break. The `# Guidance` h
 
 Sending small pastes or typing the rules also works, but both get around a label that protects the user from text they didn't write, and both depend on undocumented behaviour. A `UserPromptSubmit` hook is Claude Code's supported way to add context to a prompt, so rules go that way.
 
-* **FR-13.1: The hook.** `prompt-engine` starts `claude` with `--settings`, holding one `UserPromptSubmit` hook that runs `prompt-engine --pe-hook`. Rules come back as `additionalContext`. `claude` doesn't run the hook for slash commands or `!` commands.
+* **FR-13.1: The hook.** When the wrapped `command` is `claude`, outside pass-through mode, `prompt-engine` starts it with `--settings`, holding one `UserPromptSubmit` hook that runs `prompt-engine --pe-hook`. Rules come back as `additionalContext`. `claude` doesn't run the hook for slash commands or `!` commands.
 * **FR-13.2: Choosing the rules stays in `prompt-engine`.** The hook's `prompt` mixes pastes into what was typed, so it can't apply Appendix 6's matching. On Enter, `prompt-engine` chooses the rules as before, then writes them to a private per-session folder, before the Enter reaches `claude`.
-* **FR-13.3: Each prompt has an entry.** A prompt with no rules (a short one, or Leader then Enter) has an empty entry, so it can't pick up another prompt's rules.
+* **FR-13.3: Each prompt has an entry.** A prompt with no rules (a short one, or Leader then Enter) has an empty entry, so it can't pick up another prompt's rules. An Enter while a dialog has the cursor sends nothing, so it has none, and an entry replaces any older one with the same text.
 * **FR-13.4: Matching an entry.** The hook takes the oldest entry with the same text, ignoring space and `<pasted_content>` tags, and drops any older ones, which came from an Enter that sent nothing. If no entry has that text, it takes the oldest, since prompts arrive in order and `claude` can change a prompt's text.
 * **FR-13.5: The prompt always goes.** Whatever goes wrong in the hook, it writes nothing and exits 0.
-* **FR-13.6: `--settings`.** `claude` only uses the last `--settings`, and one passed by the developer stays in place. `prompt-engine` then adds no rules, and warns at startup.
+* **FR-13.5a: No rules left behind.** The folder is removed on exit and when the terminal closes. Its name has the process id, so a folder left by a crash is removed by the next start.
+* **FR-13.6: `--settings`.** `claude` only uses the last `--settings`, and one passed by the developer stays in place. `prompt-engine` then adds no rules, and warns at startup if there's an `append.txt`.
 
 ---
 
