@@ -492,7 +492,7 @@ Start `prompt-engine` as in the setup, and open the panel with **Ctrl+Q, p**.
 | # | Do this | Expect |
 |---|---|---|
 | G9 | Type `say hi in three words` and press **Enter** | The reply ends with MANGO, not KIWI. Log: `rules: appended append.txt (1 line)`, then `rules: hook gave claude …`. Session section: `rules: 1 section; last prompt: none`. `claude` doesn't refuse the rule as pasted text |
-| G10 | Type `write a haiku about rain` and press **Enter** | The reply ends with MANGO and KIWI. Log: `rules: appended append.txt (3 lines; sections: poem)`. Session section: `last prompt: poem`, and the panel's note says `rules added (poem)` |
+| G10 | Type `write a haiku about rain` and press **Enter** | The rules sent include KIWI, so the reply ends with KIWI, or with MANGO and KIWI: the two rules conflict, and `claude` may follow only the later one. Log: `rules: appended append.txt (3 lines; sections: poem)`. Session section: `last prompt: poem`, and the panel's note says `rules added (poem)` |
 | G10a | Type `say what this is in five words: ` then paste the text `a poem` and press **Enter** | The panel's Last prompt sent has no KIWI line: pasted words don't count. Log: `rules: appended append.txt (1 line)` |
 | G10b | Type `say how many lines this has: ` then paste six short lines and press **Enter** | `claude` shows `[Pasted text #1 +5 lines]`, then answers, and the reply ends with MANGO: a large paste doesn't change how the rules arrive |
 | G11 | In Terminal B: `printf '[two words]\ntext\n' > ~/.config/prompt-engine/templates/append.txt`. Wait 2 seconds, then type `say hi in three words` and press **Enter** | Sent with no rules. Session section: `⚠ rules not added: append.txt line 1: …`. Log: `rules: not added: append.txt line 1: …` |
