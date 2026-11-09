@@ -79,6 +79,7 @@ Every argument goes on to `claude`, except these, which start with `--pe-`:
 |---|---|
 | `--pe-config <file>` | Use this config file (wins over `PROMPT_ENGINE_CONFIG`) |
 | `--pe-version` | Print `prompt-engine`'s version and exit (`--version` still gives Claude Code's) |
+| `--pe-init-guards` | Write the guard rails template to `guards.txt` if there's none, and print its path. The install script runs it |
 | `--pe-check-guards "<typed>" "<rewrite>"` | Say which guard rail stops the rewrite, or that it passes, with your `guards.txt`. Exits 0 if it passes, 1 if stopped, 2 if `guards.txt` is invalid |
 
 ## Environment variables

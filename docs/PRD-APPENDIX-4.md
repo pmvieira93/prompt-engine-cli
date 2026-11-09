@@ -1,8 +1,8 @@
 # PRD Appendix 4: Guard Rails from a File
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.4 (section 4.4, configuration and custom rules) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7.4, the guard rails)  
-**Appendix Version:** 1.4.0  
-**Date:** 2026-11-05  
+**Appendix Version:** 1.4.1  
+**Date:** 2026-11-09  
 **Status:** Built on 2026-11-03 as a plain-text `templates/guards.txt` (section 6), in place of the `guards.yaml` first proposed (section 2). Agreed as the direction on 2026-10-30. Built-in guards told to the model (section 7, FR-10.8): dropped on 2026-11-05 after a spike.
 
 ---
@@ -147,7 +147,7 @@ turn off: question
 
 **Dropped from section 2:** editing the built-in word lists (FR-10.1), the thresholds (FR-10.2), `points_back`, and the word-start syntax. These were internal tuning, and confusing to read.
 
-**Template:** `docs/guards.example.txt` explains the three rules, lists every built-in guard with what it stops, and has commented examples. A test checks that it has no active rule, that it lists every guard, and that its examples parse. Release archives include it.
+**Template:** `docs/guards.example.txt` explains the three rules, lists every built-in guard with what it stops, and has commented examples. A test checks that it has no active rule, that it lists every guard, and that its examples parse. Release archives include it, and the binary has it built in: `--pe-init-guards` writes it to `guards.txt` if there's none, in the folder the app reads, and the install script runs that on every install.
 
 **Tests:**
 * `internal/guards`: parsing, errors by line, the example file and the notes;
