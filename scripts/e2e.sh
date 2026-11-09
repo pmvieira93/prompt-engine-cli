@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history guards guards_off nested
+#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -47,6 +47,7 @@ EOF
 			PROMPT_ENGINE_CONFIG="$dir/config.yaml" \
 			PROMPT_ENGINE_DEBUG_LOG="$dir/pe.log" \
 			PROMPT_ENGINE_SUGGESTER=fake \
+			CLAUDE_CONFIG_DIR="$dir/claude" \
 			${NESTED:+PROMPT_ENGINE_ACTIVE=1} \
 			${PE_HISTORY:+PROMPT_ENGINE_HISTORY="$PE_HISTORY"} \
 			"$bin/vtharness" -cols 120 -rows 30 -- "$bin/prompt-engine" \
@@ -359,6 +360,25 @@ exit'
 	check "not to the default file" test ! -e "$dir/state/prompt-engine/history.jsonl"
 }
 
+case_usage() {
+	echo "usage: the panel shows the tokens from the transcript, and the history records each reply's"
+	PE_HISTORY="$work/history/usage.jsonl" run_case usage 'reply on
+wait "❯" 5s
+send "say hello"
+sleep 300ms
+send "\r"
+wait "Reply to: say hello" 3s
+send "\x11p"
+wait "tokens:" 5s
+dump
+send "\x04"
+exit'
+	check "the panel shows the context" shown 'tokens:      context 41k · claude-fake-1'
+	check "and the reply's tokens" shown 'reply:     41k in (99% cached), 250 out'
+	check "the log has the reply's usage" logged 'usage: reply 1 call, 41k in (99% cached), 250 out; context 41k, claude-fake-1'
+	check "the history has a usage line" grep -q '"kind":"usage".*"calls":1,"input_tokens":3,"cache_write_tokens":0,"cache_read_tokens":41000,"output_tokens":250' "$work/history/usage.jsonl"
+}
+
 case_guards() {
 	echo "guards: templates/guards.txt adds a rule, an edit applies at once, and deleting it leaves the built-in guards"
 	local g="$work/guards/templates/guards.txt" sent="$work/guards/sent.jsonl"
@@ -423,7 +443,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history guards guards_off nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

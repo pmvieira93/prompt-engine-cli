@@ -1,9 +1,9 @@
 # PRD Appendix 5: Cost-Aware Local Assistance
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.5 (section 2, core value proposition; section 4.2, the local AI engine; the Phase 5 roadmap)  
-**Appendix Version:** 1.2.0  
+**Appendix Version:** 1.3.0  
 **Date:** 2026-11-09  
-**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 to be built, FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. Raised on 2026-10-30.
+**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. Raised on 2026-10-30.
 
 ---
 
@@ -35,7 +35,7 @@ Claude Code's session transcript (read since FR-6.3, [Appendix 1](PRD-APPENDIX-1
 
 Ranked by expected savings against risk. Every action is a **suggestion the developer approves**; `prompt-engine` never changes what is sent, or which model answers, on its own.
 
-* **FR-11.1: Cost visibility.** The panel shows the session's tokens so far (input, output, cache reads) and those of the last reply, from the transcript.
+* **FR-11.1: Cost visibility.** *Built on 2026-11-09 (section 9).* The panel shows the session's tokens so far (input, output, cache reads) and those of the last reply, from the transcript.
   * The history records them per prompt.
   * This comes first: the other features are judged by it.
 * **FR-11.2: Condensed pastes.** *Dropped on 2026-11-09 (section 7).* When a paste is large (a log, a stack trace, a diff), the local model prepares a condensed version: the errors, the lines around them, and what repeats, counted.
@@ -102,13 +102,13 @@ The spike's code and results go in `docs/spikes/`, like the earlier spikes.
 
 * **Where local answers appear:** the panel (proposed), or inline in the prompt box.
 * **Whether FR-11.5 (the API proxy) is ever in scope.**
-* **Whether token usage goes in the history by default,** or only with an option.
+* ~~Whether token usage goes in the history by default,~~ or only with an option. Decided 2026-11-09: by default, as numbers only (section 9).
 
 ---
 
 ## 6. Roadmap
 
-Not scheduled. Next when picked up: FR-11.1, then the cost benchmark (section 8). FR-11.3 and FR-11.4 wait for both, so their effect can be measured; FR-11.3 also needs spike step 3 first.
+FR-11.1 is built (section 9). Next when picked up: the cost benchmark (section 8). FR-11.3 and FR-11.4 wait for both, so their effect can be measured; FR-11.3 also needs spike step 3 first.
 
 ---
 
@@ -160,3 +160,18 @@ A cheaper run that fails the task isn't a saving, so cost is compared on the tas
 Section 7 suggests tokens and cost will come out about the same: what the developer sends is under 1% of the input. Fewer turns or a higher success rate would be the saving, if there is one. An equal result is still the answer FR-11 needs: it says where savings aren't.
 
 A benchmark of `prompt-engine` overall (rewrite quality, guard rails, other tools from Phase 5) is for later, and would reuse this project and harness.
+
+---
+
+## 9. FR-11.1 as built (2026-11-09)
+
+* **Where the numbers come from.** Each assistant record in Claude Code's transcript carries its API call's `usage`: fresh input, cache writes, cache reads and output. `prompt-engine` already finds the session's transcript (Appendix 1, FR-6.3). It reads it every 2 seconds, only the lines added since the last read, and counts each call once by its message id: a reply written as several records repeats its usage. A first read of a 72 MB transcript took 0.2 s; later reads take under 1 ms.
+* **Panel.** The Session section shows, once a reply arrives:
+  * **context:** the last call's input, and the model;
+  * **reply** and **so far:** input (with the share read from the cache) and output, for the last prompt's calls and for the conversation;
+  * **calls:** how many API calls each made.
+
+  `/clear` starts the count again, since Claude Code starts a new transcript. Subagents keep their own transcripts (`<session>/subagents/*.jsonl`); their calls count in **so far**, not in **context**.
+* **History.** When a reply ends, a line `"kind": "usage"` records its calls and tokens, the context and the model, with the prompt's time. A prompt's line is written when it's sent, before its tokens are known, so this is a line of its own. It holds numbers only, so it's on whenever the history is (section 5's open decision).
+* **Debug log.** `usage: reply N calls, … in (…% cached), … out; context …, <model>; subagent calls N`.
+* **Not built: cost in dollars.** The transcript has no live cost: Claude Code's own `cost-state` record is written now and then, without a time. A price table for every model would go stale. The benchmark (section 8) takes cost from `claude -p --output-format json`.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -232,5 +233,66 @@ func TestSessionSamePromptAfterClear(t *testing.T) {
 	mu.Unlock()
 	if got := s.reply(); got != "Done: termios_darwin.go and termios_linux.go." {
 		t.Errorf("reply after the same prompt again = %q, want the new transcript's", got)
+	}
+}
+
+// usageReply is tReply with the usage Claude Code records: 3 calls' worth.
+func usageReply(id string, in, read, out int) string {
+	return fmt.Sprintf(`{"type":"assistant","message":{"id":%q,"model":"claude-opus-5-5","stop_reason":"end_turn",`+
+		`"content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":%d,"cache_read_input_tokens":%d,"output_tokens":%d}}}`, id, in, read, out)
+}
+
+// The panel shows the tokens, and each reply's go to the history once.
+func TestSessionUsage(t *testing.T) {
+	s, path, _ := testSession(t)
+	replies := make(chan transcript.Tally, 4)
+	s.onReply = func(t transcript.Tally) { replies <- t }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.watchUsage(ctx)
+	next := func() transcript.Tally {
+		t.Helper()
+		select {
+		case r := <-replies:
+			return r
+		case <-time.After(2 * time.Second):
+			t.Fatal("no reply recorded")
+			return transcript.Tally{}
+		}
+	}
+	if lines := s.usageLines(); lines != nil {
+		t.Errorf("before a transcript: %q", lines)
+	}
+
+	writeTranscript(t, path, tPrompt, usageReply("m1", 3, 1_200_000, 4500))
+	if r := next(); r.Turn.Calls != 1 || r.Context != 1_200_003 {
+		t.Fatalf("first reply: %+v", r)
+	}
+	want := []string{
+		"tokens:      context 1.2M · claude-opus-5-5",
+		"  reply:     1.2M in (99% cached), 4.5k out",
+		"  so far:    1.2M in (99% cached), 4.5k out",
+		"  calls:     1 in the reply, 1 so far",
+	}
+	if got := s.usageLines(); !slices.Equal(got, want) {
+		t.Errorf("lines:\n%q\nwant\n%q", got, want)
+	}
+
+	writeTranscript(t, path, tPrompt, usageReply("m1", 3, 1_200_000, 4500), tNext, usageReply("m2", 10, 50_000, 120))
+	if r := next(); r.Turn.Calls != 1 || r.Total.Calls != 2 || r.Turn.Output != 120 {
+		t.Fatalf("second reply: %+v", r)
+	}
+	select {
+	case r := <-replies:
+		t.Errorf("a reply recorded twice: %+v", r)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestTokens(t *testing.T) {
+	for n, want := range map[int64]string{0: "0", 950: "950", 1234: "1.2k", 276_468: "276k", 1_420_000: "1.4M", 889_000_000: "889M"} {
+		if got := tokens(n); got != want {
+			t.Errorf("tokens(%d) = %q, want %q", n, got, want)
+		}
 	}
 }

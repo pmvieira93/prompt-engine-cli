@@ -105,7 +105,57 @@ func (l *Log) Append(s Submission) error {
 	if l.IncludeText {
 		r.Raw, r.Sent, r.Rejected = s.Raw, s.Sent, s.Rejected
 	}
-	line, err := json.Marshal(r)
+	return l.write(r)
+}
+
+// Usage is the tokens Claude Code used to answer one prompt (PRD Appendix
+// 5, FR-11.1). It's known only when the reply ends, so it is a line of its
+// own, after the prompt's, and names the prompt by its time.
+type Usage struct {
+	Time       time.Time // when the reply ended
+	Session    string
+	Prompt     time.Time // the Time of the prompt's Submission
+	Calls      int
+	Input      int64 // not read from the cache
+	CacheWrite int64
+	CacheRead  int64
+	Output     int64
+	Context    int64 // the last call's input
+	Model      string
+	// Subagents is the calls of subagents started during the reply.
+	Subagents int
+}
+
+type usageRecord struct {
+	Time       time.Time `json:"time"`
+	Session    string    `json:"session,omitempty"`
+	Kind       string    `json:"kind"`
+	Prompt     time.Time `json:"prompt_time"`
+	Calls      int       `json:"calls"`
+	Input      int64     `json:"input_tokens"`
+	CacheWrite int64     `json:"cache_write_tokens"`
+	CacheRead  int64     `json:"cache_read_tokens"`
+	Output     int64     `json:"output_tokens"`
+	Context    int64     `json:"context_tokens"`
+	Model      string    `json:"model,omitempty"`
+	Subagents  int       `json:"subagent_calls,omitempty"`
+}
+
+// AppendUsage writes one "kind": "usage" line for u. It holds numbers
+// only, never text.
+func (l *Log) AppendUsage(u Usage) error {
+	return l.write(usageRecord{
+		Time: u.Time.UTC().Round(time.Millisecond), Session: u.Session, Kind: "usage",
+		Prompt: u.Prompt.UTC().Round(time.Millisecond), Calls: u.Calls, Input: u.Input,
+		CacheWrite: u.CacheWrite, CacheRead: u.CacheRead, Output: u.Output, Context: u.Context,
+		Model: u.Model, Subagents: u.Subagents,
+	})
+}
+
+// write appends v as one JSON line, creating the file and its directory if
+// needed.
+func (l *Log) write(v any) error {
+	line, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}

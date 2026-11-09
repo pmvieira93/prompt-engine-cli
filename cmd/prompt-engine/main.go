@@ -42,6 +42,7 @@ import (
 	"github.com/pmvieira93/prompt-engine-cli/internal/pty"
 	"github.com/pmvieira93/prompt-engine-cli/internal/rules"
 	"github.com/pmvieira93/prompt-engine-cli/internal/suggest"
+	"github.com/pmvieira93/prompt-engine-cli/internal/transcript"
 	"github.com/pmvieira93/prompt-engine-cli/internal/tui"
 )
 
@@ -259,6 +260,21 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		recent.sent, recent.sentAt = recent.sent[j:], recent.sentAt[j:]
 	}, logf)
 	go sess.run(ctx, func() config.Config { return *live.Load() })
+	// Each reply's tokens go in the history, after its prompt's line.
+	sess.onReply = func(t transcript.Tally) {
+		h := live.Load().History
+		sub := lastSent.Load()
+		if !h.Enabled || sub == nil {
+			return
+		}
+		recordUsage(h, history.Usage{
+			Time: time.Now(), Session: sessionID, Prompt: sub.Time, Calls: t.Turn.Calls,
+			Input: t.Turn.Input, CacheWrite: t.Turn.CacheWrite, CacheRead: t.Turn.CacheRead, Output: t.Turn.Output,
+			Context: t.Context, Model: t.Model, Subagents: t.TurnSubagents,
+		}, logf)
+	}
+	sess.redraw = ctrl.Redraw
+	go sess.watchUsage(ctx)
 
 	// The worker runs even with suggestions off, so a config edit can turn
 	// them on, and so it keeps resyncing the input buffer for the rules.
@@ -1095,6 +1111,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		PanelPercent: func() int { return live.Load().Panel.Width },
 		Status: func() []string {
 			lines := append(slices.Clone(*status.Load()), guardStatusLines(live.Load().Expand.Guards == "off", *guardStatus.Load())...)
+			lines = append(lines, sess.usageLines()...)
 			if injector != nil {
 				var last []string
 				if sub := lastSent.Load(); sub != nil {
@@ -1164,6 +1181,26 @@ func describeConfig(cfg config.Config, cfgErr error) (src, llm string) {
 
 // recordHistory appends sub to the history file h names.
 func recordHistory(h config.HistoryConfig, sub history.Submission, logf func(string, ...any)) {
+	if l := historyLog(h, logf); l != nil {
+		if err := l.Append(sub); err != nil {
+			logf("history: %v", err)
+		}
+	}
+}
+
+// recordUsage appends a reply's token usage to the history (PRD Appendix
+// 5, FR-11.1).
+func recordUsage(h config.HistoryConfig, u history.Usage, logf func(string, ...any)) {
+	if l := historyLog(h, logf); l != nil {
+		if err := l.AppendUsage(u); err != nil {
+			logf("history: %v", err)
+		}
+	}
+}
+
+// historyLog returns the history file to append to, or nil if it can't be
+// found.
+func historyLog(h config.HistoryConfig, logf func(string, ...any)) *history.Log {
 	path := h.Path
 	if p := os.Getenv(envHistory); p != "" {
 		path = p // e.g. one file per project, set by the shell or direnv
@@ -1172,12 +1209,10 @@ func recordHistory(h config.HistoryConfig, sub history.Submission, logf func(str
 		var err error
 		if path, err = history.DefaultPath(); err != nil {
 			logf("history: %v", err)
-			return
+			return nil
 		}
 	}
-	if err := (&history.Log{Path: path, IncludeText: h.IncludeText}).Append(sub); err != nil {
-		logf("history: %v", err)
-	}
+	return &history.Log{Path: path, IncludeText: h.IncludeText}
 }
 
 // wordsTime is the extra time allowed to rewrite a prompt of n words:

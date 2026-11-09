@@ -9,7 +9,11 @@
 //   - bracketed paste, with a paste of 3 or more line breaks marked with
 //     <pasted_content> tags, as claude 2.1.311 does before the model sees it;
 //   - the UserPromptSubmit hook from --settings, which prompt-engine uses to
-//     add rules.
+//     add rules;
+//   - with CLAUDE_CONFIG_DIR set, a transcript under its projects folder:
+//     each prompt and a reply with token usage, as claude 2.1.311 records
+//     them. Without it, nothing is written, so a test can't touch the
+//     developer's own ~/.claude.
 //
 // Each submitted prompt is appended to the -log file as one JSON string
 // per line, followed by the hook's context, so a test can check exactly what
@@ -26,8 +30,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
+	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -47,6 +53,8 @@ type fake struct {
 	inPaste    bool
 	paste      strings.Builder
 	hook       string // the UserPromptSubmit command
+	record     *os.File
+	replies    int
 }
 
 func main() {
@@ -64,6 +72,16 @@ func main() {
 		}
 		defer file.Close()
 		f.log = file
+	}
+
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		file, err := openTranscript(dir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "fakeclaude:", err)
+			os.Exit(1)
+		}
+		defer file.Close()
+		f.record = file
 	}
 
 	state, err := term.MakeRaw(int(os.Stdin.Fd()))
@@ -237,9 +255,46 @@ func (f *fake) submit() {
 		line, _ := json.Marshal(sent)
 		fmt.Fprintf(f.log, "%s\n", line)
 	}
+	f.writeTranscript(string(f.text))
 	first, _, _ := strings.Cut(sent, "\n")
 	f.transcript = append(f.transcript, "❯ "+first, "● Reply to: "+first, "")
 	f.text, f.offered = nil, f.suggestion
+}
+
+// openTranscript creates the session's transcript where claude keeps it:
+// <dir>/projects/<working directory, with "/" as "-">/<session id>.jsonl.
+func openTranscript(dir string) (*os.File, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	folder := filepath.Join(dir, "projects", strings.Map(func(r rune) rune {
+		if r < unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r)) {
+			return r
+		}
+		return '-'
+	}, cwd))
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filepath.Join(folder, fmt.Sprintf("fake-%d.jsonl", os.Getpid())), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+}
+
+// writeTranscript records prompt and a reply to it, with usage: the
+// context grows by 1,000 tokens a reply.
+func (f *fake) writeTranscript(prompt string) {
+	if f.record == nil {
+		return
+	}
+	f.replies++
+	cwd, _ := os.Getwd()
+	user, _ := json.Marshal(map[string]any{"type": "user", "cwd": cwd, "message": map[string]any{"role": "user", "content": prompt}})
+	reply, _ := json.Marshal(map[string]any{"type": "assistant", "cwd": cwd, "message": map[string]any{
+		"id": fmt.Sprintf("msg_%d", f.replies), "model": "claude-fake-1", "stop_reason": "end_turn",
+		"content": []map[string]string{{"type": "text", "text": "Reply to: " + prompt}},
+		"usage":   map[string]int{"input_tokens": 3, "cache_read_input_tokens": 40_000 + 1000*f.replies, "output_tokens": 250},
+	}})
+	fmt.Fprintf(f.record, "%s\n%s\n", user, reply)
 }
 
 // draw repaints the screen: the transcript at the top, the input box at the

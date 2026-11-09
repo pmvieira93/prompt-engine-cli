@@ -78,3 +78,24 @@ func TestDefaultPath(t *testing.T) {
 		t.Errorf("fallback path = %q", p)
 	}
 }
+
+// A reply's usage is a line of its own, with numbers only.
+func TestAppendUsage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+	prompt := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	u := Usage{Time: prompt.Add(30 * time.Second), Session: "1a2b3c4d", Prompt: prompt, Calls: 3,
+		Input: 4, CacheWrite: 900, CacheRead: 40000, Output: 1200, Context: 14000, Model: "claude-opus-5-5", Subagents: 2}
+	if err := (&Log{Path: path, IncludeText: true}).AppendUsage(u); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"time":"2026-11-09T12:00:30Z","session":"1a2b3c4d","kind":"usage","prompt_time":"2026-11-09T12:00:00Z",` +
+		`"calls":3,"input_tokens":4,"cache_write_tokens":900,"cache_read_tokens":40000,"output_tokens":1200,` +
+		`"context_tokens":14000,"model":"claude-opus-5-5","subagent_calls":2}` + "\n"
+	if string(data) != want {
+		t.Errorf("line:\n%s\nwant\n%s", data, want)
+	}
+}
