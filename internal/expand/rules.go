@@ -110,11 +110,11 @@ func (r *Rules) Instructions(typed string) string {
 
 // ruleWords splits text into the words rules are matched against: in
 // lower case, without quotes or apostrophes around them or a final "'s",
-// and hyphenated words split ("production-like" has "production").
+// hyphenated words split ("production-like" has "production"), and dashes
+// and curly quotes between words ("bug—it" has "bug").
 func ruleWords(text string) []string {
-	text = strings.NewReplacer("’", "'", "‘", "'").Replace(strings.ToLower(text))
 	var out []string
-	for _, w := range words(text) {
+	for _, w := range words(wordText(text)) {
 		for _, part := range strings.Split(w, "-") {
 			part = strings.Trim(part, "'_")
 			part = strings.TrimSuffix(part, "'s")
@@ -159,17 +159,27 @@ func isForm(w, word string) bool {
 	return slices.Contains(verbForms(word), w)
 }
 
-// wordText is text in lower case with straight apostrophes, and with
-// non-ASCII punctuation such as dashes and curly double quotes as spaces, so
-// it's between words, not part of them.
+// curlyApostrophes become straight ones in wordText.
+var curlyApostrophes = strings.NewReplacer("’", "'", "‘", "'")
+
+// wordText is text in lower case with straight apostrophes. Non-ASCII
+// punctuation such as dashes and curly double quotes becomes a space, so
+// it's between words, not part of them. A symbol such as 🚀 or € becomes a
+// word of its own, so a rule can still name it.
 func wordText(text string) string {
-	text = strings.NewReplacer("’", "'", "‘", "'").Replace(strings.ToLower(text))
-	return strings.Map(func(r rune) rune {
-		if r > 127 && !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.IsMark(r) {
-			return ' '
+	text = curlyApostrophes.Replace(strings.ToLower(text))
+	var b strings.Builder
+	for _, r := range text {
+		switch {
+		case r <= 127 || unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.IsMark(r):
+			b.WriteRune(r)
+		case unicode.IsSymbol(r):
+			b.WriteString(" " + string(r) + " ")
+		default:
+			b.WriteByte(' ')
 		}
-		return r
-	}, text)
+	}
+	return b.String()
 }
 
 // SectionWord returns w as a section word is compared: one word, in lower

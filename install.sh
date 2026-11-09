@@ -609,6 +609,34 @@ install_binary() {
 		cp "$CONFIG_TEMPLATE" "$CONFIG_FILE"
 		ok "Config written: $CONFIG_FILE ${D}(every setting, at its default)${N}"
 	fi
+	init_guards
+}
+
+# init_guards has the binary write the guard rails template to guards.txt,
+# if there's none, for a new config and an existing one alike. The binary
+# finds the folder as it does when it reads the file, so templates.dir is
+# read one way only. The template is all comments, so it changes nothing
+# until a rule is added. A release older than v0.1.5 is skipped: it would
+# pass the flag on to claude. Other versions are builds from the source.
+init_guards() {
+	local bin="$PREFIX/prompt-engine" out version
+	if [ "$DRY_RUN" = 1 ]; then
+		info "would write the guard rails template to templates/guards.txt, if it's missing"
+		return 0
+	fi
+	version="$(binary_version "$bin")"
+	[ -n "$version" ] || return 0
+	if [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && ! version_ge "${version#v}" 0.1.5; then
+		return 0
+	fi
+	if ! out="$("$bin" --pe-config "$CONFIG_FILE" --pe-init-guards </dev/null 2>>"$LOG_FILE")"; then
+		warn "Couldn't write the guard rails template; see $LOG_FILE"
+		return 0
+	fi
+	case "$out" in
+	wrote\ *) ok "Guard rails written: ${out#wrote } ${D}(all comments: add your own rules)${N}" ;;
+	kept\ *) ok "Guard rails kept: ${out#kept }" ;;
+	esac
 }
 
 install_from_source() {

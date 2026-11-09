@@ -13,8 +13,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -29,6 +31,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/pmvieira93/prompt-engine-cli/docs"
 	"github.com/pmvieira93/prompt-engine-cli/internal/config"
 	"github.com/pmvieira93/prompt-engine-cli/internal/diff"
 	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
@@ -83,7 +86,7 @@ func run() int {
 		runHook()
 		return 0
 	}
-	if wantsVersion(os.Args[1:]) {
+	if hasFlag(os.Args[1:], "--pe-version") {
 		fmt.Println("prompt-engine", version)
 		return 0
 	}
@@ -106,6 +109,12 @@ func run() int {
 		return 2
 	} else if ok {
 		return checkGuards(os.Stdout, os.Stderr, cfg, typed, rewrite)
+	}
+	if hasFlag(cliArgs, initGuardsFlag) {
+		if cfgErr != nil {
+			return 2 // the warning is out; the defaults' folder may not be the one meant
+		}
+		return initGuards(os.Stdout, os.Stderr, cfg)
 	}
 
 	bin, err := exec.LookPath(cfg.Command)
@@ -202,8 +211,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	if injector != nil {
 		injector.MinWords = func() int { return live.Load().Templates.MinWords }
 		if err := injector.Check(); err != nil {
-			logf("rules: %v; no rules are added until it's fixed", err)
-			warn("%v; no rules are added until it's fixed", err)
+			logf("rules: %v; no guidance is added until it's fixed", err)
+			warn("%v; no guidance is added until it's fixed", err)
 		}
 	}
 	// The prompts sent in this session, as sent without the rules, for the
@@ -1051,7 +1060,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			note += " · expanded"
 		}
 		if sub.Rules {
-			note += " · rules added"
+			note += " · guidance added"
 			if len(sub.Sections) > 0 {
 				note += " (" + strings.Join(sub.Sections, ", ") + ")"
 			}
@@ -1439,7 +1448,7 @@ func rulesQueue(args []string, haveRules bool) (*rules.Queue, []string) {
 		}
 		if a == "--settings" || strings.HasPrefix(a, "--settings=") {
 			if haveRules {
-				warn("no rules are added: --settings replaces the settings prompt-engine gives claude")
+				warn("no guidance is added: --settings replaces the settings prompt-engine gives claude")
 			}
 			return nil, nil
 		}
@@ -1449,12 +1458,12 @@ func rulesQueue(args []string, haveRules bool) (*rules.Queue, []string) {
 		exe, err = filepath.Abs(exe)
 	}
 	if err != nil {
-		warn("no rules are added: %v", err)
+		warn("no guidance is added: %v", err)
 		return nil, nil
 	}
 	queue, err := rules.NewQueue()
 	if err != nil {
-		warn("no rules are added: %v", err)
+		warn("no guidance is added: %v", err)
 		return nil, nil
 	}
 	return queue, []string{"--settings", rules.Settings(shellQuote(exe) + " " + hookFlag)}
@@ -1647,18 +1656,57 @@ func noteNested(command string) {
 		time.Now().Format("15:04:05.000"), envActive, command)
 }
 
-// wantsVersion reports whether args ask for prompt-engine's version
-// (--pe-version), before any "--" that leaves the rest to the child.
-func wantsVersion(args []string) bool {
+// hasFlag reports whether args hold one of prompt-engine's own flags, such
+// as --pe-version, before any "--" that leaves the rest to the child.
+func hasFlag(args []string, flag string) bool {
 	for _, a := range args {
 		switch a {
 		case "--":
 			return false
-		case "--pe-version":
+		case flag:
 			return true
 		}
 	}
 	return false
+}
+
+// initGuardsFlag asks for the guard rails template, for the installer: it
+// finds the folder as the app does, so templates.dir is read one way only.
+const initGuardsFlag = "--pe-init-guards"
+
+// initGuards writes the guard rails template to guards.txt if there is no
+// such file, and prints "wrote <path>" or "kept <path>". It never
+// overwrites a file, even one written in between. It returns the exit
+// code: 0, or 2 if the file couldn't be written.
+func initGuards(w, errw io.Writer, cfg config.Config) int {
+	path, err := guardsPath(cfg)
+	if err == nil {
+		err = os.MkdirAll(filepath.Dir(path), 0o755)
+	}
+	if err != nil {
+		fmt.Fprintf(errw, "prompt-engine: %v\n", err)
+		return 2
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, fs.ErrExist) {
+		fmt.Fprintln(w, "kept", path)
+		return 0
+	}
+	if err == nil {
+		_, err = f.Write(docs.GuardsExample)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			os.Remove(path)
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(errw, "prompt-engine: %v\n", err)
+		return 2
+	}
+	fmt.Fprintln(w, "wrote", path)
+	return 0
 }
 
 func warn(format string, a ...any) {

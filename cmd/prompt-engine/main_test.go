@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pmvieira93/prompt-engine-cli/docs"
 	"github.com/pmvieira93/prompt-engine-cli/internal/config"
 	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
 )
@@ -36,7 +37,7 @@ func TestOwnFlags(t *testing.T) {
 	}
 }
 
-func TestWantsVersion(t *testing.T) {
+func TestHasFlag(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
 		want bool
@@ -47,9 +48,54 @@ func TestWantsVersion(t *testing.T) {
 		{[]string{"--version"}, false},          // claude's own
 		{nil, false},
 	} {
-		if got := wantsVersion(tc.args); got != tc.want {
-			t.Errorf("wantsVersion(%q) = %v", tc.args, got)
+		if got := hasFlag(tc.args, "--pe-version"); got != tc.want {
+			t.Errorf("hasFlag(%q) = %v", tc.args, got)
 		}
+	}
+}
+
+// The template goes where the app reads guards.txt, and a file already
+// there is kept.
+func TestInitGuards(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("templates:\n  dir: rules\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func() (int, string) {
+		var out, errs strings.Builder
+		code := initGuards(&out, &errs, cfg)
+		return code, out.String() + errs.String()
+	}
+	guards := filepath.Join(dir, "rules", "guards.txt")
+	if code, out := run(); code != 0 || out != "wrote "+guards+"\n" {
+		t.Fatalf("first run: %d %q", code, out)
+	}
+	if got, err := os.ReadFile(guards); err != nil || string(got) != string(docs.GuardsExample) || !strings.HasPrefix(string(got), "#") {
+		t.Fatalf("guards.txt = %q, %v", got, err)
+	}
+	if err := os.WriteFile(guards, []byte("never add: production\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := run(); code != 0 || out != "kept "+guards+"\n" {
+		t.Errorf("second run: %d %q", code, out)
+	}
+	if got, _ := os.ReadFile(guards); string(got) != "never add: production\n" {
+		t.Errorf("overwritten: %q", got)
+	}
+
+	// A folder that can't be made is an error, with nothing on stdout.
+	if err := os.WriteFile(filepath.Join(dir, "file"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Templates.Dir = filepath.Join(dir, "file", "rules")
+	var out, errs strings.Builder
+	if code := initGuards(&out, &errs, cfg); code != 2 || out.Len() > 0 || !strings.Contains(errs.String(), "prompt-engine:") {
+		t.Errorf("bad folder: %d %q %q", code, out.String(), errs.String())
 	}
 }
 

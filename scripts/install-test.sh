@@ -3,7 +3,7 @@
 # Tests install.sh's release install (--from release --binary-only)
 # against releases built here and served from a folder, so no network is
 # needed: a pinned version, a rerun of the same version, an upgrade that
-# keeps the config, a bad checksum that installs nothing, a missing config
+# keeps the config, templates.dir set, a bad checksum that installs nothing, a missing config
 # file, an old binary without --pe-version, the script piped in outside a
 # clone, and a missing version. Everything
 # runs through scripts/test-env.sh, in a throwaway folder.
@@ -82,18 +82,29 @@ echo "pinned version"
 check "installs" run_install pinned --version v9.9.1
 check "the binary reports v9.9.1" is_version v9.9.1
 check "writes the config template" cmp -s "$config" docs/config.example.yaml
+check "writes the guard rails template" cmp -s "$work/home/templates/guards.txt" docs/guards.example.txt
 check "says the checksum was verified" says pinned "Checksum verified"
 
-echo "same version again"
+echo "same version again, guards.txt missing"
 echo "# mine" >>"$config"
+rm "$work/home/templates/guards.txt"
 check "succeeds" run_install again --version 9.9.1
 check "says it is already installed" says again "v9.9.1 is already installed"
+check "writes the guard rails template" cmp -s "$work/home/templates/guards.txt" docs/guards.example.txt
+echo "# mine" >>"$work/home/templates/guards.txt"
 
 echo "upgrade"
 check "succeeds" run_install upgrade --version v9.9.2
 check "the binary reports v9.9.2" is_version v9.9.2
 check "shows both versions" says upgrade "Installed v9.9.2 (was v9.9.1)"
 check "keeps the config" config_kept
+check "keeps guards.txt" grep -qx "# mine" "$work/home/templates/guards.txt"
+
+echo "templates.dir set"
+sed -i.bak 's#^  dir: templates #  dir: rules     #' "$config" && rm "$config.bak"
+check "succeeds" run_install customdir --version v9.9.2
+check "writes guards.txt where the app reads it" cmp -s "$work/home/rules/guards.txt" docs/guards.example.txt
+check "keeps the other guards.txt" grep -qx "# mine" "$work/home/templates/guards.txt"
 
 echo "bad checksum"
 release v9.9.3

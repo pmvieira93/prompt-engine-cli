@@ -491,11 +491,11 @@ Start `prompt-engine` as in the setup, and open the panel with **Ctrl+Q, p**.
 
 | # | Do this | Expect |
 |---|---|---|
-| G9 | Type `say hi in three words` and press **Enter** | The reply ends with MANGO, not KIWI. Log: `rules: appended append.txt (1 line)`, then `rules: hook gave claude …`. Session section: `rules: 1 section; last prompt: none`. `claude` doesn't refuse the rule as pasted text |
-| G10 | Type `write a haiku about rain` and press **Enter** | The rules sent include KIWI, so the reply ends with KIWI, or with MANGO and KIWI: the two rules conflict, and `claude` may follow only the later one. Log: `rules: appended append.txt (3 lines; sections: poem)`. Session section: `last prompt: poem`, and the panel's note says `rules added (poem)` |
+| G9 | Type `say hi in three words` and press **Enter** | The reply ends with MANGO, not KIWI. Log: `rules: appended append.txt (1 line)`, then `rules: hook gave claude …`. Session section: `guidance:    1 section; last prompt: none`. `claude` doesn't refuse the rule as pasted text |
+| G10 | Type `write a haiku about rain` and press **Enter** | The rules sent include KIWI, so the reply ends with KIWI, or with MANGO and KIWI: the two rules conflict, and `claude` may follow only the later one. Log: `rules: appended append.txt (3 lines; sections: poem)`. Session section: `last prompt: poem`, and the panel's note says `guidance added (poem)` |
 | G10a | Type `say what this is in five words: ` then paste the text `a poem` and press **Enter** | The panel's Last prompt sent has no KIWI line: pasted words don't count. Log: `rules: appended append.txt (1 line)` |
 | G10b | Type `say how many lines this has: ` then paste six short lines and press **Enter** | `claude` shows `[Pasted text #1 +5 lines]`, then answers, and the reply ends with MANGO: a large paste doesn't change how the rules arrive |
-| G11 | In Terminal B: `printf '[two words]\ntext\n' > ~/.config/prompt-engine/templates/append.txt`. Wait 2 seconds, then type `say hi in three words` and press **Enter** | Sent with no rules. Session section: `⚠ rules not added: append.txt line 1: …`. Log: `rules: not added: append.txt line 1: …` |
+| G11 | In Terminal B: `printf '[two words]\ntext\n' > ~/.config/prompt-engine/templates/append.txt`. Wait 2 seconds, then type `say hi in three words` and press **Enter** | Sent with no rules. Session section: `⚠ guidance not added: append.txt line 1: …`. Log: `rules: not added: append.txt line 1: …` |
 
 **Cleanup:** `rm -f ~/.config/prompt-engine/templates/append.txt`. To keep using rules, put your own guidelines in that file.
 
@@ -597,10 +597,10 @@ PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine
 |---|---|---|
 | J1 | Press **Ctrl+Q**, then **p** | The **Prompt diff** panel opens on the right, with a key hint line and `Nothing sent yet.` |
 | J2 | Type `say helo in thre words`, then **Ctrl+Q**, **e** | Under **Ready to send (not sent yet)**: the typos (`helo`, `thre`) struck through in red, the corrections and the context in green, and the rule (`- End your reply with the word MANGO.`) in green at the end |
-| J3 | Press **Enter** | `claude` replies with a short greeting ending in MANGO. The panel title becomes **Last prompt sent**, with the same diff and a line like `13:12:52 · +12 −2 words · expanded · rules added`. Log: `submit: …; expanded=true rules=true` |
+| J3 | Press **Enter** | `claude` replies with a short greeting ending in MANGO. The panel title becomes **Last prompt sent**, with the same diff and a line like `13:12:52 · +12 −2 words · expanded · guidance added`. Log: `submit: …; expanded=true rules=true` |
 | J4 | **Ctrl+Q**, then **-** **-** (one leader, two dashes), then **+** within a second | The panel narrows twice and widens once, about 5% of the window each time; `claude` redraws to fit. After a resize, more `-`/`+` presses within a second keep resizing without Ctrl+Q; a pause or any other key ends that. Nothing is typed into `claude` |
 | J4b | Press **Ctrl+Q**, then **Ctrl+P** (Ctrl still held) | The panel toggles, the same as Ctrl+Q then p |
-| J5 | Type `say ok in two words` and **Enter** (no expansion) | **Last prompt sent** shows your text unchanged and only the rule in green; the line says `rules added`, not `expanded` |
+| J5 | Type `say ok in two words` and **Enter** (no expansion) | **Last prompt sent** shows your text unchanged and only the rule in green; the line says `guidance added`, not `expanded` |
 | J6 | Quit with `/exit`, then `tail -2 ~/.local/state/prompt-engine/history.jsonl` | Two lines with counts like `"raw_words":4,"sent_words":…,"expanded":true,"rules":true`, and **no prompt text** |
 
 ### J7: Panel on the left, open at startup

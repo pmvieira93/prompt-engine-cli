@@ -34,8 +34,29 @@ func TestRules(t *testing.T) {
 		{"restart the api", "Restart the production-like api.", "never-add"},
 		{"restart the staging api", "Restart the 'staging' api.", ""},
 		{"restart the staging api", "Restart the staging-api.", ""},
+		// Dashes and curly double quotes sit between words.
+		{"restart the api", "Restart the api—production next.", "never-add"},
+		{"restart the api", "Restart the “production” api.", "never-add"},
+		{"restart staging—then check it", "Restart it, then check it.", "always-keep"},
+		{"restart staging—then check it", "Restart staging, then check it.", ""},
 	} {
 		if got := guard(r, c.typed, c.rewritten); got != c.want {
+			t.Errorf("%q → %q: stopped by %q, want %q", c.typed, c.rewritten, got, c.want)
+		}
+	}
+	// A symbol is a word of its own, so a rule can name one.
+	symbols := &Rules{
+		NeverAdd:   []Rule{{Line: 1, Words: []string{"🚀", "€"}}},
+		AlwaysKeep: []Rule{{Line: 2, Words: []string{"bug"}}},
+	}
+	for _, c := range []struct{ typed, rewritten, want string }{
+		{"ship it", "Ship it 🚀.", "never-add"},
+		{"price it", "Price it at 5€.", "never-add"},
+		{"ship it 🚀", "Ship it 🚀.", ""},
+		{"fix the bug🎉 now", "Fix it now.", "always-keep"},
+		{"fix the bug🎉 now", "Fix the bug now.", ""},
+	} {
+		if got := guard(symbols, c.typed, c.rewritten); got != c.want {
 			t.Errorf("%q → %q: stopped by %q, want %q", c.typed, c.rewritten, got, c.want)
 		}
 	}

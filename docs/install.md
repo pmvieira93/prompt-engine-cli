@@ -35,7 +35,7 @@ The script asks before it changes anything, on your terminal even when it's pipe
    - from a release: downloads the archive for your system, checks it against the release's `checksums.txt` (SHA-256), and stops if it doesn't match;
    - from source: builds it with Go.
 
-   It writes a commented config file if you have none.
+   If you have no config file, it writes a commented one. If you have no `guards.txt`, it writes one that is all comments, for [your own guard rails](guide/guard-rails.md), in the folder `templates.dir` names.
 5. **Downloads the models.** The ghost text model is required. The rewrite model is optional: download it now, or later with `--expand-model`.
 6. **Runs a health check:**
    - the binary starts Claude Code;
