@@ -66,6 +66,18 @@ echo "Building test releases in $work"
 release v9.9.1
 release v9.9.2
 
+# links_resolve: every relative link in the archive's README points to a
+# file in the archive, so the docs work offline.
+links_resolve() {
+	local dir="$work/unpacked" name="prompt-engine_v9.9.1_${os}_${arch}" link
+	rm -rf "$dir" && mkdir -p "$dir"
+	tar -xzf "$work/releases/download/v9.9.1/$name.tar.gz" -C "$dir"
+	while read -r link; do
+		[ -e "$dir/$name/$link" ] || { echo "    missing: $link"; return 1; }
+	done < <(grep -oE '\]\([^)# ]+' "$dir/$name/README.md" | sed 's/^](//' | grep -v '://')
+}
+check "the archive has every page the README links to" links_resolve
+
 echo "pinned version"
 check "installs" run_install pinned --version v9.9.1
 check "the binary reports v9.9.1" is_version v9.9.1

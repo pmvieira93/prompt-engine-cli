@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Builds the release archives for a version: one per platform, each with
-# the prompt-engine binary, README.md, LICENSE and the config template,
-# plus checksums.txt.
+# the prompt-engine binary, README.md, LICENSE, the config and guard rail
+# templates, and the docs the README links to, plus checksums.txt.
 #
 #   scripts/build-release.sh v1.2.3 [dist]
 #
@@ -27,7 +27,13 @@ for target in $targets; do
 	CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
 		-ldflags "-s -w -X main.version=$version" \
 		-o "$stage/prompt-engine" ./cmd/prompt-engine
-	cp README.md LICENSE docs/config.example.yaml docs/guards.example.txt "$stage/"
+	# The templates also stay at the top, where install.sh looks for them.
+	cp README.md LICENSE PRD.md docs/config.example.yaml docs/guards.example.txt "$stage/"
+	mkdir -p "$stage/docs/guide" "$stage/docs/media" "$stage/docs/spikes"
+	cp docs/*.md docs/config.example.yaml docs/guards.example.txt "$stage/docs/"
+	cp docs/guide/*.md "$stage/docs/guide/"
+	cp docs/media/*.gif "$stage/docs/media/"
+	cp docs/spikes/*.md "$stage/docs/spikes/"
 	tar -czf "$out/$name.tar.gz" -C "$out" "$name"
 	rm -rf "$stage"
 	echo "built $out/$name.tar.gz"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Records the README's GIFs (docs/media/*.gif) with VHS
+# Records the docs' GIFs (docs/media/*.gif) with VHS
 # (https://github.com/charmbracelet/vhs): a real prompt-engine and Claude
 # Code session in a small demo project, ~/pe-demo/weather-app. The prompts
 # sent are harmless, but they use a little of your Claude account.
