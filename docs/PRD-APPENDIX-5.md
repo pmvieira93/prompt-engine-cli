@@ -1,9 +1,9 @@
 # PRD Appendix 5: Cost-Aware Local Assistance
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.5 (section 2, core value proposition; section 4.2, the local AI engine; the Phase 5 roadmap)  
-**Appendix Version:** 1.1.0  
+**Appendix Version:** 1.2.0  
 **Date:** 2026-11-09  
-**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 to be built, FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. Raised on 2026-10-30.
+**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 to be built, FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. Raised on 2026-10-30.
 
 ---
 
@@ -108,7 +108,7 @@ The spike's code and results go in `docs/spikes/`, like the earlier spikes.
 
 ## 6. Roadmap
 
-Not scheduled. Next when picked up: FR-11.1. FR-11.3 and FR-11.4 wait for it, so their effect can be seen; FR-11.3 also needs spike step 3 first.
+Not scheduled. Next when picked up: FR-11.1, then the cost benchmark (section 8). FR-11.3 and FR-11.4 wait for both, so their effect can be measured; FR-11.3 also needs spike step 3 first.
 
 ---
 
@@ -121,3 +121,42 @@ Step 1 of the spike ([token baseline](spikes/token-baseline.md), sections 4 and 
 * **Rewrites are worth it for intent, not for tokens.** A clearer prompt saves few turns, since few clarifications are about the prompt. Its value is that Claude does what the developer means ([Appendix 6](PRD-APPENDIX-6.md)). Rework after a misunderstood prompt wasn't measured. Section 1.1's first saving, "fewer turns", is kept as a reason for rewrites, not as a cost saving.
 
 FR-11.3 (local answers) and FR-11.4 (model and context hints) stay proposed. FR-11.4 is the only item aimed at what Claude Code carries; FR-11.5 is the only one that could change it directly, and stays out of scope.
+
+---
+
+## 8. Cost benchmark (after FR-11.1)
+
+The spike measured where the tokens go in past sessions. The benchmark measures what `prompt-engine` changes: the same tasks, run with Claude Code alone and with `prompt-engine` and its local models, compared on cost.
+
+### 8.1 Setup
+
+* **A small test project**, kept in the repo for this purpose: a little app with planted bugs and small features to add, and hidden tests that decide whether each task is done.
+* **10–20 tasks**, each written as a rough prompt, the way a developer types it.
+* **Two setups**, same Claude model and settings:
+  * **Claude alone:** the rough prompt, sent as it is;
+  * **with `prompt-engine`:** the same prompt after the rewrite, with the developer's guidance added, and later with FR-11.3 and FR-11.4 once they exist.
+* **Each task run 3–5 times per setup**, in a fresh session, because Claude's answers vary. The report gives the median of each measure.
+
+### 8.2 Measures
+
+| Measure | From |
+|---|---|
+| Tokens (input, output, cache) and cost in dollars | `claude -p --output-format json`, the same figures FR-11.1 shows |
+| Time to finish | the same output, plus the rewrite's time |
+| Turns to finish | the same output |
+| Task done | the hidden tests |
+| Local cost: CPU, memory and time of the Ollama calls | measured around each rewrite |
+
+A cheaper run that fails the task isn't a saving, so cost is compared on the tasks both setups finish, and the success rate is reported beside it.
+
+### 8.3 How it runs
+
+* **Without the interactive screen.** With no terminal, `prompt-engine` hands over to `claude` directly, so nothing is rewritten. The benchmark needs a non-interactive command that rewrites a prompt and adds the guidance, with the same code as the interactive path; its prompt then goes to `claude -p`.
+* **Ghost text is left out:** it saves typing time, which needs a person, timed by hand.
+* **Results** go in `docs/spikes/`, like the spikes, with totals only.
+
+### 8.4 What it is expected to show
+
+Section 7 suggests tokens and cost will come out about the same: what the developer sends is under 1% of the input. Fewer turns or a higher success rate would be the saving, if there is one. An equal result is still the answer FR-11 needs: it says where savings aren't.
+
+A benchmark of `prompt-engine` overall (rewrite quality, guard rails, other tools from Phase 5) is for later, and would reuse this project and harness.
