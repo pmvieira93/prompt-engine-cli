@@ -18,6 +18,16 @@ import os
 import statistics as st
 
 
+def transcripts():
+    """Returns the paths of every local Claude Code transcript."""
+    return glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
+
+
+def context_tokens(usage):
+    """Returns the input tokens of one API call: fresh, cache write and cache read."""
+    return sum(usage.get(k, 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+
+
 def typed_text(record):
     """Returns what the developer typed, or None for tool results and notices."""
     content = record.get("message", {}).get("content")
@@ -55,7 +65,7 @@ def read_session(path, prompts):
             s["cw"] += cw
             s["cr"] += cr
             s["out"] += u.get("output_tokens", 0)
-            s["peak"] = max(s["peak"], inp + cw + cr)
+            s["peak"] = max(s["peak"], context_tokens(u))
         elif r.get("type") == "user" and not r.get("isMeta") and not r.get("isSidechain"):
             text = typed_text(r)
             if text is not None:
@@ -85,7 +95,7 @@ def main():
     p.add_argument("-skip", default="")
     args = p.parse_args()
 
-    files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
+    files = transcripts()
     prompts = []
     sessions = [s for s in (read_session(f, prompts) for f in files) if s["api"]]
     if args.prompts:
