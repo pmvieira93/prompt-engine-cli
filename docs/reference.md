@@ -65,7 +65,7 @@ The settings live in **`~/.config/prompt-engine/config.yaml`**, or under `$XDG_C
 | `templates.dir` | `templates` | Folder for `append.txt`, `system.txt` and `guards.txt`, relative to the config file. *Restart* |
 | `templates.min_words` | `3` | Shorter prompts don't get `append.txt`. `1` adds it to every prompt |
 | **`history`** | | |
-| `history.enabled` | `true` | Record one line per prompt sent |
+| `history.enabled` | `true` | Record one line per prompt sent, and one with its token usage when its turn ends |
 | `history.include_text` | `false` | Also record the prompts' text |
 | `history.path` | `""` | Default: `~/.local/state/prompt-engine/history.jsonl`. `PROMPT_ENGINE_HISTORY` wins over it |
 

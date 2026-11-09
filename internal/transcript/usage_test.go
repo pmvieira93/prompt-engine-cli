@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -47,32 +48,43 @@ func TestUsageReader(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Usage{Calls: 2, Input: 3, CacheWrite: 150, CacheRead: 2100, Output: 30}
-	if got.Total != want || got.Turn != want || !got.TurnDone || got.Context != 1151 || got.Model != "claude-opus-5-5" {
+	if got.Total != want || got.Turn != want || got.Context != 1151 || got.Model != "claude-opus-5-5" {
 		t.Fatalf("first read: %+v", got)
 	}
+	if ended := r.Ended(); ended != nil {
+		t.Errorf("a turn ended before the next prompt: %+v", ended)
+	}
+	// While the transcript is being looked for again, the tally stays.
+	if again, _ := r.Read(""); again != got {
+		t.Errorf("empty path: %+v", again)
+	}
 
-	// A new prompt starts a new turn; a line still being written waits.
+	// The next prompt ends the turn; a line still being written waits.
 	appendTo(t, path, prompt2+"\n"+call("m3", "end_turn", 1, 0, 1200, 5)[:40])
-	if got, _ = r.Read(path); got.Turn != (Usage{}) || got.TurnDone || got.Total != want {
+	if got, _ = r.Read(path); got.Turn != (Usage{}) || got.Total != want {
 		t.Fatalf("after a prompt: %+v", got)
+	}
+	if ended := r.Ended(); len(ended) != 1 || ended[0].Prompt != "why does the parser crash" || ended[0].Usage != want || ended[0].Context != 1151 {
+		t.Fatalf("ended: %+v", ended)
 	}
 	appendTo(t, path, call("m3", "end_turn", 1, 0, 1200, 5)[40:]+"\n")
 	got, _ = r.Read(path)
-	if got.Turn != (Usage{Calls: 1, Input: 1, CacheRead: 1200, Output: 5}) || got.Total.Calls != 3 || got.Context != 1201 || !got.TurnDone {
+	if got.Turn != (Usage{Calls: 1, Input: 1, CacheRead: 1200, Output: 5}) || got.Total.Calls != 3 || got.Context != 1201 {
 		t.Fatalf("after the line ended: %+v", got)
 	}
-	// A notice isn't a prompt: the turn goes on.
-	appendTo(t, path, notice+"\n")
-	if got, _ = r.Read(path); got.Turn.Calls != 1 {
-		t.Fatalf("after a notice: %+v", got)
+	// Neither a notice nor an interruption is a prompt: the turn goes on.
+	appendTo(t, path, notice+"\n"+`{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}`+"\n")
+	if got, _ = r.Read(path); got.Turn.Calls != 1 || r.Ended() != nil {
+		t.Fatalf("after a notice and an interruption: %+v", got)
 	}
 
 	// Subagents count apart, from their own transcripts.
 	sub := filepath.Join(dir, "s1", "subagents", "agent-a1.jsonl")
-	write(t, sub,
+	subLines := []string{
 		`{"type":"user","isSidechain":true,"message":{"content":"look into it"}}`,
-		`{"type":"assistant","isSidechain":true,`+call("sa", "end_turn", 5, 10, 20, 7)[len(`{"type":"assistant",`):],
-	)
+		`{"type":"assistant","isSidechain":true,` + call("sa", "end_turn", 5, 10, 20, 7)[len(`{"type":"assistant",`):],
+	}
+	write(t, sub, subLines...)
 	got, _ = r.Read(path)
 	if got.Subagents != (Usage{Calls: 1, Input: 5, CacheWrite: 10, CacheRead: 20, Output: 7}) || got.TurnSubagents != 1 || got.Total.Calls != 3 || got.Turn.Calls != 1 {
 		t.Fatalf("subagents: %+v", got)
@@ -80,10 +92,28 @@ func TestUsageReader(t *testing.T) {
 	if again, _ := r.Read(path); again != got {
 		t.Errorf("nothing new, but %+v != %+v", again, got)
 	}
+	// A subagent's file written again from the start isn't counted twice.
+	write(t, sub, subLines[1])
+	if again, _ := r.Read(path); again.Subagents.Calls != 1 {
+		t.Errorf("subagent file rewritten: %+v", again.Subagents)
+	}
 
-	appendTo(t, path, prompt1+"\n")
-	if got, _ = r.Read(path); got.TurnSubagents != 0 || got.Subagents.Calls != 1 {
-		t.Fatalf("the next prompt: %+v", got)
+	// A prompt that starts with a paste is a prompt; the turn it ends
+	// carries the subagents' call.
+	appendTo(t, path, `{"type":"user","message":{"content":"<pasted_content id=\"ab12\">log</pasted_content id=\"ab12\"> why?"}}`+"\n")
+	if got, _ = r.Read(path); got.TurnSubagents != 0 || got.Subagents.Calls != 1 || got.Turn.Calls != 0 {
+		t.Fatalf("a prompt starting with a paste: %+v", got)
+	}
+	if ended := r.Ended(); len(ended) != 1 || ended[0].Prompt != "fix that" || ended[0].Usage.Calls != 1 || ended[0].Subagents != 1 {
+		t.Fatalf("ended: %+v", ended)
+	}
+	if _, any := r.Current(); any {
+		t.Error("the new turn has no calls yet")
+	}
+	appendTo(t, path, call("m4", "end_turn", 1, 0, 10, 1)+"\n")
+	r.Read(path)
+	if cur, any := r.Current(); !any || cur.Usage.Calls != 1 || !strings.HasPrefix(cur.Prompt, "<pasted_content") {
+		t.Errorf("current: %+v %v", cur, any)
 	}
 
 	// Another transcript, as after /clear, starts again.
@@ -91,9 +121,6 @@ func TestUsageReader(t *testing.T) {
 	write(t, other, prompt1, call("n1", "end_turn", 1, 2, 3, 4))
 	if got, _ = r.Read(other); got.Total.Calls != 1 || got.Subagents.Calls != 0 || got.Context != 6 {
 		t.Fatalf("new transcript: %+v", got)
-	}
-	if got, err := r.Read(""); err != nil || got != (Tally{}) {
-		t.Errorf("no transcript: %+v, %v", got, err)
 	}
 	if _, err := r.Read(filepath.Join(dir, "missing.jsonl")); err == nil {
 		t.Error("a missing transcript: no error")

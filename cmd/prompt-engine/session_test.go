@@ -242,22 +242,37 @@ func usageReply(id string, in, read, out int) string {
 		`"content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":%d,"cache_read_input_tokens":%d,"output_tokens":%d}}}`, id, in, read, out)
 }
 
-// The panel shows the tokens, and each reply's go to the history once.
+// The panel shows the tokens, and each prompt's turn goes to the history
+// once: when the next prompt starts it, or when the session ends.
 func TestSessionUsage(t *testing.T) {
 	s, path, _ := testSession(t)
-	replies := make(chan transcript.Tally, 4)
-	s.onReply = func(t transcript.Tally) { replies <- t }
+	var last atomic.Value
+	last.Store(sent)
+	s.sent = func() []string { return []string{last.Load().(string)} }
+	turns := make(chan transcript.TurnUsage, 4)
+	s.onTurn = func(t transcript.TurnUsage) { turns <- t }
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go s.watchUsage(ctx)
-	next := func() transcript.Tally {
+	done := make(chan struct{})
+	go func() {
+		s.watchUsage(ctx)
+		close(done)
+	}()
+	next := func() transcript.TurnUsage {
 		t.Helper()
 		select {
-		case r := <-replies:
-			return r
+		case u := <-turns:
+			return u
 		case <-time.After(2 * time.Second):
-			t.Fatal("no reply recorded")
-			return transcript.Tally{}
+			t.Fatal("no turn recorded")
+			return transcript.TurnUsage{}
+		}
+	}
+	none := func(when string) {
+		t.Helper()
+		select {
+		case u := <-turns:
+			t.Errorf("%s: a turn recorded: %+v", when, u)
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
 	if lines := s.usageLines(); lines != nil {
@@ -265,8 +280,9 @@ func TestSessionUsage(t *testing.T) {
 	}
 
 	writeTranscript(t, path, tPrompt, usageReply("m1", 3, 1_200_000, 4500))
-	if r := next(); r.Turn.Calls != 1 || r.Context != 1_200_003 {
-		t.Fatalf("first reply: %+v", r)
+	deadline := time.Now().Add(2 * time.Second)
+	for s.usageLines() == nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
 	}
 	want := []string{
 		"tokens:      context 1.2M · claude-opus-5-5",
@@ -277,20 +293,24 @@ func TestSessionUsage(t *testing.T) {
 	if got := s.usageLines(); !slices.Equal(got, want) {
 		t.Errorf("lines:\n%q\nwant\n%q", got, want)
 	}
+	none("before the next prompt")
 
+	last.Store("yes go ahead")
 	writeTranscript(t, path, tPrompt, usageReply("m1", 3, 1_200_000, 4500), tNext, usageReply("m2", 10, 50_000, 120))
-	if r := next(); r.Turn.Calls != 1 || r.Total.Calls != 2 || r.Turn.Output != 120 {
-		t.Fatalf("second reply: %+v", r)
+	if u := next(); u.Prompt != "why does the build fail on linux" || u.Usage.Calls != 1 || u.Usage.Output != 4500 {
+		t.Fatalf("first turn: %+v", u)
 	}
-	select {
-	case r := <-replies:
-		t.Errorf("a reply recorded twice: %+v", r)
-	case <-time.After(100 * time.Millisecond):
+	none("the second turn in progress")
+	cancel()
+	<-done
+	if u := next(); u.Prompt != "yes go ahead" || u.Usage.Output != 120 {
+		t.Fatalf("the turn in progress at the end: %+v", u)
 	}
 }
 
 func TestTokens(t *testing.T) {
-	for n, want := range map[int64]string{0: "0", 950: "950", 1234: "1.2k", 276_468: "276k", 1_420_000: "1.4M", 889_000_000: "889M"} {
+	for n, want := range map[int64]string{0: "0", 950: "950", 1234: "1.2k", 9_960: "10k", 276_468: "276k", 999_600: "1.0M",
+		1_420_000: "1.4M", 9_960_000: "10M", 889_000_000: "889M"} {
 		if got := tokens(n); got != want {
 			t.Errorf("tokens(%d) = %q, want %q", n, got, want)
 		}

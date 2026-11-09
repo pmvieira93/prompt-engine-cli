@@ -74,6 +74,7 @@ sent_any() { grep -qF -- "$1" "$dir/sent.jsonl"; }
 first_sent() { [ "$(head -n 1 "$dir/sent.jsonl")" = "$1" ]; }
 shown() { grep -qF -- "$1" "$dir/screen.txt"; }
 fails_shown() { ! shown "$1"; }
+same() { [ -n "$1" ] && [ "$1" = "$2" ]; }
 
 case_ghost() {
 	echo "ghost: a suggestion, accepted with Tab, is sent"
@@ -361,7 +362,7 @@ exit'
 }
 
 case_usage() {
-	echo "usage: the panel shows the tokens from the transcript, and the history records each reply's"
+	echo "usage: the panel shows the tokens from the transcript, and the history records each prompt's"
 	PE_HISTORY="$work/history/usage.jsonl" run_case usage 'reply on
 wait "❯" 5s
 send "say hello"
@@ -371,12 +372,20 @@ wait "Reply to: say hello" 3s
 send "\x11p"
 wait "tokens:" 5s
 dump
+send "say bye"
+sleep 300ms
+send "\r"
+wait "Reply to: say bye" 3s
+sleep 2500ms
 send "\x04"
 exit'
+	local h="$work/history/usage.jsonl"
 	check "the panel shows the context" shown 'tokens:      context 41k · claude-fake-1'
 	check "and the reply's tokens" shown 'reply:     41k in (99% cached), 250 out'
-	check "the log has the reply's usage" logged 'usage: reply 1 call, 41k in (99% cached), 250 out; context 41k, claude-fake-1'
-	check "the history has a usage line" grep -q '"kind":"usage".*"calls":1,"input_tokens":3,"cache_write_tokens":0,"cache_read_tokens":41000,"output_tokens":250' "$work/history/usage.jsonl"
+	check "the log has the first reply's usage" logged 'usage: reply 1 call, 41k in (99% cached), 250 out; context 41k, claude-fake-1'
+	check "the history has a usage line for each prompt" test "$(grep -c '"kind":"usage"' "$h")" -eq 2
+	check "the first names the first prompt" same "$(sed -n 's/.*"kind":"usage","prompt_time":"\([^"]*\)".*"cache_read_tokens":41000.*/\1/p' "$h")" "$(sed -n '1s/^{"time":"\([^"]*\)".*/\1/p' "$h")"
+	check "the second, recorded at exit, names the second" same "$(sed -n 's/.*"kind":"usage","prompt_time":"\([^"]*\)".*"cache_read_tokens":42000.*/\1/p' "$h")" "$(grep -v '"kind"' "$h" | sed -n '2s/^{"time":"\([^"]*\)".*/\1/p')"
 }
 
 case_guards() {

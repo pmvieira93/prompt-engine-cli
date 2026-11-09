@@ -260,21 +260,38 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		recent.sent, recent.sentAt = recent.sent[j:], recent.sentAt[j:]
 	}, logf)
 	go sess.run(ctx, func() config.Config { return *live.Load() })
-	// Each reply's tokens go in the history, after its prompt's line.
-	sess.onReply = func(t transcript.Tally) {
+	// Each prompt's tokens go in the history when its turn ends, after its
+	// line, which they name by its time: found by the prompt's text, as a
+	// later prompt may have been sent by then.
+	sess.onTurn = func(t transcript.TurnUsage) {
 		h := live.Load().History
-		sub := lastSent.Load()
-		if !h.Enabled || sub == nil {
+		if !h.Enabled {
+			return
+		}
+		recent.Lock()
+		i := slices.IndexFunc(recent.sent, func(sent string) bool { return transcript.SamePrompt(t.Prompt, sent) })
+		var at time.Time
+		if i >= 0 {
+			at = recent.sentAt[i]
+		}
+		recent.Unlock()
+		if i < 0 {
+			logf("usage: not recorded: its prompt isn't among the last ones sent")
 			return
 		}
 		recordUsage(h, history.Usage{
-			Time: time.Now(), Session: sessionID, Prompt: sub.Time, Calls: t.Turn.Calls,
-			Input: t.Turn.Input, CacheWrite: t.Turn.CacheWrite, CacheRead: t.Turn.CacheRead, Output: t.Turn.Output,
-			Context: t.Context, Model: t.Model, Subagents: t.TurnSubagents,
+			Time: time.Now(), Session: sessionID, Prompt: at, Calls: t.Usage.Calls,
+			Input: t.Usage.Input, CacheWrite: t.Usage.CacheWrite, CacheRead: t.Usage.CacheRead, Output: t.Usage.Output,
+			Context: t.Context, Model: t.Model, Subagents: t.Subagents,
 		}, logf)
 	}
 	sess.redraw = ctrl.Redraw
-	go sess.watchUsage(ctx)
+	sess.needed = func() bool { return ctrl.PanelOpen() || live.Load().History.Enabled }
+	usageDone := make(chan struct{})
+	go func() {
+		sess.watchUsage(ctx)
+		close(usageDone)
+	}()
 
 	// The worker runs even with suggestions off, so a config edit can turn
 	// them on, and so it keeps resyncing the input buffer for the rules.
@@ -1105,7 +1122,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		}
 	}
 
-	return tui.Run(cmd, tui.Options{
+	code, err := tui.Run(cmd, tui.Options{
 		Ctrl:         ctrl,
 		Tracker:      tracker,
 		PanelPercent: func() int { return live.Load().Panel.Width },
@@ -1131,6 +1148,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		RawOutput:     rawOutput,
 		PanicOnGhost:  os.Getenv(envRenderPanic) != "",
 	})
+	// The last turn's tokens: recorded once the reader has caught up.
+	cancel()
+	select {
+	case <-usageDone:
+	case <-time.After(2 * time.Second):
+	}
+	return code, err
 }
 
 // logStartup records which config a session runs with, since the warning
@@ -1198,6 +1222,14 @@ func recordUsage(h config.HistoryConfig, u history.Usage, logf func(string, ...a
 	}
 }
 
+// historyLogs are the history files appended to, one each, so their lock
+// keeps prompt lines and usage lines, written from different goroutines,
+// whole and in order.
+var historyLogs struct {
+	sync.Mutex
+	m map[string]*history.Log
+}
+
 // historyLog returns the history file to append to, or nil if it can't be
 // found.
 func historyLog(h config.HistoryConfig, logf func(string, ...any)) *history.Log {
@@ -1212,7 +1244,16 @@ func historyLog(h config.HistoryConfig, logf func(string, ...any)) *history.Log 
 			return nil
 		}
 	}
-	return &history.Log{Path: path, IncludeText: h.IncludeText}
+	key := fmt.Sprint(path, h.IncludeText)
+	historyLogs.Lock()
+	defer historyLogs.Unlock()
+	if historyLogs.m == nil {
+		historyLogs.m = map[string]*history.Log{}
+	}
+	if historyLogs.m[key] == nil {
+		historyLogs.m[key] = &history.Log{Path: path, IncludeText: h.IncludeText}
+	}
+	return historyLogs.m[key]
 }
 
 // wordsTime is the extra time allowed to rewrite a prompt of n words:

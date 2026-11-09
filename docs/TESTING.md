@@ -918,14 +918,16 @@ Open the panel with **Ctrl+Q**, **p**.
 | # | Do this | Expected |
 |---|---|---|
 | R1 | Look at the Session section before sending anything | No `tokens:` lines yet |
-| R2 | Send `say hi in 3 words` | Within about 2 seconds of the reply: `tokens:      context …k · claude-…`, `reply:` and `so far:` with the same numbers, mostly cached, and `calls:     1 in the reply, 1 so far`. Log: `usage: reply 1 call, …` |
-| R3 | `tail -n 2 /tmp/pe-usage.jsonl` in another terminal | The prompt's line, then a line with `"kind":"usage"`, whose `prompt_time` is the prompt line's `time`. No prompt text in it |
+| R2 | Send `say hi in 3 words` | Within about 2 seconds of the reply: `tokens:      context …k · claude-…`, `reply:` and `so far:` with the same numbers, mostly cached, and `calls:     1 in the reply, 1 so far` |
+| R3 | Send `say bye in 3 words`, then `tail -n 3 /tmp/pe-usage.jsonl` in another terminal | R2's turn ended when this prompt was sent: a line with `"kind":"usage"` whose `prompt_time` is the `time` of R2's prompt line, then this prompt's line. No prompt text in the usage line. Log: `usage: reply 1 call, …` |
 | R4 | Send `what is the first line of README.md? answer only that` from a folder with a README | `calls:` shows 2 or more in the reply (Claude reads the file), and `so far:` grows by the reply's numbers |
 | R5 | Run `/context` | Its total is close to the panel's `context` (it's the size of the last call, so the two can differ by the last reply) |
-| R6 | Send `use a subagent to count the .md files in this folder, answer with the number only` | A line `incl. N by subagents` appears, and `so far:` includes them; `context` doesn't grow by the subagent's tokens |
+| R6 | Send `use a subagent to count the .md files in this folder, answer with the number only` | A line `incl. N by subagents, N in the reply` appears, and `so far:` includes them; `context` doesn't grow by the subagent's tokens |
 | R7 | Run `/clear`, wait 2 seconds, then send `say hi in 3 words` | The `tokens:` lines go after `/clear`; after the reply, `so far:` counts only this reply |
+| R8 | Send `count slowly from 1 to 200, one number per line`, press **Esc** while it streams, then send `say ok` | The history gets a usage line for the interrupted prompt, when `say ok` is sent |
+| R9 | `/exit`, then `tail -n 1 /tmp/pe-usage.jsonl` | The last turn's usage line, written as the session ended |
 
-**Cleanup:** `unset PROMPT_ENGINE_HISTORY; rm -f /tmp/pe-usage.jsonl`, then `/exit`.
+**Cleanup:** `unset PROMPT_ENGINE_HISTORY; rm -f /tmp/pe-usage.jsonl`.
 
 ---
 
