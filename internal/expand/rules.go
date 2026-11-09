@@ -110,11 +110,11 @@ func (r *Rules) Instructions(typed string) string {
 
 // ruleWords splits text into the words rules are matched against: in
 // lower case, without quotes or apostrophes around them or a final "'s",
-// and hyphenated words split ("production-like" has "production").
+// hyphenated words split ("production-like" has "production"), and dashes
+// and curly quotes between words ("bug—it" has "bug").
 func ruleWords(text string) []string {
-	text = strings.NewReplacer("’", "'", "‘", "'").Replace(strings.ToLower(text))
 	var out []string
-	for _, w := range words(text) {
+	for _, w := range words(wordText(text)) {
 		for _, part := range strings.Split(w, "-") {
 			part = strings.Trim(part, "'_")
 			part = strings.TrimSuffix(part, "'s")

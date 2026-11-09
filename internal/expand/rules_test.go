@@ -34,6 +34,11 @@ func TestRules(t *testing.T) {
 		{"restart the api", "Restart the production-like api.", "never-add"},
 		{"restart the staging api", "Restart the 'staging' api.", ""},
 		{"restart the staging api", "Restart the staging-api.", ""},
+		// Dashes and curly double quotes sit between words.
+		{"restart the api", "Restart the api—production next.", "never-add"},
+		{"restart the api", "Restart the “production” api.", "never-add"},
+		{"restart staging—then check it", "Restart it, then check it.", "always-keep"},
+		{"restart staging—then check it", "Restart staging, then check it.", ""},
 	} {
 		if got := guard(r, c.typed, c.rewritten); got != c.want {
 			t.Errorf("%q → %q: stopped by %q, want %q", c.typed, c.rewritten, got, c.want)
