@@ -24,9 +24,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -61,6 +63,10 @@ type Finder struct {
 	mu         sync.Mutex
 	matched    string // the transcript last found
 	matchedFor string // the prompts it was found by
+	// missed is the prompts and transcripts of the last search that found
+	// nothing: until either changes, searching again would read every
+	// transcript for the same answer.
+	missed string
 }
 
 // Path returns the session's transcript, found by sent: the last few
@@ -99,6 +105,8 @@ func (f *Finder) Path(sent ...string) string {
 		mod  time.Time
 	}
 	var found []candidate
+	var search strings.Builder
+	search.WriteString(key)
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".jsonl" {
 			continue
@@ -108,6 +116,10 @@ func (f *Finder) Path(sent ...string) string {
 			continue
 		}
 		found = append(found, candidate{filepath.Join(dir, e.Name()), info.ModTime()})
+		fmt.Fprintf(&search, "\x00%s %d %d", e.Name(), info.Size(), info.ModTime().UnixNano())
+	}
+	if search.String() == f.missed {
+		return ""
 	}
 	// Newest first: after /clear, the new transcript holds the prompt.
 	sort.Slice(found, func(i, j int) bool { return found[i].mod.After(found[j].mod) })
@@ -115,7 +127,7 @@ func (f *Finder) Path(sent ...string) string {
 	for _, c := range found {
 		prompts := promptsOf(c.path)
 		holds := func(p string) bool {
-			return slices.ContainsFunc(prompts, func(q string) bool { return samePrompt(q, p) })
+			return slices.ContainsFunc(prompts, func(q string) bool { return SamePrompt(q, p) })
 		}
 		if !holds(sent[len(sent)-1]) {
 			continue
@@ -131,7 +143,9 @@ func (f *Finder) Path(sent ...string) string {
 		}
 	}
 	if best != "" {
-		f.matched, f.matchedFor = best, key
+		f.matched, f.matchedFor, f.missed = best, key, ""
+	} else {
+		f.missed = search.String()
 	}
 	return best
 }
@@ -140,7 +154,7 @@ func (f *Finder) Path(sent ...string) string {
 // same prompts sent again belong to the new transcript, not that one.
 func (f *Finder) Forget() {
 	f.mu.Lock()
-	f.matched, f.matchedFor = "", ""
+	f.matched, f.matchedFor, f.missed = "", "", ""
 	f.mu.Unlock()
 }
 
@@ -283,10 +297,16 @@ func cwdOf(path string) string {
 	return ""
 }
 
-// samePrompt reports whether a prompt in the transcript is the one sent:
-// the transcript has what claude received, which may have rules appended.
-func samePrompt(inTranscript, sent string) bool {
-	a, b := strings.Join(strings.Fields(inTranscript), " "), strings.Join(strings.Fields(sent), " ")
+// pasteTag is the tag Claude Code puts around a long paste before the
+// model sees it (2.1.311); what was sent has the paste without it.
+var pasteTag = regexp.MustCompile(`</?pasted_content(?: id="[^"]*")?>`)
+
+// SamePrompt reports whether a prompt in the transcript is the one sent:
+// the same start, ignoring spacing and paste tags. The transcript has what
+// claude received, which may have rules appended.
+func SamePrompt(inTranscript, sent string) bool {
+	a := strings.Join(strings.Fields(pasteTag.ReplaceAllString(inTranscript, "")), " ")
+	b := strings.Join(strings.Fields(sent), " ")
 	n := min(len(a), len(b), 80)
 	return n > 0 && a[:n] == b[:n]
 }
@@ -391,6 +411,9 @@ func content(raw json.RawMessage) (string, []block) {
 // promptText returns the developer's prompt in a user record, if it is
 // one: not tool results, and not a notification, slash command output or
 // shell mode line, which start with a tag such as "<task-notification>".
+// A prompt can start with a paste's tag, <pasted_content id="…"> (seen in
+// 2.1.311). "[Request interrupted by user]" isn't a prompt: the turn it
+// interrupted goes on with the next one.
 func promptText(text string, blocks []block) (string, bool) {
 	if text == "" {
 		var parts []string
@@ -405,7 +428,8 @@ func promptText(text string, blocks []block) (string, bool) {
 		text = strings.Join(parts, "\n")
 	}
 	text = strings.TrimSpace(text)
-	if text == "" || strings.HasPrefix(text, "<") {
+	if text == "" || strings.HasPrefix(text, "[Request interrupted") ||
+		(strings.HasPrefix(text, "<") && !strings.HasPrefix(text, "<pasted_content")) {
 		return "", false
 	}
 	return text, true

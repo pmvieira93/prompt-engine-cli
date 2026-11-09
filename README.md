@@ -17,7 +17,7 @@ You use `claude` exactly as before. `prompt-engine` sits in front of it and help
 | **[Prompt rewrites](docs/guide/rewrites.md)** | A rough prompt becomes a clear one: typos fixed, names and meaning kept. You choose when: on a shortcut, as a preview, or on every Enter. |
 | **[Guidance](docs/guide/guidance.md)** | Your standing rules ("Run the tests before saying it works") go with every prompt, or only with the prompts they fit. |
 | **[Guard rails](docs/guide/guard-rails.md)** | A rewrite that adds a task, drops a name or changes your meaning is stopped. You can add your own rules. |
-| **[Side panel](docs/guide/panel.md)** | Shows what you typed against what was sent, and the session's settings. |
+| **[Side panel](docs/guide/panel.md)** | Shows what you typed against what was sent, the session's settings, and the tokens Claude Code has used. |
 
 ## How it works
 

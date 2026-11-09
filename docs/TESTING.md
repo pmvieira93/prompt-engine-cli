@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O), and **installing from a release** (PRD Appendix 3, Part P), and **your own guard rails** (PRD Appendix 4, Part Q). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O), and **installing from a release** (PRD Appendix 3, Part P), and **your own guard rails** (PRD Appendix 4, Part Q), and **token usage in the panel** (PRD Appendix 5, FR-11.1, Part R). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -902,7 +902,36 @@ export PROMPT_ENGINE_CONFIG="$T/config.yaml"
 
 ---
 
-## 19. Known limitations (expected, not bugs)
+## 19. Part R: Token usage in the panel
+
+The panel's Session section shows the tokens Claude Code used, read from its transcript (PRD Appendix 5, FR-11.1), and the history records each reply's. These steps send short prompts to the real `claude`, so they use your account a little.
+
+**Setup:**
+
+```sh
+export PROMPT_ENGINE_HISTORY=/tmp/pe-usage.jsonl
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log prompt-engine
+```
+
+Open the panel with **Ctrl+Q**, **p**.
+
+| # | Do this | Expected |
+|---|---|---|
+| R1 | Look at the Session section before sending anything | No `tokens:` lines yet |
+| R2 | Send `say hi in 3 words` | Within about 2 seconds of the reply: `tokens:      context …k · claude-…`, `reply:` and `so far:` with the same numbers, mostly cached, and `calls:     1 in the reply, 1 so far` |
+| R3 | Send `say bye in 3 words`, then `tail -n 3 /tmp/pe-usage.jsonl` in another terminal | R2's turn ended when this prompt was sent: a line with `"kind":"usage"` whose `prompt_time` is the `time` of R2's prompt line, then this prompt's line. No prompt text in the usage line. Log: `usage: reply 1 call, …` |
+| R4 | Send `what is the first line of README.md? answer only that` from a folder with a README | `calls:` shows 2 or more in the reply (Claude reads the file), and `so far:` grows by the reply's numbers |
+| R5 | Run `/context` | Its total is close to the panel's `context` (it's the size of the last call, so the two can differ by the last reply) |
+| R6 | Send `use a subagent to count the .md files in this folder, answer with the number only` | A line `incl. N by subagents, N in the reply` appears, and `so far:` includes them; `context` doesn't grow by the subagent's tokens |
+| R7 | Run `/clear`, wait 2 seconds, then send `say hi in 3 words` | The `tokens:` lines go after `/clear`; after the reply, `so far:` counts only this reply |
+| R8 | Send `count slowly from 1 to 200, one number per line`, press **Esc** while it streams, then send `say ok` | The history gets a usage line for the interrupted prompt, when `say ok` is sent |
+| R9 | `/exit`, then `tail -n 1 /tmp/pe-usage.jsonl` | The last turn's usage line, written as the session ended |
+
+**Cleanup:** `unset PROMPT_ENGINE_HISTORY; rm -f /tmp/pe-usage.jsonl`.
+
+---
+
+## 20. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -930,11 +959,12 @@ export PROMPT_ENGINE_CONFIG="$T/config.yaml"
 | `--settings` passed to `claude` turns the rules off, with a warning at startup if you have an `append.txt` | `claude` only uses the last `--settings`, which replaces the hook. `prompt-engine` leaves yours in place |
 | Languages written without spaces (Chinese, Japanese, Thai) count as one word, so those prompts are short and get no rules | `templates.min_words` counts words split by spaces. Set it to `1` to add the rules to every prompt |
 | Rules aren't added when the prompt text is unknown (`synced=false`, e.g. while a menu is open) | Sections and `templates.min_words` go by the prompt's words. The log says `rules: not added (prompt text unknown)`. |
+| The panel shows tokens, not cost in dollars | The transcript has no live cost, and a price table for every model would go stale. `claude -p --output-format json` reports the cost of a run |
 | Inline images (kitty graphics) aren't supported | The emulator doesn't answer `claude`'s image-support query, so `claude` doesn't send images. |
 
 ---
 
-## 20. Reporting a problem
+## 21. Reporting a problem
 
 Include:
 
