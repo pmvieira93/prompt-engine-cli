@@ -1,9 +1,9 @@
 # PRD Appendix 5: Cost-Aware Local Assistance
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.5 (section 2, core value proposition; section 4.2, the local AI engine; the Phase 5 roadmap)  
-**Appendix Version:** 1.0.0  
-**Date:** 2026-10-30  
-**Status:** Proposed, spike first. Raised on 2026-10-30; nothing is built until the spike (section 4) shows savings worth building.
+**Appendix Version:** 1.1.0  
+**Date:** 2026-11-09  
+**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 to be built, FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. Raised on 2026-10-30.
 
 ---
 
@@ -38,7 +38,7 @@ Ranked by expected savings against risk. Every action is a **suggestion the deve
 * **FR-11.1: Cost visibility.** The panel shows the session's tokens so far (input, output, cache reads) and those of the last reply, from the transcript.
   * The history records them per prompt.
   * This comes first: the other features are judged by it.
-* **FR-11.2: Condensed pastes.** When a paste is large (a log, a stack trace, a diff), the local model prepares a condensed version: the errors, the lines around them, and what repeats, counted.
+* **FR-11.2: Condensed pastes.** *Dropped on 2026-11-09 (section 7).* When a paste is large (a log, a stack trace, a diff), the local model prepares a condensed version: the errors, the lines around them, and what repeats, counted.
   * The panel shows both sizes, and a shortcut swaps the condensed version in.
   * The original is kept: the shortcut undoes it, and the developer can always send the full paste.
 * **FR-11.3: Local answers.** A small local classifier decides whether a prompt needs the agent (files, commands, edits, the session) or is a self-contained question.
@@ -108,4 +108,16 @@ The spike's code and results go in `docs/spikes/`, like the earlier spikes.
 
 ## 6. Roadmap
 
-Not scheduled. When picked up: the spike (section 4), then FR-11.1, then whichever of FR-11.2 to FR-11.4 the spike supports.
+Not scheduled. Next when picked up: FR-11.1. FR-11.3 and FR-11.4 wait for it, so their effect can be seen; FR-11.3 also needs spike step 3 first.
+
+---
+
+## 7. Decisions after the spike (2026-11-09)
+
+Step 1 of the spike ([token baseline](spikes/token-baseline.md), sections 4 and 5) measured 63 sessions and 633 prompts from the developer's own transcripts. Pastes are 0.1% of the input tokens, even counting every time a later call reads them back. Typed text is 0.2%. Prompts that answer a real clarifying question are 7.6%, and most of those ask for a decision or a hand-test result. Nearly all the input is what Claude Code carries: its replies, tool results, system prompt and thinking.
+
+* **FR-11.1, cost visibility: build.** It's cheap, and it's how any other saving would show.
+* **FR-11.2, condensed pastes: dropped.** Large pastes are rare, and they are a fraction of a percent of the tokens even when read back on every call. Spike steps 2 and 4 for condensing aren't needed.
+* **Rewrites are worth it for intent, not for tokens.** A clearer prompt saves few turns, since few clarifications are about the prompt. Its value is that Claude does what the developer means ([Appendix 6](PRD-APPENDIX-6.md)). Rework after a misunderstood prompt wasn't measured. Section 1.1's first saving, "fewer turns", is kept as a reason for rewrites, not as a cost saving.
+
+FR-11.3 (local answers) and FR-11.4 (model and context hints) stay proposed. FR-11.4 is the only item aimed at what Claude Code carries; FR-11.5 is the only one that could change it directly, and stays out of scope.

@@ -3,14 +3,14 @@
 ## Project Name: `prompt-engine-cli` (Working Title)
 **Target Execution Language:** Go (Golang)  
 **Primary Integration (MVP):** Claude Code CLI  
-**Document Version:** 1.3.13  
-**Last Updated:** 2026-11-07  
+**Document Version:** 1.3.14  
+**Last Updated:** 2026-11-09  
 **Appendices:**  
 * [Appendix 1: Session Context and Automatic Enhancement](docs/PRD-APPENDIX-1.md): built (Phase 4.5, then FR-6.2 and FR-6.3)
 * [Appendix 2: Rewrite Styles](docs/PRD-APPENDIX-2.md): built (FR-8.1 to FR-8.6, including a style for one prompt)
 * [Appendix 3: Installing from a Release](docs/PRD-APPENDIX-3.md): built (FR-9.1 to FR-9.6); signed macOS releases (FR-9.7) archived, not planned
 * [Appendix 4: Guard Rails from a File](docs/PRD-APPENDIX-4.md): built, as `templates/guards.txt` (never add, always keep, turn off); built-in guards told to the model (FR-10.8) dropped after a spike
-* [Appendix 5: Cost-Aware Local Assistance](docs/PRD-APPENDIX-5.md): proposed, spike first
+* [Appendix 5: Cost-Aware Local Assistance](docs/PRD-APPENDIX-5.md): spike step 1 done; token usage in the panel to be built, condensed pastes dropped
 * [Appendix 6: Rules Chosen by Intent](docs/PRD-APPENDIX-6.md): built, as sections of `append.txt` matched by words the developer lists; sections for confirmations (FR-12.6) set aside after measuring
 * [Appendix 7: Delivering Rules with a Hook](docs/PRD-APPENDIX-7.md): built; rules reach Claude Code through a `UserPromptSubmit` hook instead of a paste, which the model could refuse
 
@@ -156,7 +156,7 @@ The primary goal is to lower developer friction and improve the quality of AI in
 * Releases are built and published on each tag (since v0.1.0). Built: installing from a release with the install script, including a one-line install and upgrades. See [PRD Appendix 3](docs/PRD-APPENDIX-3.md).
 
 ### Cost-Aware Local Assistance
-* Proposed, spike first: use the local models to lower what a hosted assistant costs, with condensed pastes, local answers, model and context hints, and token usage in the panel. See [PRD Appendix 5](docs/PRD-APPENDIX-5.md).
+* Use the local models to lower what a hosted assistant costs. After the first spike (2026-11-09): token usage in the panel is to be built, condensed pastes are dropped, and local answers and model and context hints stay proposed. See [PRD Appendix 5](docs/PRD-APPENDIX-5.md).
 
 ### Phase 5 (Post-MVP): Multi-Tool Support
 * Abstract integration layers to add support for Gemini CLI, GitHub Copilot CLI, and Aider.
