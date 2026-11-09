@@ -44,6 +44,22 @@ func TestRules(t *testing.T) {
 			t.Errorf("%q → %q: stopped by %q, want %q", c.typed, c.rewritten, got, c.want)
 		}
 	}
+	// A symbol is a word of its own, so a rule can name one.
+	symbols := &Rules{
+		NeverAdd:   []Rule{{Line: 1, Words: []string{"🚀", "€"}}},
+		AlwaysKeep: []Rule{{Line: 2, Words: []string{"bug"}}},
+	}
+	for _, c := range []struct{ typed, rewritten, want string }{
+		{"ship it", "Ship it 🚀.", "never-add"},
+		{"price it", "Price it at 5€.", "never-add"},
+		{"ship it 🚀", "Ship it 🚀.", ""},
+		{"fix the bug🎉 now", "Fix it now.", "always-keep"},
+		{"fix the bug🎉 now", "Fix the bug now.", ""},
+	} {
+		if got := guard(symbols, c.typed, c.rewritten); got != c.want {
+			t.Errorf("%q → %q: stopped by %q, want %q", c.typed, c.rewritten, got, c.want)
+		}
+	}
 	// "staging-api" typed has "staging" (names would stop this first).
 	if stop := r.check("restart the staging-api", "Restart the api."); stop == nil || stop.Guard != "always-keep" {
 		t.Errorf("staging-api: %+v, want always-keep", stop)

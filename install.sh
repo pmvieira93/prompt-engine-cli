@@ -604,37 +604,28 @@ install_binary() {
 		ok "Config kept: $CONFIG_FILE"
 	elif [ "$DRY_RUN" = 1 ]; then
 		info "would write the config template to $CONFIG_FILE"
+		info "would write the guard rails template to $(dirname "$CONFIG_FILE")/templates/guards.txt"
 	else
 		mkdir -p "$(dirname "$CONFIG_FILE")"
 		cp "$CONFIG_TEMPLATE" "$CONFIG_FILE"
 		ok "Config written: $CONFIG_FILE ${D}(every setting, at its default)${N}"
+		write_guards
 	fi
-	write_guards
 }
 
-# write_guards puts the guard rails template in the templates folder if
-# there's no guards.txt yet. It's all comments, so it changes nothing until
-# a rule is added.
+# write_guards puts the guard rails template beside a config just written,
+# so templates.dir is the default and the app reads the same folder. The
+# template is all comments, so it changes nothing until a rule is added.
 write_guards() {
-	local dir guards template
+	local dir template
+	dir="$(dirname "$CONFIG_FILE")/templates"
 	template="$(dirname "$CONFIG_TEMPLATE")/guards.example.txt"
-	[ -f "$template" ] || return 0
-	dir="$(config_value dir)"
-	case "${dir:-templates}" in
-	/*) ;;
-	\~/*) dir="$HOME/${dir#\~/}" ;;
-	*) dir="$(dirname "$CONFIG_FILE")/${dir:-templates}" ;;
-	esac
-	guards="$dir/guards.txt"
-	if [ -f "$guards" ]; then
+	if [ -f "$dir/guards.txt" ] || [ ! -f "$template" ]; then
 		return 0
-	elif [ "$DRY_RUN" = 1 ]; then
-		info "would write the guard rails template to $guards"
-	else
-		mkdir -p "$dir"
-		cp "$template" "$guards"
-		ok "Guard rails written: $guards ${D}(all comments: add your own rules)${N}"
 	fi
+	mkdir -p "$dir"
+	cp "$template" "$dir/guards.txt"
+	ok "Guard rails written: $dir/guards.txt ${D}(all comments: add your own rules)${N}"
 }
 
 install_from_source() {
