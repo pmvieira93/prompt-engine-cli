@@ -82,10 +82,12 @@ echo "pinned version"
 check "installs" run_install pinned --version v9.9.1
 check "the binary reports v9.9.1" is_version v9.9.1
 check "writes the config template" cmp -s "$config" docs/config.example.yaml
+check "writes the guard rails template" cmp -s "$work/home/templates/guards.txt" docs/guards.example.txt
 check "says the checksum was verified" says pinned "Checksum verified"
 
 echo "same version again"
 echo "# mine" >>"$config"
+echo "# mine" >>"$work/home/templates/guards.txt"
 check "succeeds" run_install again --version 9.9.1
 check "says it is already installed" says again "v9.9.1 is already installed"
 
@@ -94,6 +96,7 @@ check "succeeds" run_install upgrade --version v9.9.2
 check "the binary reports v9.9.2" is_version v9.9.2
 check "shows both versions" says upgrade "Installed v9.9.2 (was v9.9.1)"
 check "keeps the config" config_kept
+check "keeps guards.txt" grep -qx "# mine" "$work/home/templates/guards.txt"
 
 echo "bad checksum"
 release v9.9.3

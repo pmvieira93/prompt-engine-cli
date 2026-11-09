@@ -609,6 +609,32 @@ install_binary() {
 		cp "$CONFIG_TEMPLATE" "$CONFIG_FILE"
 		ok "Config written: $CONFIG_FILE ${D}(every setting, at its default)${N}"
 	fi
+	write_guards
+}
+
+# write_guards puts the guard rails template in the templates folder if
+# there's no guards.txt yet. It's all comments, so it changes nothing until
+# a rule is added.
+write_guards() {
+	local dir guards template
+	template="$(dirname "$CONFIG_TEMPLATE")/guards.example.txt"
+	[ -f "$template" ] || return 0
+	dir="$(config_value dir)"
+	case "${dir:-templates}" in
+	/*) ;;
+	\~/*) dir="$HOME/${dir#\~/}" ;;
+	*) dir="$(dirname "$CONFIG_FILE")/${dir:-templates}" ;;
+	esac
+	guards="$dir/guards.txt"
+	if [ -f "$guards" ]; then
+		return 0
+	elif [ "$DRY_RUN" = 1 ]; then
+		info "would write the guard rails template to $guards"
+	else
+		mkdir -p "$dir"
+		cp "$template" "$guards"
+		ok "Guard rails written: $guards ${D}(all comments: add your own rules)${N}"
+	fi
 }
 
 install_from_source() {
