@@ -202,8 +202,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	if injector != nil {
 		injector.MinWords = func() int { return live.Load().Templates.MinWords }
 		if err := injector.Check(); err != nil {
-			logf("rules: %v; no rules are added until it's fixed", err)
-			warn("%v; no rules are added until it's fixed", err)
+			logf("rules: %v; no guidance is added until it's fixed", err)
+			warn("%v; no guidance is added until it's fixed", err)
 		}
 	}
 	// The prompts sent in this session, as sent without the rules, for the
@@ -1051,7 +1051,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			note += " · expanded"
 		}
 		if sub.Rules {
-			note += " · rules added"
+			note += " · guidance added"
 			if len(sub.Sections) > 0 {
 				note += " (" + strings.Join(sub.Sections, ", ") + ")"
 			}
@@ -1439,7 +1439,7 @@ func rulesQueue(args []string, haveRules bool) (*rules.Queue, []string) {
 		}
 		if a == "--settings" || strings.HasPrefix(a, "--settings=") {
 			if haveRules {
-				warn("no rules are added: --settings replaces the settings prompt-engine gives claude")
+				warn("no guidance is added: --settings replaces the settings prompt-engine gives claude")
 			}
 			return nil, nil
 		}
@@ -1449,12 +1449,12 @@ func rulesQueue(args []string, haveRules bool) (*rules.Queue, []string) {
 		exe, err = filepath.Abs(exe)
 	}
 	if err != nil {
-		warn("no rules are added: %v", err)
+		warn("no guidance is added: %v", err)
 		return nil, nil
 	}
 	queue, err := rules.NewQueue()
 	if err != nil {
-		warn("no rules are added: %v", err)
+		warn("no guidance is added: %v", err)
 		return nil, nil
 	}
 	return queue, []string{"--settings", rules.Settings(shellQuote(exe) + " " + hookFlag)}

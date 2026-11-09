@@ -120,7 +120,7 @@ func (in *Injector) Check() error {
 func (in *Injector) Status(last []string) []string {
 	t, err := in.loadCached()
 	if err != nil {
-		return []string{"⚠ rules not added: " + err.Error()}
+		return []string{"⚠ guidance not added: " + err.Error()}
 	}
 	if len(t.sections) == 0 {
 		return nil
@@ -133,7 +133,7 @@ func (in *Injector) Status(last []string) []string {
 	if len(t.sections) == 1 {
 		unit = "section"
 	}
-	return []string{fmt.Sprintf("rules:       %d %s; last prompt: %s", len(t.sections), unit, added)}
+	return []string{fmt.Sprintf("guidance:    %d %s; last prompt: %s", len(t.sections), unit, added)}
 }
 
 // loadCached is load at most once a second, since a preview or the panel
