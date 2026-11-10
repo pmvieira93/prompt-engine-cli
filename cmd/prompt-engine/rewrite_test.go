@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/pmvieira93/prompt-engine-cli/internal/config"
+	"github.com/pmvieira93/prompt-engine-cli/internal/rules"
 )
 
 func TestRewriteArgs(t *testing.T) {
@@ -74,6 +75,20 @@ func TestRewrite(t *testing.T) {
 		!slices.Equal(res.Sections, []string{"test"}) || strings.Contains(res.Prompt, "Guidance") {
 		t.Errorf("guidance: %+v", res)
 	}
+
+	if !strings.Contains(res.HookSettings, hookFlag) || res.Queued {
+		t.Errorf("hook settings: %+v", res)
+	}
+	// With a queue, the guidance waits there for the hook, as on Enter.
+	queue := t.TempDir()
+	t.Setenv(rules.EnvQueue, queue)
+	if _, res, _ = run("fix the parser tests"); !res.Queued {
+		t.Errorf("not queued: %+v", res)
+	}
+	if got, ok := rules.Take(queue, res.Prompt); !ok || got != res.Guidance {
+		t.Errorf("queue: %q, %v", got, ok)
+	}
+	t.Setenv(rules.EnvQueue, "")
 
 	// Too short to rewrite, and to get the guidance.
 	if _, res, _ = run("continue"); res.Rewritten || res.NotRewritten != "short prompt" || res.Prompt != "continue" || res.Guidance != "" {

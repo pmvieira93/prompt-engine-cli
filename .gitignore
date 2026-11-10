@@ -42,3 +42,6 @@ go.work.sum
 # Python bytecode, from running the spike scripts
 __pycache__/
 *.pyc
+
+# Cost benchmark results: local, totals go in docs/spikes
+/bench/results/

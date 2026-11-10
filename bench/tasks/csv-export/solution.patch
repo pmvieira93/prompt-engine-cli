@@ -1,0 +1,27 @@
+diff --git a/export.go b/export.go
+index b702b8c..8228006 100644
+--- a/export.go
++++ b/export.go
+@@ -1,11 +1,20 @@
+ package ledger
+ 
+-import "io"
++import (
++	"encoding/csv"
++	"io"
++)
+ 
+ // ExportCSV writes txs as CSV: a header line "date,description,category,amount",
+ // then one line per transaction, with the date as 2006-01-02 and the
+ // amount as Money.String formats it. Fields with commas or quotes are
+ // quoted as encoding/csv does.
+ func ExportCSV(w io.Writer, txs []Transaction) error {
+-	return ErrNotImplemented // TODO
++	cw := csv.NewWriter(w)
++	cw.Write([]string{"date", "description", "category", "amount"})
++	for _, t := range txs {
++		cw.Write([]string{t.Date.Format("2006-01-02"), t.Description, t.Category, t.Amount.String()})
++	}
++	cw.Flush()
++	return cw.Error()
+ }

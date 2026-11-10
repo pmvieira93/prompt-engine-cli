@@ -1,0 +1,27 @@
+diff --git a/transaction.go b/transaction.go
+index 3bedefe..b51eafb 100644
+--- a/transaction.go
++++ b/transaction.go
+@@ -3,6 +3,7 @@ package ledger
+ import (
+ 	"errors"
+ 	"sort"
++	"strings"
+ 	"time"
+ )
+ 
+@@ -37,7 +38,13 @@ var ErrNotImplemented = errors.New("not implemented")
+ // FilterByCategory returns the transactions in category, in their order.
+ // Categories match regardless of case and of spaces around them.
+ func FilterByCategory(txs []Transaction, category string) []Transaction {
+-	return nil // TODO
++	var out []Transaction
++	for _, t := range txs {
++		if strings.EqualFold(strings.TrimSpace(t.Category), strings.TrimSpace(category)) {
++			out = append(out, t)
++		}
++	}
++	return out
+ }
+ 
+ // MonthlyTotals sums the amounts per calendar month, keyed "2006-01".

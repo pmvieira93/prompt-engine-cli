@@ -1,0 +1,14 @@
+diff --git a/money.go b/money.go
+index 6827009..6dc1520 100644
+--- a/money.go
++++ b/money.go
+@@ -24,6 +24,9 @@ func (m Money) String() string {
+ // ParseAmount reads an amount such as "12.34", "-5", "€7.50" or "1,234.00".
+ func ParseAmount(s string) (Money, error) {
+ 	s = strings.TrimSpace(s)
++	if s == "" {
++		return 0, errors.New("empty amount")
++	}
+ 	if s[0] == '$' {
+ 		s = s[1:]
+ 	}

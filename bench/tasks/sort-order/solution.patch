@@ -1,0 +1,13 @@
+diff --git a/transaction.go b/transaction.go
+index 3bedefe..75604b5 100644
+--- a/transaction.go
++++ b/transaction.go
+@@ -18,7 +18,7 @@ type Transaction struct {
+ // same day keep their order.
+ func SortByDate(txs []Transaction) {
+ 	sort.SliceStable(txs, func(i, j int) bool {
+-		return txs[i].Date.After(txs[j].Date)
++		return txs[i].Date.Before(txs[j].Date)
+ 	})
+ }
+ 

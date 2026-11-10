@@ -1,0 +1,1 @@
+parsing an empty amount crashes the app
