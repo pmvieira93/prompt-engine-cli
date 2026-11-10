@@ -213,11 +213,11 @@ A cheaper run that fails the task isn't a saving, so cost is compared on the tas
 ### 8.3 How it runs
 
 * **Without the interactive screen.** With no terminal, `prompt-engine` hands over to `claude` directly, so nothing is rewritten. *Built on 2026-11-10:* `prompt-engine --pe-rewrite "<prompt>"` runs the same code as Enter in auto mode (the rewrite, the guard rails and the keyword sections) and prints JSON:
-  * `prompt`: the rewrite, or the prompt as typed when it isn't used, with `not_rewritten` and `guard` saying why;
-  * `style` and `rewrite_ms`, for the time the rewrite adds;
+  * `prompt`: the rewrite, or the prompt as typed when it isn't used, with `not_rewritten` saying why; when a guard stopped it, `guard`, `guard_detail` and `rejected` (the rewrite stopped), to tell false alarms apart;
+  * `style` and `rewrite_ms`, for the time the rewrite adds, with the model loaded first, as a session does when it starts;
   * `guidance` and `sections`, kept apart from `prompt`: in a session the hook adds them when the prompt reaches Claude (Appendix 7), so the harness must add them the same way, not paste them into the prompt.
 
-  There is no session, so there is no session context: each benchmark task starts in a fresh session anyway.
+  There is no session, so there is no session context: each benchmark task starts in a fresh session anyway. A config that doesn't load is an error (exit 2), so a run can't measure the defaults by mistake. Auto mode and the command share the code that decides whether to rewrite and checks the rewrite.
 * **Ghost text is left out:** it saves typing time, which needs a person, timed by hand.
 * **Results** go in `docs/spikes/`, like the spikes, with totals only.
 

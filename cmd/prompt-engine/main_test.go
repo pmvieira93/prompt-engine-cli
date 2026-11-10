@@ -156,6 +156,7 @@ func TestCheckGuardsArgs(t *testing.T) {
 		{[]string{"--pe-check-guards", "a"}, "", "", false, true},
 		{[]string{"--pe-check-guards", "a", "b", "c"}, "", "", false, true},
 		{[]string{"--", "--pe-check-guards", "a", "b"}, "", "", false, false}, // the child's
+		{[]string{"--model", "opus", "--pe-check-guards", "a", "b"}, "", "", false, true},
 		{[]string{"--resume"}, "", "", false, false},
 	} {
 		typed, rewrite, ok, err := checkGuardsArgs(tc.args)

@@ -75,6 +75,7 @@ first_sent() { [ "$(head -n 1 "$dir/sent.jsonl")" = "$1" ]; }
 shown() { grep -qF -- "$1" "$dir/screen.txt"; }
 fails_shown() { ! shown "$1"; }
 same() { [ -n "$1" ] && [ "$1" = "$2" ]; }
+printed() { grep -qF -- "$1" "$dir/out.json"; }
 
 case_ghost() {
 	echo "ghost: a suggestion, accepted with Tab, is sent"
@@ -446,7 +447,8 @@ case_rewrite() {
 	echo "rewrite: --pe-rewrite prints, without a terminal, what auto mode would send and the guidance"
 	dir="$work/rewrite"
 	mkdir -p "$dir/templates"
-	printf 'command: %s\n' "$bin/fake/claude" >"$dir/config.yaml"
+	# The fake claude logs what it receives, so the last check can fail.
+	printf 'command: %s\nargs: ["-log", "%s"]\n' "$bin/fake/claude" "$dir/sent.jsonl" >"$dir/config.yaml"
 	printf 'Keep changes small.\n\n[test|tests]\nRun the tests.\n' >"$dir/templates/append.txt"
 	(
 		cd "$dir"
@@ -455,11 +457,10 @@ case_rewrite() {
 			PROMPT_ENGINE_SUGGESTER=fake \
 			"$bin/prompt-engine" --pe-rewrite "fix the parser tests" </dev/null >"$dir/out.json" 2>"$dir/err.txt"
 	) && echo 0 >"$dir/code" || echo $? >"$dir/code"
-	out() { grep -qF -- "$1" "$dir/out.json"; }
 	check "it exited with 0" [ "$(cat "$dir/code")" = 0 ]
-	check "the prompt is the rewrite auto mode sends" out '"prompt": "Please fix the parser tests.",'
-	check "it was rewritten" out '"rewritten": true,'
-	check "the guidance is apart, with its section" out '"guidance": "# Guidance\nKeep changes small.\n\nRun the tests.",'
+	check "the prompt is the rewrite auto mode sends" printed '"prompt": "Please fix the parser tests.",'
+	check "it was rewritten" printed '"rewritten": true,'
+	check "the guidance is apart, with its section" printed '"guidance": "# Guidance\nKeep changes small.\n\nRun the tests.",'
 	check "nothing on stderr but test-env's note" [ -z "$(grep -v '^test-env:' "$dir/err.txt")" ]
 	check "claude wasn't started" [ ! -e "$dir/sent.jsonl" ]
 }

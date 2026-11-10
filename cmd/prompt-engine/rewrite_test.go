@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -20,7 +21,8 @@ func TestRewriteArgs(t *testing.T) {
 		{[]string{"--pe-rewrite", "fix the bug"}, "fix the bug", true, false},
 		{[]string{"--pe-rewrite"}, "", false, true},
 		{[]string{"--pe-rewrite", "a", "b"}, "", false, true},
-		{[]string{"--", "--pe-rewrite", "a"}, "", false, false}, // the child's
+		{[]string{"--model", "opus", "--pe-rewrite", "a"}, "", false, true}, // --model would be ignored
+		{[]string{"--", "--pe-rewrite", "a"}, "", false, false},             // the child's
 		{[]string{"-p", "hi"}, "", false, false},
 	} {
 		prompt, ok, err := rewriteArgs(tc.args)
@@ -69,7 +71,7 @@ func TestRewrite(t *testing.T) {
 		t.Fatalf("rewritten: %d %+v", code, res)
 	}
 	if !strings.HasPrefix(res.Guidance, "# Guidance\nKeep changes small.") || !strings.Contains(res.Guidance, "Run the tests.") ||
-		len(res.Sections) != 1 || res.Sections[0] != "test" || strings.Contains(res.Prompt, "Guidance") {
+		!slices.Equal(res.Sections, []string{"test"}) || strings.Contains(res.Prompt, "Guidance") {
 		t.Errorf("guidance: %+v", res)
 	}
 
@@ -83,7 +85,9 @@ func TestRewrite(t *testing.T) {
 
 	// A guard that stops the rewrite: the prompt goes as typed.
 	write("guards.txt", "never add: please\n")
-	if _, res, _ = run("fix the parser tests"); res.Rewritten || res.Guard == "" || res.Prompt != "fix the parser tests" || res.Sections[0] != "test" {
+	_, res, _ = run("fix the parser tests")
+	if res.Rewritten || res.Guard != "never-add" || res.GuardDetail != "please" || !strings.HasPrefix(res.Rejected, "Please fix the parser tests.") ||
+		res.Prompt != "fix the parser tests" || !slices.Equal(res.Sections, []string{"test"}) {
 		t.Errorf("guard: %+v", res)
 	}
 	// With the guards off, the file is ignored.
