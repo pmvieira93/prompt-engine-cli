@@ -26,15 +26,16 @@ python3 -I bench/run.py report bench/results/*.jsonl  # medians per task and set
 2. The prompt goes to `claude -p`, with the same flags for both setups:
    * `--model` fixed (default `sonnet`), `--output-format json` for the cost and tokens;
    * `--setting-sources project` and `--strict-mcp-config`, so your own settings, plugins and MCP servers don't change the result;
+   * the environment without a surrounding Claude Code or `prompt-engine` session's variables, keeping those that pick the account or config (`CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`, `PROMPT_ENGINE_CONFIG`...);
    * `--permission-mode acceptEdits`, the tools in `ALLOWED`, and no one answering permission prompts: anything else is denied.
-3. The hidden test is added and `go test ./...` decides pass or fail.
+3. The hidden test is added. The task is done when it and the project's own tests pass; tests Claude added are recorded apart (`all_tests_pass`) and don't decide it.
 
 The two setups:
 
 * **`alone`**: the prompt as typed.
-* **`pe`**: the prompt after `prompt-engine --pe-rewrite`, with your config (or `--pe-config`). The guidance from `append.txt` reaches Claude through `prompt-engine`'s own hook, as in a session: the harness fills the hook's queue and passes the same `--settings`. `hook_gave` in the results says whether the hook added it.
+* **`pe`**: the prompt after `prompt-engine --pe-rewrite`, with your config (or `--pe-config`). The guidance from `append.txt` reaches Claude through `prompt-engine`'s own hook, as in a session: `--pe-rewrite` puts it in the hook's queue and gives the `--settings` a session passes. `hook_gave` in the results says whether the hook added it. A rewrite that fails is recorded as a failed run, and the others go on.
 
-The runs alternate setups, so a slower hour affects both alike. `report` compares costs only on tasks both setups finished, with the success rate beside it.
+The setups take turns going first, task by task, so neither always pays to put Claude Code's system prompt in the prompt cache, or always meets a slower minute first. `report` compares costs only on tasks both setups finished (passed, with the cost known), with the success rate beside it.
 
 ## Adding a task
 

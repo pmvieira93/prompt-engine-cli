@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -91,15 +93,22 @@ type rewriteResult struct {
 	// Guidance is what the hook adds to the prompt when it reaches claude
 	// (PRD Appendix 7): it isn't part of Prompt. A session adds it only
 	// when it runs claude with its hook, so the caller decides.
-	Guidance  string   `json:"guidance,omitempty"`
-	Sections  []string `json:"sections,omitempty"`
-	RewriteMS int64    `json:"rewrite_ms"` // the model already loaded
+	Guidance string   `json:"guidance,omitempty"`
+	Sections []string `json:"sections,omitempty"`
+	// HookSettings is the --settings value that makes claude run the hook,
+	// as a session passes it, when there is guidance. With
+	// PROMPT_ENGINE_RULES_QUEUE set, the guidance is also put in that
+	// queue for the hook, and Queued says so.
+	HookSettings string `json:"hook_settings,omitempty"`
+	Queued       bool   `json:"queued,omitempty"`
+	RewriteMS    int64  `json:"rewrite_ms"` // the model already loaded
 }
 
 // rewrite prints, as JSON, what pressing Enter in auto mode would send
 // for typed, and the guidance the hook would add: the same rewrite, guard
 // rails and keyword sections, with no session context, since there is no
-// session. It returns 0, or 2 if the guards file is invalid.
+// session. It returns 0, 2 if the guards file is invalid, or 1 if the
+// guidance can't be queued.
 func rewrite(ctx context.Context, w, errw io.Writer, cfg config.Config, typed string) int {
 	res := rewriteResult{Typed: typed, Prompt: typed}
 	// As in a session: with no templates folder, the built-in guards only.
@@ -132,6 +141,24 @@ func rewrite(ctx context.Context, w, errw io.Writer, cfg config.Config, typed st
 	if dir, err := cfg.TemplatesDir(); err == nil {
 		in := &rules.Injector{Dir: dir, MinWords: func() int { return cfg.Templates.MinWords }}
 		res.Guidance, res.Sections = in.Prepare(s)
+	}
+	if res.Guidance != "" {
+		exe, err := os.Executable()
+		if err == nil {
+			exe, err = filepath.Abs(exe)
+		}
+		if err != nil {
+			fmt.Fprintf(errw, "prompt-engine: %v\n", err)
+			return 1
+		}
+		res.HookSettings = rules.Settings(shellQuote(exe) + " " + hookFlag)
+		if dir := os.Getenv(rules.EnvQueue); dir != "" {
+			if err := (&rules.Queue{Dir: dir}).Put(res.Prompt, res.Guidance); err != nil {
+				fmt.Fprintf(errw, "prompt-engine: queue the guidance: %v\n", err)
+				return 1
+			}
+			res.Queued = true
+		}
 	}
 
 	enc := json.NewEncoder(w)

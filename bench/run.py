@@ -22,6 +22,7 @@ signed in to. Start small: `run --tasks split-cents --runs 1`.
 import argparse
 import json
 import os
+import re
 import shutil
 import statistics
 import subprocess
@@ -52,16 +53,27 @@ def tasks(names=None):
     return names
 
 
+# Variables a Claude Code or prompt-engine session sets for what runs in
+# it; passed on, they would make claude or prompt-engine act as nested.
+# Those that choose the account, provider or config (CLAUDE_CONFIG_DIR,
+# CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CODE_USE_BEDROCK, PROMPT_ENGINE_CONFIG...)
+# are kept.
+SESSION_VARS = re.compile(r"^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAUDE_CODE_(ENTRYPOINT|EXECPATH|SESSION_.*|CHILD_SESSION|"
+                          r"MESSAGING_.*|SSE_PORT)|PROMPT_ENGINE_(?!CONFIG$).*)$")
+
+
 def clean_env(**extra):
-    """The environment without Claude Code's and prompt-engine's variables,
-    which a session running this script would pass on."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDE", "PROMPT_ENGINE_"))}
+    """The environment without the session variables of a Claude Code or
+    prompt-engine session running this script."""
+    env = {k: v for k, v in os.environ.items() if not SESSION_VARS.match(k)}
     env.update(extra)
     return env
 
 
 def git(cwd, *args):
-    subprocess.run(["git", "-c", "user.name=bench", "-c", "user.email=bench@example.com", *args],
+    # The developer's own signing and hooks don't apply to the copy.
+    subprocess.run(["git", "-c", "user.name=bench", "-c", "user.email=bench@example.com",
+                    "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *args],
                    cwd=cwd, check=True, capture_output=True)
 
 
@@ -72,15 +84,29 @@ def copy_project(dest):
     git(dest, "commit", "-qm", "base")
 
 
-def hidden_tests_pass(project, task):
-    shutil.copy(TASKS / task / "hidden_test.go.in", project / HIDDEN)
+def test_names(*files):
+    return sorted({m for f in files for m in re.findall(r"^func (Test\w+)\(", Path(f).read_text(), re.M)})
+
+
+def go_test(project, pattern=None):
+    cmd = ["go", "test"] + (["-run", pattern] if pattern else []) + ["./..."]
     try:
-        r = subprocess.run(["go", "test", "./..."], cwd=project, capture_output=True, text=True, timeout=180)
+        r = subprocess.run(cmd, cwd=project, capture_output=True, text=True, timeout=180)
     except subprocess.TimeoutExpired:
         return False, "go test timed out"
+    return r.returncode == 0, (r.stdout + r.stderr)[-2000:]
+
+
+def hidden_tests_pass(project, task):
+    """Whether the task is done: its hidden test and the project's own
+    tests pass. Tests Claude added don't decide it."""
+    hidden = TASKS / task / "hidden_test.go.in"
+    names = test_names(hidden, *PROJECT.glob("*_test.go"))
+    shutil.copy(hidden, project / HIDDEN)
+    try:
+        return go_test(project, "^(" + "|".join(names) + ")$")
     finally:
         (project / HIDDEN).unlink(missing_ok=True)
-    return r.returncode == 0, (r.stdout + r.stderr)[-2000:]
 
 
 def check(_args):
@@ -106,19 +132,19 @@ def build_pe(dest):
     return str(out)
 
 
-def rewrite(pe, cfg, project, prompt):
+def rewrite(pe, cfg, project, prompt, queue):
+    """prompt-engine's rewrite of prompt, with the guidance put in queue
+    for its hook, as a session does on Enter; None and the error if it
+    failed."""
     cmd = [pe] + (["--pe-config", cfg] if cfg else []) + ["--pe-rewrite", prompt]
-    r = subprocess.run(cmd, cwd=project, capture_output=True, text=True, env=clean_env(), timeout=300)
+    try:
+        r = subprocess.run(cmd, cwd=project, capture_output=True, text=True, timeout=300,
+                           env=clean_env(PROMPT_ENGINE_RULES_QUEUE=str(queue)))
+    except subprocess.TimeoutExpired:
+        return None, "prompt-engine --pe-rewrite timed out"
     if r.returncode != 0:
-        sys.exit(f"prompt-engine --pe-rewrite failed ({r.returncode}): {r.stderr.strip()}")
-    return json.loads(r.stdout)
-
-
-def hook_settings(pe):
-    """The settings prompt-engine gives claude in a session (rules.Settings)."""
-    quoted = "'" + pe.replace("'", "'\\''") + "'"
-    hook = {"type": "command", "command": quoted + " --pe-hook"}
-    return json.dumps({"hooks": {"UserPromptSubmit": [{"hooks": [hook]}]}})
+        return None, f"prompt-engine --pe-rewrite failed ({r.returncode}): {r.stderr.strip()}"
+    return json.loads(r.stdout), ""
 
 
 def one_run(args, pe, task, setup, n, out):
@@ -131,17 +157,23 @@ def one_run(args, pe, task, setup, n, out):
                "run": n, "model": args.model, "typed": prompt}
         sent, extra_args, env = prompt, [], clean_env()
         if setup == "pe":
-            rw = rewrite(pe, args.pe_config, project, prompt)
+            queue = tmp / "queue"
+            queue.mkdir()
+            rw, err = rewrite(pe, args.pe_config, project, prompt, queue)
+            if rw is None:
+                # Recorded as a failed run; the others go on.
+                rec["error"], rec["pass"] = err, False
+                out.write(json.dumps(rec) + "\n")
+                out.flush()
+                print(f"{task} {setup} #{n}: not run: {err}")
+                return
             sent = rw["prompt"]
             rec.update(rewritten=rw["rewritten"], not_rewritten=rw.get("not_rewritten", ""), guard=rw.get("guard", ""),
                        style=rw.get("style", ""), rewrite_ms=rw["rewrite_ms"], sections=rw.get("sections", []),
                        guidance_chars=len(rw.get("guidance", "")))
-            if rw.get("guidance"):
-                # The queue the hook reads, as a session fills it on Enter.
-                queue = tmp / "queue"
-                queue.mkdir()
-                (queue / "000000000001.json").write_text(json.dumps({"prompt": sent, "text": rw["guidance"]}))
-                extra_args = ["--settings", hook_settings(pe)]
+            if rw.get("queued"):
+                # prompt-engine's own hook adds the guidance, as in a session.
+                extra_args = ["--settings", rw["hook_settings"]]
                 env = clean_env(PROMPT_ENGINE_RULES_QUEUE=str(queue), PROMPT_ENGINE_DEBUG_LOG=str(tmp / "hook.log"))
         rec["sent"] = sent
         cmd = ["claude", "-p", "--output-format", "json", "--model", args.model,
@@ -153,13 +185,14 @@ def one_run(args, pe, task, setup, n, out):
             r = subprocess.run(cmd, input=sent, cwd=project, capture_output=True, text=True, env=env, timeout=args.timeout)
             stdout, code = r.stdout, r.returncode
         except subprocess.TimeoutExpired as e:
-            stdout, code = e.stdout or "", "timeout"
+            # The partial output is bytes, even with text=True.
+            stdout, code = (e.stdout or b"").decode(errors="replace"), "timeout"
         rec["wall_ms"] = int((time.monotonic() - start) * 1000)
         rec["exit"] = code
         try:
             res = json.loads(stdout)
         except (json.JSONDecodeError, TypeError):
-            res = {"is_error": True, "result": (stdout or "")[-500:]}
+            res = {"is_error": True, "result": stdout[-500:]}
         tokens = {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0}
         for u in (res.get("modelUsage") or {}).values():
             tokens["input"] += u.get("inputTokens", 0)
@@ -173,6 +206,8 @@ def one_run(args, pe, task, setup, n, out):
         if (tmp / "hook.log").exists():
             rec["hook_gave"] = "hook gave claude" in (tmp / "hook.log").read_text()
         rec["pass"], rec["test_output"] = hidden_tests_pass(project, task)
+        # Tests Claude added, apart: they don't decide the task.
+        rec["all_tests_pass"], _ = go_test(project)
         changed = subprocess.run(["git", "status", "--short"], cwd=project, capture_output=True, text=True).stdout
         rec["changed"] = changed.split("\n")[:-1]
     out.write(json.dumps(rec) + "\n")
@@ -194,11 +229,15 @@ def run(args):
     path = Path(args.out) if args.out else results / f"{datetime.now():%Y%m%d-%H%M%S}.jsonl"
     with tempfile.TemporaryDirectory(prefix="pe-bench-bin-") as bindir, open(path, "a") as out:
         pe = args.pe or build_pe(bindir)
-        # The runs alternate setups, so a slower hour hits both alike.
+        # The setups take turns going first, so neither always pays to put
+        # Claude Code's system prompt in the cache, or always meets a
+        # slower minute first.
+        i = 0
         for n in range(1, args.runs + 1):
             for task in names:
-                for setup in setups:
+                for setup in setups if i % 2 == 0 else setups[::-1]:
                     one_run(args, pe, task, setup, n, out)
+                i += 1
     print(f"results: {path}")
     return 0
 
@@ -208,6 +247,15 @@ def median(xs):
     return statistics.median(xs) if xs else None
 
 
+def cell(x, fmt, width):
+    return f"{'-' if x is None else format(x, fmt):>{width}}"
+
+
+def finished(r):
+    """A run that did the task, with its cost known."""
+    return r["pass"] and r.get("cost_usd") is not None
+
+
 def report(args):
     recs = [json.loads(line) for p in args.results for line in open(p) if line.strip()]
     by = {}
@@ -215,25 +263,23 @@ def report(args):
         by.setdefault((r["task"], r["setup"]), []).append(r)
     setups = sorted({r["setup"] for r in recs})
     print(f"{'task':16} {'setup':6} {'pass':>5} {'cost $':>8} {'in tok':>9} {'out tok':>8} {'turns':>5} {'time s':>7}")
-    finished = {}  # (task, setup): the passing runs
+    done = {}  # (task, setup): the finished runs
     for (task, setup), rs in sorted(by.items()):
-        ok = [r for r in rs if r["pass"]]
-        finished[(task, setup)] = ok
+        ok = [r for r in rs if finished(r)]
+        done[(task, setup)] = ok
         tin = median([sum(r["tokens"][k] for k in ("input", "cache_write", "cache_read")) for r in ok])
         wall = median([r["wall_ms"] + r.get("rewrite_ms", 0) for r in ok])
-        cost = median([r["cost_usd"] for r in ok])
-        print(f"{task:16} {setup:6} {len(ok):>2}/{len(rs):<2} "
-              f"{cost if cost is None else f'{cost:.4f}':>8} {tin if tin is None else f'{tin:.0f}':>9} "
-              f"{median([r['tokens']['output'] for r in ok]) or 0:>8.0f} {median([r['turns'] for r in ok]) or 0:>5.0f} "
-              f"{wall if wall is None else f'{wall / 1000:.0f}':>7}")
+        print(f"{task:16} {setup:6} {len(ok):>2}/{len(rs):<2} {cell(median([r['cost_usd'] for r in ok]), '.4f', 8)} "
+              f"{cell(tin, '.0f', 9)} {cell(median([r['tokens']['output'] for r in ok]), '.0f', 8)} "
+              f"{cell(median([r['turns'] for r in ok]), '.0f', 5)} {cell(wall and wall / 1000, '.0f', 7)}")
     # Costs compare only on tasks every setup finished (PRD Appendix 5, 8.1).
-    both = sorted({t for t, _ in by if all(finished.get((t, s)) for s in setups)})
+    both = sorted({t for t, _ in by if all(done.get((t, s)) for s in setups)})
     print(f"\nTasks every setup finished: {len(both)} of {len({t for t, _ in by})}")
     for s in setups:
         rs = [r for (t, ss), v in by.items() if ss == s for r in v]
-        cost = sum(median([r["cost_usd"] for r in finished[(t, s)]]) for t in both)
-        wall = sum(median([r["wall_ms"] + r.get("rewrite_ms", 0) for r in finished[(t, s)]]) for t in both)
-        print(f"  {s:6} success {sum(r['pass'] for r in rs)}/{len(rs)}; on those tasks: ${cost:.4f}, {wall / 1000:.0f}s")
+        cost = sum(median([r["cost_usd"] for r in done[(t, s)]]) for t in both)
+        wall = sum(median([r["wall_ms"] + r.get("rewrite_ms", 0) for r in done[(t, s)]]) for t in both)
+        print(f"  {s:6} success {sum(finished(r) for r in rs)}/{len(rs)}; on those tasks: ${cost:.4f}, {wall / 1000:.0f}s")
     return 0
 
 
