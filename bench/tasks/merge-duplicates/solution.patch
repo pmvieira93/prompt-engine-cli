@@ -1,24 +1,25 @@
 diff --git a/import.go b/import.go
-index efccca3..5f12748 100644
+index efccca3..2dc97c7 100644
 --- a/import.go
 +++ b/import.go
-@@ -42,5 +42,20 @@ func ParseCSV(r io.Reader) ([]Transaction, error) {
+@@ -42,5 +42,21 @@ func ParseCSV(r io.Reader) ([]Transaction, error) {
  // the same statement twice changes nothing. The result keeps existing's
  // order, then the new ones in imported's order.
  func Merge(existing, imported []Transaction) []Transaction {
 -	return append(existing, imported...) // TODO: leave out the duplicates
++	// The same day, whatever the time zone or clock reading.
 +	type key struct {
-+		date        time.Time
++		date        string
 +		description string
 +		amount      Money
 +	}
 +	seen := map[key]bool{}
 +	for _, t := range existing {
-+		seen[key{t.Date, t.Description, t.Amount}] = true
++		seen[key{t.Date.UTC().Format("2006-01-02"), t.Description, t.Amount}] = true
 +	}
 +	out := append([]Transaction(nil), existing...)
 +	for _, t := range imported {
-+		if !seen[key{t.Date, t.Description, t.Amount}] {
++		if !seen[key{t.Date.UTC().Format("2006-01-02"), t.Description, t.Amount}] {
 +			out = append(out, t)
 +		}
 +	}

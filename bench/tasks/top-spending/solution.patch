@@ -1,5 +1,5 @@
 diff --git a/report.go b/report.go
-index 5d7670c..ba47056 100644
+index 5d7670c..fed363d 100644
 --- a/report.go
 +++ b/report.go
 @@ -1,5 +1,7 @@
@@ -10,7 +10,7 @@ index 5d7670c..ba47056 100644
  // CategoryTotal is the money spent in one category.
  type CategoryTotal struct {
  	Category string
-@@ -11,7 +13,26 @@ type CategoryTotal struct {
+@@ -11,7 +13,29 @@ type CategoryTotal struct {
  // counts, reported as positive totals; categories with no spending are
  // left out.
  func TopSpending(txs []Transaction, n int) []CategoryTotal {
@@ -31,6 +31,9 @@ index 5d7670c..ba47056 100644
 +		}
 +		return out[i].Category < out[j].Category
 +	})
++	if n <= 0 {
++		return nil
++	}
 +	if len(out) > n {
 +		out = out[:n]
 +	}

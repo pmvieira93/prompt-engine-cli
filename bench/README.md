@@ -43,6 +43,10 @@ The two setups:
 
 The setups take turns going first, task by task, so neither always pays to put Claude Code's system prompt in the prompt cache, or always meets a slower minute first. `report` compares costs only on tasks both setups finished (passed, with the cost known), with the success rate beside it.
 
+## Tasks that touch each other
+
+Each run starts from the base project, so one task's bug is still there in the others. One reaches another task's code: `ParseCSV` (the `import-quoted` and `merge-duplicates` tasks) passes the amount to `ParseAmount`, which panics on an empty amount, the `empty-amount` task's bug. No hidden test sends an empty amount through the import, so it doesn't change a result. Keep notes like this here, not in `project/`, where Claude would read them.
+
 ## Adding a task
 
 Add `tasks/<name>/` with the three files. Write the solution in a copy of `project/`, check the hidden test passes, and save `git diff` as `solution.patch`; then `run.py check`. The prompt should be rough but fair: whatever the hidden test checks must follow from the prompt and the doc comments in `project/`.

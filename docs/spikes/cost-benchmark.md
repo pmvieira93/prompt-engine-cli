@@ -4,7 +4,7 @@ Branch `feat/benchmark-tasks`, 2026-11-10. Harness and project in [`bench/`](../
 
 **Question:** does `prompt-engine` as it is today change what a task costs in Claude Code: tokens, dollars, turns, time, or whether the task gets done?
 
-**Short answer:** no measurable difference. Over 12 tasks, 3 runs each, both setups finished every task, with the same number of turns on average (7.06) and a median cost 0.8% lower with `prompt-engine`, well inside the run-to-run noise (about 5% within a task, up to 12% between two setups that sent the very same prompt). The rewrite adds about a second. This is what section 8.4 expected: what the developer types is under 1% of the input, so rewriting it can't move the cost much. The benchmark is now the baseline that FR-11.3, FR-11.4 and FR-11.6 have to beat.
+**Short answer:** no measurable difference. Over 12 tasks, 3 runs each, both setups finished every task, with the same number of turns on average (7.06) and a mean cost per run 0.8% lower with `prompt-engine` (1.1% on the task medians), well inside the run-to-run noise (about 5% within a task, up to 12% between two setups that sent the very same prompt). The rewrite adds about a second. This is what section 8.4 expected: what the developer types is under 1% of the input, so rewriting it can't move the cost much. The benchmark is now the baseline that FR-11.3, FR-11.4 and FR-11.6 have to beat.
 
 ---
 
