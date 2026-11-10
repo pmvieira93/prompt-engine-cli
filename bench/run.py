@@ -21,6 +21,7 @@ signed in to. Start small: `run --tasks split-cents --runs 1`.
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -280,7 +281,108 @@ def report(args):
         cost = sum(median([r["cost_usd"] for r in done[(t, s)]]) for t in both)
         wall = sum(median([r["wall_ms"] + r.get("rewrite_ms", 0) for r in done[(t, s)]]) for t in both)
         print(f"  {s:6} success {sum(finished(r) for r in rs)}/{len(rs)}; on those tasks: ${cost:.4f}, {wall / 1000:.0f}s")
+    if args.chart:
+        Path(args.chart).write_text(chart(by, done, setups, args.title))
+        print(f"chart: {args.chart}")
     return 0
+
+
+# The chart's colours: the series take the first two slots of a validated
+# categorical palette (light and dark steps); text never wears them.
+CHART_STYLE = """
+svg { --surface: #fcfcfb; --text: #0b0b0b; --muted: #52514e; --grid: #e6e5e1;
+      --alone: #2a78d6; --pe: #eb6834; font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface: #1a1a19; --text: #f0efec; --muted: #c3c2b7; --grid: #33332f; --alone: #3987e5; --pe: #d95926; }
+}
+.bg { fill: var(--surface); } .t { fill: var(--text); font-size: 13px; } .m { fill: var(--muted); font-size: 12px; }
+.h { fill: var(--text); font-size: 15px; font-weight: 600; } .g { stroke: var(--grid); stroke-width: 1; }
+.alone { fill: var(--alone); } .pe { fill: var(--pe); } .w { stroke: var(--text); stroke-width: 1.5; }
+"""
+SERIES = {"alone": "Claude alone", "pe": "with prompt-engine"}
+
+
+def esc(text):
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def bar(x, y, w, h, cls):
+    """A horizontal bar from the baseline at x: square there, 4px round at the data end."""
+    rad = min(4, w / 2, h / 2)
+    return (f'<path class="{cls}" d="M{x:.1f},{y:.1f} h{w - rad:.1f} a{rad},{rad} 0 0 1 {rad},{rad} '
+            f'v{h - 2 * rad:.1f} a{rad},{rad} 0 0 1 {-rad},{rad} h{-(w - rad):.1f} z"/>')
+
+
+def nice_max(v):
+    """A round axis end at or above v."""
+    if v <= 0:
+        return 1
+    mag = 10 ** math.floor(math.log10(v))
+    for step in (1, 2, 2.5, 5, 10):
+        if step * mag >= v:
+            return step * mag
+    return 10 * mag
+
+
+def chart(by, done, setups, title):
+    """Two panels with one axis each: median cost and median turns per task,
+    a bar per setup, the spread of the runs as a whisker. Only finished runs
+    count; a setup with none says so instead of drawing a zero."""
+    tasks = sorted({t for t, _ in by})
+    setups = [s for s in ("alone", "pe") if s in setups] + [s for s in setups if s not in ("alone", "pe")]
+    bh, gap, row = 14, 2, 2 * 14 + 2 + 22  # bar height, gap between a task's bars, row height
+    left, pw, pgap, top = 130, 330, 40, 96
+    width = left + 2 * pw + pgap + 20
+    height = top + len(tasks) * row + 40
+    panels = [("Median cost per run, $", lambda r: r["cost_usd"], "${:.3f}"),
+              ("Median turns per run", lambda r: r["turns"], "{:.0f}")]
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+           f'role="img" aria-label="{esc(title)}"><title>{esc(title)}</title><style>{CHART_STYLE}</style>',
+           f'<rect class="bg" width="{width}" height="{height}" rx="8"/>',
+           f'<text class="h" x="20" y="30">{esc(title)}</text>']
+    # The legend, with each setup's success rate: identity is never colour alone.
+    x = 20
+    for s in setups:
+        rs = [r for (t, ss), v in by.items() if ss == s for r in v]
+        label = f"{SERIES.get(s, s)}: {sum(finished(r) for r in rs)}/{len(rs)} runs finished"
+        out.append(f'<rect class="{s}" x="{x}" y="46" width="12" height="12" rx="2"/>'
+                   f'<text class="t" x="{x + 18}" y="57">{esc(label)}</text>')
+        x += 30 + 7.2 * len(label)
+    for i, (name, value, fmt) in enumerate(panels):
+        px = left + i * (pw + pgap)
+        meds = {(t, s): median([value(r) for r in done.get((t, s), [])]) for t in tasks for s in setups}
+        highs = [max(value(r) for r in rs) for rs in done.values() if rs]
+        top_v = nice_max(max(highs + [m for m in meds.values() if m is not None] + [0]))
+        scale = (pw - 60) / top_v
+        out.append(f'<text class="t" x="{px}" y="{top - 14}" font-weight="600">{esc(name)}</text>')
+        for k in range(5):  # recessive grid, one axis
+            gx = px + k * (pw - 60) / 4
+            out.append(f'<line class="g" x1="{gx:.1f}" y1="{top - 4}" x2="{gx:.1f}" y2="{top + len(tasks) * row - 10}"/>'
+                       f'<text class="m" x="{gx:.1f}" y="{top + len(tasks) * row + 6}" text-anchor="middle">'
+                       f'{esc(fmt.format(top_v * k / 4))}</text>')
+        for j, t in enumerate(tasks):
+            y0 = top + j * row
+            if i == 0:
+                out.append(f'<text class="t" x="{left - 12}" y="{y0 + bh + 5}" text-anchor="end">{esc(t)}</text>')
+            for k, s in enumerate(setups):
+                y = y0 + k * (bh + gap)
+                runs = done.get((t, s), [])
+                m = meds[(t, s)]
+                if m is None:
+                    out.append(f'<text class="m" x="{px + 4}" y="{y + bh - 3}">no finished run</text>')
+                    continue
+                vals = [value(r) for r in runs]
+                tip = f"{t}, {SERIES.get(s, s)}: median {fmt.format(m)} over {len(runs)} finished run(s)"
+                w = max(m * scale, 2)
+                out.append(f'<g><title>{esc(tip)}</title>{bar(px, y, w, bh, s)}')
+                if len(vals) > 1:  # the spread of the runs
+                    lo, hi = px + min(vals) * scale, px + max(vals) * scale
+                    out.append(f'<line class="w" x1="{lo:.1f}" y1="{y + bh / 2}" x2="{hi:.1f}" y2="{y + bh / 2}"/>')
+                out.append(f'<text class="t" x="{px + max(w, max(vals) * scale) + 6:.1f}" y="{y + bh - 2}">'
+                           f'{esc(fmt.format(m))}</text></g>')
+    out.append(f'<text class="m" x="20" y="{height - 12}">Finished runs only (passed, with the cost known). '
+               f'Whiskers: lowest to highest run.</text></svg>')
+    return "\n".join(out) + "\n"
 
 
 def main():
@@ -299,6 +401,8 @@ def main():
     r.add_argument("--out", help="results file (default: bench/results/<time>.jsonl)")
     p = sub.add_parser("report", help="summarize results files")
     p.add_argument("results", nargs="+")
+    p.add_argument("--chart", help="also write an SVG chart of cost and turns per task to this file")
+    p.add_argument("--title", default="Cost benchmark: Claude alone vs with prompt-engine", help="the chart's title")
     args = ap.parse_args()
     return {"check": check, "run": run, "report": report}[args.cmd](args)
 

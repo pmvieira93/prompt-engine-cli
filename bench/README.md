@@ -7,7 +7,12 @@ python3 -I bench/run.py check                         # each task: fails on the 
 python3 -I bench/run.py run --tasks split-cents       # one task, both setups, one run each
 python3 -I bench/run.py run --runs 3                  # every task, three runs per setup
 python3 -I bench/run.py report bench/results/*.jsonl  # medians per task and setup
+python3 -I bench/run.py report bench/results/*.jsonl --chart chart.svg  # and a chart of them
 ```
+
+`--chart` draws, per task, the median cost and turns of each setup, with the spread of the runs and each setup's success rate. Only finished runs count; a setup with none says so instead of drawing a zero. It adapts to light and dark mode. The pilot below has one run each, so it only shows the form:
+
+![Pilot chart: median cost and turns per task, Claude alone vs with prompt-engine](pilot-chart.svg)
 
 **Every run is a real Claude session, billed to the account `claude` is signed in to.** `run` prints how many sessions it will start; each is capped with `--budget` (default $1). A run of all six tasks costs about $0.35 per setup with Sonnet.
 
