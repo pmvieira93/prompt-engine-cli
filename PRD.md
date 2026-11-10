@@ -3,8 +3,8 @@
 ## Project Name: `prompt-engine-cli` (Working Title)
 **Target Execution Language:** Go (Golang)  
 **Primary Integration (MVP):** Claude Code CLI  
-**Document Version:** 1.3.15  
-**Last Updated:** 2026-11-09  
+**Document Version:** 1.3.16  
+**Last Updated:** 2026-11-10  
 **Appendices:**  
 * [Appendix 1: Session Context and Automatic Enhancement](docs/PRD-APPENDIX-1.md): built (Phase 4.5, then FR-6.2 and FR-6.3)
 * [Appendix 2: Rewrite Styles](docs/PRD-APPENDIX-2.md): built (FR-8.1 to FR-8.6, including a style for one prompt)
@@ -156,7 +156,7 @@ The primary goal is to lower developer friction and improve the quality of AI in
 * Releases are built and published on each tag (since v0.1.0). Built: installing from a release with the install script, including a one-line install and upgrades. See [PRD Appendix 3](docs/PRD-APPENDIX-3.md).
 
 ### Cost-Aware Local Assistance
-* Use the local models to lower what a hosted assistant costs. After the first spike (2026-11-09): token usage in the panel is built, condensed pastes are dropped, and local answers and model and context hints stay proposed. See [PRD Appendix 5](docs/PRD-APPENDIX-5.md).
+* Use the local models to lower what a hosted assistant costs. After the first spike (2026-11-09): token usage in the panel is built, condensed pastes are dropped, and local answers and model and context hints stay proposed, with a small non-generative decision model to be compared with keyword rules (2026-11-10). See [PRD Appendix 5](docs/PRD-APPENDIX-5.md).
 
 ### Phase 5 (Post-MVP): Multi-Tool Support
 * Abstract integration layers to add support for Gemini CLI, GitHub Copilot CLI, and Aider.
