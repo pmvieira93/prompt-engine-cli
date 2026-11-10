@@ -81,6 +81,7 @@ Every argument goes on to `claude`, except these, which start with `--pe-`:
 | `--pe-version` | Print `prompt-engine`'s version and exit (`--version` still gives Claude Code's) |
 | `--pe-init-guards` | Write the guard rails template to `guards.txt` if there's none, and print its path. The install script runs it |
 | `--pe-check-guards "<typed>" "<rewrite>"` | Say which guard rail stops the rewrite, or that it passes, with your `guards.txt`. Exits 0 if it passes, 1 if stopped, 2 if `guards.txt` is invalid |
+| `--pe-rewrite "<prompt>"` | Print, as JSON, what auto mode would send for the prompt: the rewrite (or the prompt as typed, and why), its style and time, and the guidance the hook would add, kept apart. No session is started, so there is no session context. For scripts such as the cost benchmark. Exits 0, or 2 if `guards.txt` is invalid |
 
 ## Environment variables
 

@@ -1,9 +1,9 @@
 # PRD Appendix 5: Cost-Aware Local Assistance
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.5 (section 2, core value proposition; section 4.2, the local AI engine; the Phase 5 roadmap)  
-**Appendix Version:** 1.3.1  
+**Appendix Version:** 1.3.2  
 **Date:** 2026-11-10  
-**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. Raised on 2026-10-30.
+**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The benchmark's rewrite command built on 2026-11-10 (section 8.3). Raised on 2026-10-30.
 
 ---
 
@@ -212,7 +212,12 @@ A cheaper run that fails the task isn't a saving, so cost is compared on the tas
 
 ### 8.3 How it runs
 
-* **Without the interactive screen.** With no terminal, `prompt-engine` hands over to `claude` directly, so nothing is rewritten. The benchmark needs a non-interactive command that rewrites a prompt and adds the guidance, with the same code as the interactive path; its prompt then goes to `claude -p`.
+* **Without the interactive screen.** With no terminal, `prompt-engine` hands over to `claude` directly, so nothing is rewritten. *Built on 2026-11-10:* `prompt-engine --pe-rewrite "<prompt>"` runs the same code as Enter in auto mode (the rewrite, the guard rails and the keyword sections) and prints JSON:
+  * `prompt`: the rewrite, or the prompt as typed when it isn't used, with `not_rewritten` and `guard` saying why;
+  * `style` and `rewrite_ms`, for the time the rewrite adds;
+  * `guidance` and `sections`, kept apart from `prompt`: in a session the hook adds them when the prompt reaches Claude (Appendix 7), so the harness must add them the same way, not paste them into the prompt.
+
+  There is no session, so there is no session context: each benchmark task starts in a fresh session anyway.
 * **Ghost text is left out:** it saves typing time, which needs a person, timed by hand.
 * **Results** go in `docs/spikes/`, like the spikes, with totals only.
 

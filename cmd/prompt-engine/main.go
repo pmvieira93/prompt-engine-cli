@@ -111,6 +111,12 @@ func run() int {
 	} else if ok {
 		return checkGuards(os.Stdout, os.Stderr, cfg, typed, rewrite)
 	}
+	if typed, ok, err := rewriteArgs(cliArgs); err != nil {
+		warn("%v", err)
+		return 2
+	} else if ok {
+		return rewrite(context.Background(), os.Stdout, os.Stderr, cfg, typed)
+	}
 	if hasFlag(cliArgs, initGuardsFlag) {
 		if cfgErr != nil {
 			return 2 // the warning is out; the defaults' folder may not be the one meant
