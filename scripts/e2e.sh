@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off nested
+#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off rewrite nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -75,6 +75,7 @@ first_sent() { [ "$(head -n 1 "$dir/sent.jsonl")" = "$1" ]; }
 shown() { grep -qF -- "$1" "$dir/screen.txt"; }
 fails_shown() { ! shown "$1"; }
 same() { [ -n "$1" ] && [ "$1" = "$2" ]; }
+printed() { grep -qF -- "$1" "$dir/out.json"; }
 
 case_ghost() {
 	echo "ghost: a suggestion, accepted with Tab, is sent"
@@ -442,6 +443,28 @@ exit' 'expand:
 	check "the log says guards.txt is ignored" logged 'guards: expand.guards is off: '
 }
 
+case_rewrite() {
+	echo "rewrite: --pe-rewrite prints, without a terminal, what auto mode would send and the guidance"
+	dir="$work/rewrite"
+	mkdir -p "$dir/templates"
+	# The fake claude logs what it receives, so the last check can fail.
+	printf 'command: %s\nargs: ["-log", "%s"]\n' "$bin/fake/claude" "$dir/sent.jsonl" >"$dir/config.yaml"
+	printf 'Keep changes small.\n\n[test|tests]\nRun the tests.\n' >"$dir/templates/append.txt"
+	(
+		cd "$dir"
+		PE_TEST_HOME="$dir" "$root/scripts/test-env.sh" \
+			PROMPT_ENGINE_CONFIG="$dir/config.yaml" \
+			PROMPT_ENGINE_SUGGESTER=fake \
+			"$bin/prompt-engine" --pe-rewrite "fix the parser tests" </dev/null >"$dir/out.json" 2>"$dir/err.txt"
+	) && echo 0 >"$dir/code" || echo $? >"$dir/code"
+	check "it exited with 0" [ "$(cat "$dir/code")" = 0 ]
+	check "the prompt is the rewrite auto mode sends" printed '"prompt": "Please fix the parser tests.",'
+	check "it was rewritten" printed '"rewritten": true,'
+	check "the guidance is apart, with its section" printed '"guidance": "# Guidance\nKeep changes small.\n\nRun the tests.",'
+	check "nothing on stderr but test-env's note" [ -z "$(grep -v '^test-env:' "$dir/err.txt")" ]
+	check "claude wasn't started" [ ! -e "$dir/sent.jsonl" ]
+}
+
 case_nested() {
 	echo "nested: inside prompt-engine already, it hands over and says so"
 	NESTED=1 run_case nested 'reply on
@@ -452,7 +475,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off rewrite nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

@@ -111,6 +111,15 @@ func run() int {
 	} else if ok {
 		return checkGuards(os.Stdout, os.Stderr, cfg, typed, rewrite)
 	}
+	if typed, ok, err := rewriteArgs(cliArgs); err != nil {
+		warn("%v", err)
+		return 2
+	} else if ok {
+		if cfgErr != nil {
+			return 2 // the warning is out; a benchmark mustn't measure the defaults instead
+		}
+		return rewrite(context.Background(), os.Stdout, os.Stderr, cfg, typed)
+	}
 	if hasFlag(cliArgs, initGuardsFlag) {
 		if cfgErr != nil {
 			return 2 // the warning is out; the defaults' folder may not be the one meant
@@ -868,13 +877,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			return false
 		}
 		cfg := live.Load()
-		if k.Type != input.KeyEnter || cfg.Expand.OnEnter != "auto" ||
-			rules.SkipReason(s) != "" || len(strings.Fields(s.Text)) < cfg.Expand.MinWords {
+		if k.Type != input.KeyEnter || cfg.Expand.OnEnter != "auto" {
 			return false
 		}
 		plan := expand.PlanRewrite(s.Text, s.Pastes)
-		if plan.Skip != "" {
-			logf("expand: not auto-expanded (%s)", plan.Skip)
+		if reason := autoSkip(*cfg, s, plan); reason != "" {
+			if reason == plan.Skip {
+				logf("expand: not auto-expanded (%s)", plan.Skip)
+			}
 			return false
 		}
 		expansion.Lock()
@@ -895,8 +905,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		start := time.Now()
 		sc := sessionContext()
 		release := sess.hold()
-		rules := rulesFor(cfg) // the same for the model and the check
-		masked, style, err := expandPrompt(actx, cfg, rules, plan, sc)
+		r := autoRewrite(actx, cfg, rulesFor(cfg), plan, sc)
 		release()
 		ctrl.SetNotice("")
 
@@ -909,17 +918,10 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		auto.pending, auto.escaped = false, false
 		auto.Unlock()
 
-		var reason, out, guard, detail, rejected string
-		switch {
-		case escaped:
-			reason = "you pressed Esc"
-		case err != nil:
-			reason = "expansion failed: " + err.Error()
-		default:
-			var stop *expand.Stop
-			if out, stop = review(rules, plan, masked, sc); stop != nil {
-				reason, guard, detail, rejected = stop.Reason, stop.Guard, stop.Detail, expand.StripContext(masked)
-			}
+		out, style := r.out, r.style
+		reason, guard, detail, rejected := r.reason, r.guard, r.detail, r.rejected
+		if escaped {
+			reason, guard, detail, rejected = "you pressed Esc", "", "", ""
 		}
 		if reason == "" {
 			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
@@ -942,7 +944,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		if guard != "" {
 			reason = "guard " + guard + ": " + reason
 		}
-		logf("expand: auto rewrite %q not used (%s); sending as typed", masked, reason)
+		logf("expand: auto rewrite %q not used (%s); sending as typed", r.masked, reason)
 		auto.Lock()
 		auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected = true, reason, guard, detail, rejected
 		auto.Unlock()
@@ -1627,6 +1629,7 @@ func ownFlags(args []string) (rest []string, cfgPath string, err error) {
 
 // checkGuardsArgs finds --pe-check-guards "<typed>" "<rewrite>" (PRD
 // Appendix 4, FR-10.7) before any "--".
+// Nothing else may come with it.
 func checkGuardsArgs(args []string) (typed, rewrite string, ok bool, err error) {
 	const flag = "--pe-check-guards"
 	for i, a := range args {
@@ -1634,10 +1637,10 @@ func checkGuardsArgs(args []string) (typed, rewrite string, ok bool, err error) 
 		case "--":
 			return "", "", false, nil
 		case flag:
-			if len(args) != i+3 {
-				return "", "", false, fmt.Errorf("usage: prompt-engine %s \"<typed>\" \"<rewrite>\"", flag)
+			if i != 0 || len(args) != 3 {
+				return "", "", false, fmt.Errorf("usage: prompt-engine [--pe-config <file>] %s \"<typed>\" \"<rewrite>\"", flag)
 			}
-			return args[i+1], args[i+2], true, nil
+			return args[1], args[2], true, nil
 		}
 	}
 	return "", "", false, nil
