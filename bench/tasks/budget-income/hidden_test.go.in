@@ -1,0 +1,17 @@
+package ledger
+
+import "testing"
+
+func TestHiddenRemainingIgnoresIncome(t *testing.T) {
+	txs := []Transaction{
+		{Category: "groceries", Amount: -30000}, {Category: "groceries", Amount: 25000}, // a refund
+		{Category: "groceries", Amount: -15000}, {Category: "home", Amount: -90000},
+	}
+	b := Budget{"groceries", 40000}
+	if got := Remaining(b, txs); got != -5000 {
+		t.Errorf("Remaining = %v, want -50.00", got)
+	}
+	if over := Overspent([]Budget{b, {"home", 100000}}, txs); len(over) != 1 || over[0].Category != "groceries" {
+		t.Errorf("Overspent = %v", over)
+	}
+}

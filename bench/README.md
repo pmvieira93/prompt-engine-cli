@@ -14,11 +14,12 @@ python3 -I bench/run.py report bench/results/*.jsonl --chart chart.svg  # and a 
 
 ![Pilot chart: median cost and turns per task, Claude alone vs with prompt-engine](pilot-chart.svg)
 
-**Every run is a real Claude session, billed to the account `claude` is signed in to.** `run` prints how many sessions it will start; each is capped with `--budget` (default $1). A run of all six tasks costs about $0.35 per setup with Sonnet.
+**Every run is a real Claude session, billed to the account `claude` is signed in to.** `run` prints how many sessions it will start; each is capped with `--budget` (default $1). One run of all twelve tasks costs about $0.75 per setup with Sonnet.
 
 ## What's here
 
-* `project/`: a small Go module (`ledger`) with planted bugs and features still to write. Its own tests pass.
+* `project/`: a small Go module (`ledger`: amounts, transactions, CSV import and export, budgets, recurring payments, reports) with planted bugs and features still to write. Its own tests pass.
+* Twelve tasks, six bugs and six features. Some name what to change ("add csv export"); others only describe a symptom ("the budget says I still have money left") or a wish ("I want to see where most of my money goes"), so Claude has to find the code.
 * `tasks/<name>/`:
   * `prompt.txt`: the prompt, rough, the way a developer types it;
   * `hidden_test.go.in`: the test that decides whether the task is done, added to the project only after Claude has finished;

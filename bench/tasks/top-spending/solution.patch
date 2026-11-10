@@ -1,0 +1,40 @@
+diff --git a/report.go b/report.go
+index 5d7670c..ba47056 100644
+--- a/report.go
++++ b/report.go
+@@ -1,5 +1,7 @@
+ package ledger
+ 
++import "sort"
++
+ // CategoryTotal is the money spent in one category.
+ type CategoryTotal struct {
+ 	Category string
+@@ -11,7 +13,26 @@ type CategoryTotal struct {
+ // counts, reported as positive totals; categories with no spending are
+ // left out.
+ func TopSpending(txs []Transaction, n int) []CategoryTotal {
+-	return nil // TODO
++	spent := map[string]Money{}
++	for _, t := range txs {
++		if t.Amount < 0 {
++			spent[t.Category] -= t.Amount
++		}
++	}
++	var out []CategoryTotal
++	for c, m := range spent {
++		out = append(out, CategoryTotal{c, m})
++	}
++	sort.Slice(out, func(i, j int) bool {
++		if out[i].Spent != out[j].Spent {
++			return out[i].Spent > out[j].Spent
++		}
++		return out[i].Category < out[j].Category
++	})
++	if len(out) > n {
++		out = out[:n]
++	}
++	return out
+ }
+ 
+ // Search returns the transactions in which every word of query appears,

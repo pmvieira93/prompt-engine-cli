@@ -1,0 +1,51 @@
+diff --git a/import.go b/import.go
+index efccca3..d5ab47e 100644
+--- a/import.go
++++ b/import.go
+@@ -1,10 +1,9 @@
+ package ledger
+ 
+ import (
+-	"bufio"
++	"encoding/csv"
+ 	"fmt"
+ 	"io"
+-	"strings"
+ 	"time"
+ )
+ 
+@@ -13,14 +12,21 @@ import (
+ // 2006-01-02. Fields may be quoted as encoding/csv writes them.
+ func ParseCSV(r io.Reader) ([]Transaction, error) {
+ 	var txs []Transaction
+-	sc := bufio.NewScanner(r)
++	cr := csv.NewReader(r)
++	cr.FieldsPerRecord = -1
+ 	line := 0
+-	for sc.Scan() {
++	for {
++		f, err := cr.Read()
++		if err == io.EOF {
++			break
++		}
++		if err != nil {
++			return nil, err
++		}
+ 		line++
+-		if line == 1 || strings.TrimSpace(sc.Text()) == "" {
++		if line == 1 {
+ 			continue // the header
+ 		}
+-		f := strings.Split(sc.Text(), ",")
+ 		if len(f) != 4 {
+ 			return nil, fmt.Errorf("line %d: %d fields, want 4", line, len(f))
+ 		}
+@@ -34,7 +40,7 @@ func ParseCSV(r io.Reader) ([]Transaction, error) {
+ 		}
+ 		txs = append(txs, Transaction{Date: date, Description: f[1], Category: f[2], Amount: amount})
+ 	}
+-	return txs, sc.Err()
++	return txs, nil
+ }
+ 
+ // Merge adds imported to existing, leaving out each imported transaction

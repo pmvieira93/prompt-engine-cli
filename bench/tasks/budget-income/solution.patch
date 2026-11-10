@@ -1,0 +1,13 @@
+diff --git a/budget.go b/budget.go
+index 4fec589..a00e340 100644
+--- a/budget.go
++++ b/budget.go
+@@ -12,7 +12,7 @@ type Budget struct {
+ func Remaining(b Budget, txs []Transaction) Money {
+ 	left := b.Limit
+ 	for _, t := range txs {
+-		if t.Category == b.Category {
++		if t.Category == b.Category && t.Amount < 0 {
+ 			left += t.Amount
+ 		}
+ 	}

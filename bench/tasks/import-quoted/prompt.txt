@@ -1,0 +1,1 @@
+importing a bank csv breaks when a description has a comma in it

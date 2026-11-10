@@ -31,5 +31,6 @@ The reports are kept as written at the time; file and switch names in them may h
 | [guard-lines.md](guard-lines.md) | Appendix 4, FR-10.8: does telling the model the guards mean fewer stops? | Done. Decided: lines dropped, `names` false alarms fixed |
 | [intent.md](intent.md) | Appendix 6, FR-12: can the rewrite reply carry a reliable intent? | Done. Decided: keyword sections, rewrite left alone |
 | [token-baseline.md](token-baseline.md) | Appendix 5, step 1: where do Claude Code's tokens go, and how much comes from pastes and clarifications? | Done 2026-11-09. Decided: FR-11.2 dropped, FR-11.1 to be built |
+| [cost-benchmark.md](cost-benchmark.md) | Appendix 5, section 8: does `prompt-engine` (the rewrite) change what a task costs in Claude Code? | Done 2026-11-10: no measurable difference; the baseline for FR-11.3, FR-11.4 and FR-11.6. Harness in [`bench/`](../../bench/README.md) |
 
 The first two share the program in `shared-run/`. Their prompts are real, so they stay local and the reports hold totals only.
