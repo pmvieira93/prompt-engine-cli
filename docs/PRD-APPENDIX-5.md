@@ -22,7 +22,7 @@ So making the typed prompt shorter saves almost nothing directly. The savings `p
 
 1. **Fewer turns.** A clear first prompt avoids round trips ("what do you mean by…?"). Expansion already aims at this; it isn't measured.
 2. **Smaller inputs.** Pasted logs, stack traces and diffs are often thousands of tokens, mostly noise, and they stay in the context for the rest of the session.
-3. **Not asking the hosted model.** Some questions don't need the agent: "what does this regex do?", "explain this error message".
+3. **Doing part of the work locally.** Some questions don't need the agent at all: "what does this regex do?", "explain this error message". Larger tasks can start locally: finding where a bug is likely to be, or a first pass over a review, so the hosted model starts from a narrower brief (FR-11.6).
 4. **A cheaper model or a smaller context.** A lighter model for easy tasks (Claude Code's `/model`), and `/compact` or `/clear` once the context holds things that no longer matter.
 5. **Less searching.** Much of the context is files Claude reads while looking for where to work. Pointing it at the right places first means fewer of them stay in the context (FR-11.6).
 
@@ -36,14 +36,23 @@ Claude Code's session transcript (read since FR-6.3, [Appendix 1](PRD-APPENDIX-1
 
 Ranked by expected savings against risk. Every action is a **suggestion the developer approves**; `prompt-engine` never changes what is sent, or which model answers, on its own.
 
-The proposed flow for FR-11.3 and FR-11.4, neither of them built or decided (section 7):
+The local models take three roles, from small to large:
+* **Answering instead of Claude** (FR-11.3): self-contained questions that need no project context.
+* **Advising on how Claude is used** (FR-11.4): which model, and when to clear the context.
+* **Working before Claude, as an orchestrator** (FR-11.6): on tasks that do need the agent (a bug, a ticket, a review), the local side does the first part of the work with what is on the developer's machine, and Claude starts from its brief.
+
+The proposed flow for FR-11.3, FR-11.4 and FR-11.6, none of them built or decided (section 7):
 
 ```mermaid
 flowchart TD
     User["Developer prompt"] --> Router["Local decision model (non-generative classifier)"]
 
-    Router -->|"Self-contained question (syntax, regex, git)"| LocalAns["Local model via Ollama (e.g. 7B)"]
+    Router -->|"Self-contained question"| LocalAns["Local model via Ollama (e.g. 7B)"]
     LocalAns --> PanelZero["Answer offered in the panel"]
+
+    Router -->|"Bug, ticket or review"| Investigate["Local pre-investigation (FR-11.6)"]
+    Sources["Project index, other projects, history, past transcripts"] -.-> Investigate
+    Investigate --> Brief["Brief offered in the panel: where to look, likely causes, first-pass findings"]
 
     Router -->|"Needs the codebase or tools"| Complexity{"Task complexity"}
     Complexity -->|"Small, self-contained"| HaikuPrompt["Suggest a lighter model (/model)"]
@@ -53,7 +62,8 @@ flowchart TD
     Tracker["Context size (FR-11.1)"] -.-> NewTask
     NewTask -->|"Yes"| ClearPrompt["Suggest /clear or /compact"]
 
-    HaikuPrompt --> Claude["Claude Code"]
+    Brief --> Claude["Claude Code"]
+    HaikuPrompt --> Claude
     NoHint --> Claude
     ClearPrompt --> Claude
 ```
@@ -66,9 +76,9 @@ The decision model never changes what is sent or which model answers: the prompt
 * **FR-11.2: Condensed pastes.** *Dropped on 2026-11-09 (section 7).* When a paste is large (a log, a stack trace, a diff), the local model prepares a condensed version: the errors, the lines around them, and what repeats, counted.
   * The panel shows both sizes, and a shortcut swaps the condensed version in.
   * The original is kept: the shortcut undoes it, and the developer can always send the full paste.
-* **FR-11.3: Local answers and routing.** A small local classifier would decide whether a prompt needs the agent (files, commands, edits, the session) or is a self-contained question.
+* **FR-11.3: Local answers and routing.** A small local classifier would decide what kind of prompt it is: a self-contained question, a bug, ticket or review to investigate first (FR-11.6), or another task for the agent (files, commands, edits, the session).
   * The classifier would be a small non-generative model (e.g. ModernBERT-based), not a generative one. Routing is a choice among a few fixed labels: a classifier answers in one pass, in milliseconds, and can only return one of those labels. When the rewrite model was asked for an intent too ([intent spike](spikes/intent.md)), it was right 72% of the time, the intent leaked into the rewritten text, and replies took about twice as long. The format itself held: with a schema, every reply was valid JSON.
-  * The same decision feeds FR-11.4.
+  * The same decision feeds FR-11.4 and FR-11.6.
   * For self-contained questions (such as syntax, regex, git command options or error messages), the local model's answer would be offered in the panel; Enter would still send the prompt to Claude Code as usual.
   * Guards would stop local answers that look unsure or that reference the project.
 * **FR-11.4: Model and context hints.** The classifier would estimate task complexity and context continuity:
@@ -83,11 +93,17 @@ The decision model never changes what is sent or which model answers: the prompt
   * it depends on the API format;
   * it changes how the agent behaves and what is billed;
   * it needs its own appendix and a separate decision.
-* **FR-11.6: Local pre-investigation.** *Proposed on 2026-11-10.* Before Claude Code starts on a bug, a ticket or a review, `prompt-engine` prepares a brief of where to look, so Claude reads fewer files to find it. The files Claude reads while searching stay in its context for the rest of the session (tool results were 12.1% of the input in the spike, Claude's own replies 19.7%).
-  * **First version: local retrieval.** A small embedding model indexes the project, and optionally the developer's other projects on the same machine. For a prompt, it ranks the files and snippets most related to it. The brief lists them; Claude still finds the cause.
-  * **Later, if retrieval pays off:** a local model reads the ranked places and writes a short structured summary (likely causes, where, why). For a ticket, Claude's own summary of it can be the query.
+* **FR-11.6: Local pre-investigation.** *Proposed on 2026-11-10.* `prompt-engine` as an orchestrator: before Claude Code starts on a bug, a ticket or a review, the local side does the first part of the work and prepares a brief, so Claude reads fewer files and focuses on what the brief points to. The files Claude reads while searching stay in its context for the rest of the session (tool results were 12.1% of the input in the spike, Claude's own replies 19.7%).
+  * **Sources, all local:**
+    * the project, indexed by a small embedding model, and optionally the developer's other projects on the same machine;
+    * the history log (FR-5.4): past prompts, and since FR-11.1 what each cost; prompt text needs `history.include_text`;
+    * past Claude Code transcripts, which show the files Claude read and changed for each past prompt: "last time a similar bug came up, Claude changed X" is likely the strongest pointer.
+  * **Built in stages, each kept only if the benchmark shows it pays:**
+    1. **Retrieval.** Rank the files, snippets and similar past prompts related to the prompt. The brief lists them; Claude still finds the cause.
+    2. **Investigation.** A local model reads the ranked places and writes a short structured summary: likely causes, where, why. For a ticket, Claude first writes a short summary of it from its own memory and context, and that summary is the query; Claude then works on the brief instead of searching the code from scratch.
+    3. **First-pass review.** For a review or a judgement, a local model checks the diff first (against the guard rails and the developer's rules) and lists what it found; Claude is asked to confirm those and look at what the local pass can't judge.
   * The brief is offered in the panel; the developer chooses to add it to the prompt, and can edit it first.
-  * Risks: a wrong brief points Claude to the wrong place, which can cost more than it saves; a model that reasons about causes is a second, weaker agent beside Claude Code. Claude Code can already search with a cheaper subagent, so the brief has to beat that, not just Claude alone.
+  * Risks: a wrong brief points Claude to the wrong place, which can cost more than it saves; a first-pass review that misses something can make Claude look less hard; a model that reasons about causes is a second, weaker agent beside Claude Code. Claude Code can already search with a cheaper subagent, so the brief has to beat that, not just Claude alone.
   * Measured in the cost benchmark (section 8): the same tasks with and without the brief, compared on tokens, time and tasks done.
 
 ### 2.1 Other providers
@@ -123,8 +139,9 @@ Before building, answer with data:
 2. **Condensing.** 10–20 real pasted logs, traces and diffs, each condensed by candidate local models. Measure:
    * tokens saved;
    * whether the cause is still there, checked by hand and by sending both versions to Claude Code with the same question.
-3. **Routing.** A set of prompts, each labelled three ways: "needs the agent" or "self-contained"; the model tier it needs (Haiku, or Sonnet and Opus); and whether it starts a new task or continues the last one.
+3. **Routing.** A set of prompts, each labelled three ways: self-contained, to investigate first (bug, ticket, review), or other agent work; the model tier it needs (Haiku, or Sonnet and Opus); and whether it starts a new task or continues the last one.
    * The developer's real prompts stay local: they are labelled on the developer's machine and only totals are committed, as in the earlier spikes. Synthetic prompts can be committed whole.
+   * The history log is a ready source: it has the developer's real prompts (with `history.include_text`) and, since FR-11.1, what each one cost, which helps label the model tier.
    * Three approaches run on the same set:
      * keyword rules plus the context size, like FR-12's keyword sections ([Appendix 6](PRD-APPENDIX-6.md));
      * the small non-generative classifier;
@@ -135,7 +152,7 @@ Before building, answer with data:
 4. **Models.** Compare the local models available at the time for each use, with speed and memory on the developer's machines:
    * **Deciding:** the classifier against small generative models (1.5–3B), including its memory alongside the models already loaded for ghost text and rewrites.
    * **Answering:** a local chat model through Ollama, likely 7B or more.
-5. **Outcome.** For each of FR-11.1 to FR-11.4: build, change, or drop, with the numbers. FR-11.1 is likely worth building whatever the outcome, since it's what shows the others' effect.
+5. **Outcome.** For each of FR-11.1 to FR-11.4 and FR-11.6: build, change, or drop, with the numbers. FR-11.1 is likely worth building whatever the outcome, since it's what shows the others' effect.
 
 The spike's code and results go in `docs/spikes/`, like the earlier spikes.
 
