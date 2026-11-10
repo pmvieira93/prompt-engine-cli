@@ -1,0 +1,23 @@
+package ledger
+
+import "testing"
+
+func TestHiddenSplit(t *testing.T) {
+	for _, tc := range []struct {
+		total Money
+		n     int
+	}{{1000, 3}, {1, 2}, {-1000, 3}, {999, 4}, {5, 7}} {
+		shares, err := Split(tc.total, tc.n)
+		if err != nil || len(shares) != tc.n {
+			t.Fatalf("Split(%d, %d) = %v, %v", tc.total, tc.n, shares, err)
+		}
+		var sum, lo, hi Money = 0, shares[0], shares[0]
+		for _, s := range shares {
+			sum += s
+			lo, hi = min(lo, s), max(hi, s)
+		}
+		if sum != tc.total || hi-lo > 1 {
+			t.Errorf("Split(%d, %d) = %v: sum %d, spread %d", tc.total, tc.n, shares, sum, hi-lo)
+		}
+	}
+}

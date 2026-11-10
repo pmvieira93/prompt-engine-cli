@@ -1,0 +1,22 @@
+package ledger
+
+import (
+	"testing"
+	"time"
+)
+
+func TestHiddenSortByDate(t *testing.T) {
+	d := func(day int) time.Time { return time.Date(2026, 3, day, 0, 0, 0, 0, time.UTC) }
+	txs := []Transaction{
+		{Date: d(9), Description: "c"}, {Date: d(1), Description: "a"},
+		{Date: d(5), Description: "b1"}, {Date: d(5), Description: "b2"},
+	}
+	SortByDate(txs)
+	var got string
+	for _, tx := range txs {
+		got += tx.Description + " "
+	}
+	if got != "a b1 b2 c " {
+		t.Errorf("order: %s", got)
+	}
+}

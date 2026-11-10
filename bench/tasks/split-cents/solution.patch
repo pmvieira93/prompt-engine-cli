@@ -1,0 +1,20 @@
+diff --git a/money.go b/money.go
+index 6827009..c91daad 100644
+--- a/money.go
++++ b/money.go
+@@ -66,8 +66,14 @@ func Split(total Money, n int) ([]Money, error) {
+ 		return nil, ErrNoPeople
+ 	}
+ 	shares := make([]Money, n)
++	base, rest := total/Money(n), total%Money(n)
+ 	for i := range shares {
+-		shares[i] = total / Money(n)
++		shares[i] = base
++		if rest > 0 && Money(i) < rest {
++			shares[i]++
++		} else if rest < 0 && Money(i) < -rest {
++			shares[i]--
++		}
+ 	}
+ 	return shares, nil
+ }

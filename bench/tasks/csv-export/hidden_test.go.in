@@ -1,0 +1,30 @@
+package ledger
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestHiddenExportCSV(t *testing.T) {
+	txs := []Transaction{
+		{Date: time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC), Description: "Rent", Category: "home", Amount: -95000},
+		{Date: time.Date(2026, 1, 6, 0, 0, 0, 0, time.UTC), Description: "Coffee, beans", Category: "food", Amount: -1250},
+		{Date: time.Date(2026, 1, 7, 0, 0, 0, 0, time.UTC), Description: `The "best" job`, Category: "pay", Amount: 300000},
+	}
+	var b strings.Builder
+	if err := ExportCSV(&b, txs); err != nil {
+		t.Fatal(err)
+	}
+	want := "date,description,category,amount\n" +
+		"2026-01-05,Rent,home,-950.00\n" +
+		"2026-01-06,\"Coffee, beans\",food,-12.50\n" +
+		"2026-01-07,\"The \"\"best\"\" job\",pay,3000.00\n"
+	if b.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+	b.Reset()
+	if err := ExportCSV(&b, nil); err != nil || b.String() != "date,description,category,amount\n" {
+		t.Errorf("empty: %q, %v", b.String(), err)
+	}
+}

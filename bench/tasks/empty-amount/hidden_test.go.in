@@ -1,0 +1,21 @@
+package ledger
+
+import "testing"
+
+func TestHiddenParseEmpty(t *testing.T) {
+	for _, in := range []string{"", "   "} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("ParseAmount(%q) panicked: %v", in, r)
+				}
+			}()
+			if _, err := ParseAmount(in); err == nil {
+				t.Errorf("ParseAmount(%q): no error", in)
+			}
+		}()
+	}
+	if got, err := ParseAmount("€7.50"); err != nil || got != 750 {
+		t.Errorf("ParseAmount(\"€7.50\") = %v, %v", got, err)
+	}
+}

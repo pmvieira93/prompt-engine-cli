@@ -1,0 +1,1 @@
+need a way to filter transactions by category

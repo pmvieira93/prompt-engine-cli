@@ -1,9 +1,9 @@
 # PRD Appendix 5: Cost-Aware Local Assistance
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.5 (section 2, core value proposition; section 4.2, the local AI engine; the Phase 5 roadmap)  
-**Appendix Version:** 1.3.2  
+**Appendix Version:** 1.3.3  
 **Date:** 2026-11-10  
-**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The benchmark's rewrite command built on 2026-11-10 (section 8.3). Raised on 2026-10-30.
+**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The benchmark's rewrite command and harness built on 2026-11-10 (sections 8.1 and 8.3). Raised on 2026-10-30.
 
 ---
 
@@ -190,6 +190,8 @@ FR-11.3 (local answers) and FR-11.4 (model and context hints) stay proposed. FR-
 The spike measured where the tokens go in past sessions. The benchmark measures what `prompt-engine` changes: the same tasks, run with Claude Code alone and with `prompt-engine` and its local models, compared on cost.
 
 ### 8.1 Setup
+
+*Built on 2026-11-10 in [`bench/`](../bench/README.md), with 6 tasks to start (3 bugs, 3 features). A pilot of 3 tasks, one run per setup, worked end to end, the guidance reaching Claude through the hook. More tasks come before the full run; its results go in `docs/spikes/` (8.3).*
 
 * **A small test project**, kept in the repo for this purpose: a little app with planted bugs and small features to add, and hidden tests that decide whether each task is done.
 * **10–20 tasks**, each written as a rough prompt, the way a developer types it.

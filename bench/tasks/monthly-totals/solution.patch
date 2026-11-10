@@ -1,0 +1,15 @@
+diff --git a/transaction.go b/transaction.go
+index 3bedefe..65ce9b9 100644
+--- a/transaction.go
++++ b/transaction.go
+@@ -42,5 +42,9 @@ func FilterByCategory(txs []Transaction, category string) []Transaction {
+ 
+ // MonthlyTotals sums the amounts per calendar month, keyed "2006-01".
+ func MonthlyTotals(txs []Transaction) map[string]Money {
+-	return nil // TODO
++	totals := map[string]Money{}
++	for _, t := range txs {
++		totals[t.Date.Format("2006-01")] += t.Amount
++	}
++	return totals
+ }

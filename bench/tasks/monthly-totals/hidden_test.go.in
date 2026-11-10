@@ -1,0 +1,27 @@
+package ledger
+
+import (
+	"testing"
+	"time"
+)
+
+func TestHiddenMonthlyTotals(t *testing.T) {
+	d := func(y int, m time.Month, day int) time.Time { return time.Date(y, m, day, 12, 0, 0, 0, time.UTC) }
+	txs := []Transaction{
+		{Date: d(2026, 1, 3), Amount: 1000}, {Date: d(2026, 1, 31), Amount: -250},
+		{Date: d(2026, 2, 1), Amount: 500}, {Date: d(2025, 12, 31), Amount: -100},
+	}
+	got := MonthlyTotals(txs)
+	want := map[string]Money{"2026-01": 750, "2026-02": 500, "2025-12": -100}
+	if len(got) != len(want) {
+		t.Fatalf("got %v", got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: got %v, want %v", k, got[k], v)
+		}
+	}
+	if got := MonthlyTotals(nil); len(got) != 0 {
+		t.Errorf("no transactions: %v", got)
+	}
+}

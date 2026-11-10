@@ -1,0 +1,24 @@
+package ledger
+
+import "testing"
+
+func TestHiddenFilterByCategory(t *testing.T) {
+	txs := []Transaction{
+		{Description: "a", Category: "Food"}, {Description: "b", Category: "home"},
+		{Description: "c", Category: " food "}, {Description: "d", Category: "FOOD"},
+	}
+	got := FilterByCategory(txs, "food")
+	var names string
+	for _, tx := range got {
+		names += tx.Description
+	}
+	if names != "acd" {
+		t.Errorf("food: %q", names)
+	}
+	if got := FilterByCategory(txs, "travel"); len(got) != 0 {
+		t.Errorf("travel: %v", got)
+	}
+	if got := FilterByCategory(txs, "  HOME"); len(got) != 1 || got[0].Description != "b" {
+		t.Errorf("home: %v", got)
+	}
+}
