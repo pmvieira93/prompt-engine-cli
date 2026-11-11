@@ -1,0 +1,21 @@
+package ledger
+
+import (
+	"testing"
+	"time"
+)
+
+func TestHiddenMerge(t *testing.T) {
+	day := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
+	a := Transaction{Date: day, Description: "Rent", Category: "home", Amount: -95000}
+	b := Transaction{Date: day, Description: "Coffee", Category: "food", Amount: -350}
+	c := Transaction{Date: day.AddDate(0, 0, 1), Description: "Coffee", Category: "food", Amount: -350}
+	got := Merge([]Transaction{a, b}, []Transaction{b, c, a})
+	if len(got) != 3 || got[0] != a || got[1] != b || got[2] != c {
+		t.Errorf("Merge = %+v", got)
+	}
+	existing := []Transaction{a}
+	if got := Merge(existing, []Transaction{a}); len(got) != 1 {
+		t.Errorf("same statement twice: %+v", got)
+	}
+}

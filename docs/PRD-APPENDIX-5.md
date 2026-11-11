@@ -1,9 +1,9 @@
 # PRD Appendix 5: Cost-Aware Local Assistance
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.5 (section 2, core value proposition; section 4.2, the local AI engine; the Phase 5 roadmap)  
-**Appendix Version:** 1.3.3  
+**Appendix Version:** 1.3.4  
 **Date:** 2026-11-10  
-**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The benchmark's rewrite command and harness built on 2026-11-10 (sections 8.1 and 8.3). Raised on 2026-10-30.
+**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The cost benchmark run on 2026-11-10 (section 8.5): no measurable difference from the rewrite; it is the baseline FR-11.3, FR-11.4 and FR-11.6 must beat. Raised on 2026-10-30.
 
 ---
 
@@ -191,7 +191,7 @@ The spike measured where the tokens go in past sessions. The benchmark measures 
 
 ### 8.1 Setup
 
-*Built on 2026-11-10 in [`bench/`](../bench/README.md), with 6 tasks to start (3 bugs, 3 features). A pilot of 3 tasks, one run per setup, worked end to end, the guidance reaching Claude through the hook. More tasks come before the full run; its results go in `docs/spikes/` (8.3).*
+*Built on 2026-11-10 in [`bench/`](../bench/README.md), with 12 tasks (6 bugs, 6 features), some naming what to change and some only describing a symptom or a wish. A pilot of 3 tasks, one run per setup, worked end to end, the guidance reaching Claude through the hook. The full run's results are in [the benchmark report](spikes/cost-benchmark.md).*
 
 * **A small test project**, kept in the repo for this purpose: a little app with planted bugs and small features to add, and hidden tests that decide whether each task is done.
 * **10–20 tasks**, each written as a rough prompt, the way a developer types it.
@@ -233,6 +233,10 @@ Once FR-11.3 and FR-11.4 exist, two effects decide what they save, and the bench
 * **Cached context is cheap.** Reading the context from the cache costs about a tenth of the normal input price, so answering a trivial question locally saves less than the context size suggests, except against Opus with a large context.
 
 A benchmark of `prompt-engine` overall (rewrite quality, guard rails, other tools from Phase 5) is for later, and would reuse this project and harness.
+
+### 8.5 Result (2026-11-10)
+
+[The benchmark report](spikes/cost-benchmark.md): 12 tasks, 3 runs per setup, 72 Sonnet sessions, $4.35. Both setups finished every task, with the same mean turns (7.06); `prompt-engine` (the rewrite only, no guidance) cost 0.8% less per run, inside the noise: two setups sending the very same prompt differed by up to 12%. The rewrite adds about a second, and a guard rail stopped it on 4 of the 12 tasks. As expected in 8.4, the rewrite is not a cost saving. The benchmark is the baseline for FR-11.3, FR-11.4 and FR-11.6, each a further setup on the same tasks; FR-11.6 needs a larger project, where there's more to search.
 
 ---
 

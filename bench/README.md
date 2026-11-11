@@ -14,11 +14,12 @@ python3 -I bench/run.py report bench/results/*.jsonl --chart chart.svg  # and a 
 
 ![Pilot chart: median cost and turns per task, Claude alone vs with prompt-engine](pilot-chart.svg)
 
-**Every run is a real Claude session, billed to the account `claude` is signed in to.** `run` prints how many sessions it will start; each is capped with `--budget` (default $1). A run of all six tasks costs about $0.35 per setup with Sonnet.
+**Every run is a real Claude session, billed to the account `claude` is signed in to.** `run` prints how many sessions it will start; each is capped with `--budget` (default $1). One run of all twelve tasks costs about $0.75 per setup with Sonnet.
 
 ## What's here
 
-* `project/`: a small Go module (`ledger`) with planted bugs and features still to write. Its own tests pass.
+* `project/`: a small Go module (`ledger`: amounts, transactions, CSV import and export, budgets, recurring payments, reports) with planted bugs and features still to write. Its own tests pass.
+* Twelve tasks, six bugs and six features. Some name what to change ("add csv export"); others only describe a symptom ("the budget says I still have money left") or a wish ("I want to see where most of my money goes"), so Claude has to find the code.
 * `tasks/<name>/`:
   * `prompt.txt`: the prompt, rough, the way a developer types it;
   * `hidden_test.go.in`: the test that decides whether the task is done, added to the project only after Claude has finished;
@@ -41,6 +42,10 @@ The two setups:
 * **`pe`**: the prompt after `prompt-engine --pe-rewrite`, with your config (or `--pe-config`). The guidance from `append.txt` reaches Claude through `prompt-engine`'s own hook, as in a session: `--pe-rewrite` puts it in the hook's queue and gives the `--settings` a session passes. `hook_gave` in the results says whether the hook added it. A rewrite that fails is recorded as a failed run, and the others go on.
 
 The setups take turns going first, task by task, so neither always pays to put Claude Code's system prompt in the prompt cache, or always meets a slower minute first. `report` compares costs only on tasks both setups finished (passed, with the cost known), with the success rate beside it.
+
+## Tasks that touch each other
+
+Each run starts from the base project, so one task's bug is still there in the others. One reaches another task's code: `ParseCSV` (the `import-quoted` and `merge-duplicates` tasks) passes the amount to `ParseAmount`, which panics on an empty amount, the `empty-amount` task's bug. No hidden test sends an empty amount through the import, so it doesn't change a result. Keep notes like this here, not in `project/`, where Claude would read them.
 
 ## Adding a task
 

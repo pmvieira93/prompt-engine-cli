@@ -1,0 +1,19 @@
+diff --git a/recurring.go b/recurring.go
+index 371a607..48fe7fd 100644
+--- a/recurring.go
++++ b/recurring.go
+@@ -24,7 +24,13 @@ func NextDate(d time.Time, every string, firstDay int) (time.Time, error) {
+ 	case "weekly":
+ 		return d.AddDate(0, 0, 7), nil
+ 	case "monthly":
+-		return d.AddDate(0, 1, 0), nil
++		if firstDay < 1 {
++			firstDay = d.Day()
++		}
++		y, m, _ := d.Date()
++		first := time.Date(y, m+1, 1, 0, 0, 0, 0, d.Location())
++		last := first.AddDate(0, 1, -1).Day()
++		return time.Date(first.Year(), first.Month(), min(firstDay, last), d.Hour(), d.Minute(), d.Second(), d.Nanosecond(), d.Location()), nil
+ 	}
+ 	return time.Time{}, fmt.Errorf("repeats %q: want weekly or monthly", every)
+ }

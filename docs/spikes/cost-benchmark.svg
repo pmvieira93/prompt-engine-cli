@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="850" height="760" viewBox="0 0 850 760" role="img" aria-label="Cost benchmark: Claude alone vs with prompt-engine (rewrite only), 3 runs each"><title>Cost benchmark: Claude alone vs with prompt-engine (rewrite only), 3 runs each</title><style>
+svg { --surface: #fcfcfb; --text: #0b0b0b; --muted: #52514e; --grid: #e6e5e1;
+      --alone: #2a78d6; --pe: #eb6834; font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface: #1a1a19; --text: #f0efec; --muted: #c3c2b7; --grid: #33332f; --alone: #3987e5; --pe: #d95926; }
+}
+.bg { fill: var(--surface); } .t { fill: var(--text); font-size: 13px; } .m { fill: var(--muted); font-size: 12px; }
+.h { fill: var(--text); font-size: 15px; font-weight: 600; } .g { stroke: var(--grid); stroke-width: 1; }
+.alone { fill: var(--alone); } .pe { fill: var(--pe); } .w { stroke: var(--text); stroke-width: 1.5; }
+</style>
+<rect class="bg" width="850" height="760" rx="8"/>
+<text class="h" x="20" y="30">Cost benchmark: Claude alone vs with prompt-engine (rewrite only), 3 runs each</text>
+<rect class="alone" x="20" y="46" width="12" height="12" rx="2"/><text class="t" x="38" y="57">Claude alone: 36/36 runs finished</text>
+<rect class="pe" x="287.6" y="46" width="12" height="12" rx="2"/><text class="t" x="305.6" y="57">with prompt-engine: 36/36 runs finished</text>
+<text class="t" x="130" y="82" font-weight="600">Median cost per run, $</text>
+<line class="g" x1="130.0" y1="92" x2="130.0" y2="710"/><text class="m" x="130.0" y="726" text-anchor="middle">$0.000</text>
+<line class="g" x1="197.5" y1="92" x2="197.5" y2="710"/><text class="m" x="197.5" y="726" text-anchor="middle">$0.025</text>
+<line class="g" x1="265.0" y1="92" x2="265.0" y2="710"/><text class="m" x="265.0" y="726" text-anchor="middle">$0.050</text>
+<line class="g" x1="332.5" y1="92" x2="332.5" y2="710"/><text class="m" x="332.5" y="726" text-anchor="middle">$0.075</text>
+<line class="g" x1="400.0" y1="92" x2="400.0" y2="710"/><text class="m" x="400.0" y="726" text-anchor="middle">$0.100</text>
+<text class="t" x="118" y="115" text-anchor="end">budget-income</text>
+<g><title>budget-income, Claude alone: median $0.070 over 3 finished run(s)</title><path class="alone" d="M130.0,96.0 h185.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-185.5 z"/>
+<line class="w" x1="292.5" y1="103.0" x2="350.4" y2="103.0"/>
+<text class="t" x="356.4" y="108">$0.070</text></g>
+<g><title>budget-income, with prompt-engine: median $0.070 over 3 finished run(s)</title><path class="pe" d="M130.0,112.0 h183.9 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-183.9 z"/>
+<line class="w" x1="280.4" y1="119.0" x2="325.5" y2="119.0"/>
+<text class="t" x="331.5" y="124">$0.070</text></g>
+<text class="t" x="118" y="167" text-anchor="end">csv-export</text>
+<g><title>csv-export, Claude alone: median $0.055 over 3 finished run(s)</title><path class="alone" d="M130.0,148.0 h145.3 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-145.3 z"/>
+<line class="w" x1="272.6" y1="155.0" x2="293.3" y2="155.0"/>
+<text class="t" x="299.3" y="160">$0.055</text></g>
+<g><title>csv-export, with prompt-engine: median $0.060 over 3 finished run(s)</title><path class="pe" d="M130.0,164.0 h157.3 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-157.3 z"/>
+<line class="w" x1="288.1" y1="171.0" x2="293.1" y2="171.0"/>
+<text class="t" x="299.1" y="176">$0.060</text></g>
+<text class="t" x="118" y="219" text-anchor="end">empty-amount</text>
+<g><title>empty-amount, Claude alone: median $0.051 over 3 finished run(s)</title><path class="alone" d="M130.0,200.0 h133.1 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-133.1 z"/>
+<line class="w" x1="264.7" y1="207.0" x2="276.8" y2="207.0"/>
+<text class="t" x="282.8" y="212">$0.051</text></g>
+<g><title>empty-amount, with prompt-engine: median $0.049 over 3 finished run(s)</title><path class="pe" d="M130.0,216.0 h128.4 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-128.4 z"/>
+<line class="w" x1="260.8" y1="223.0" x2="265.3" y2="223.0"/>
+<text class="t" x="271.3" y="228">$0.049</text></g>
+<text class="t" x="118" y="271" text-anchor="end">filter-category</text>
+<g><title>filter-category, Claude alone: median $0.053 over 3 finished run(s)</title><path class="alone" d="M130.0,252.0 h138.9 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-138.9 z"/>
+<line class="w" x1="262.2" y1="259.0" x2="303.6" y2="259.0"/>
+<text class="t" x="309.6" y="264">$0.053</text></g>
+<g><title>filter-category, with prompt-engine: median $0.052 over 3 finished run(s)</title><path class="pe" d="M130.0,268.0 h137.1 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-137.1 z"/>
+<line class="w" x1="257.2" y1="275.0" x2="279.2" y2="275.0"/>
+<text class="t" x="285.2" y="280">$0.052</text></g>
+<text class="t" x="118" y="323" text-anchor="end">import-quoted</text>
+<g><title>import-quoted, Claude alone: median $0.074 over 3 finished run(s)</title><path class="alone" d="M130.0,304.0 h196.4 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-196.4 z"/>
+<line class="w" x1="284.4" y1="311.0" x2="338.5" y2="311.0"/>
+<text class="t" x="344.5" y="316">$0.074</text></g>
+<g><title>import-quoted, with prompt-engine: median $0.074 over 3 finished run(s)</title><path class="pe" d="M130.0,320.0 h194.7 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-194.7 z"/>
+<line class="w" x1="322.8" y1="327.0" x2="328.7" y2="327.0"/>
+<text class="t" x="334.7" y="332">$0.074</text></g>
+<text class="t" x="118" y="375" text-anchor="end">merge-duplicates</text>
+<g><title>merge-duplicates, Claude alone: median $0.057 over 3 finished run(s)</title><path class="alone" d="M130.0,356.0 h149.2 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-149.2 z"/>
+<line class="w" x1="280.8" y1="363.0" x2="294.5" y2="363.0"/>
+<text class="t" x="300.5" y="368">$0.057</text></g>
+<g><title>merge-duplicates, with prompt-engine: median $0.055 over 3 finished run(s)</title><path class="pe" d="M130.0,372.0 h144.4 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-144.4 z"/>
+<line class="w" x1="277.9" y1="379.0" x2="282.3" y2="379.0"/>
+<text class="t" x="288.3" y="384">$0.055</text></g>
+<text class="t" x="118" y="427" text-anchor="end">monthly-end</text>
+<g><title>monthly-end, Claude alone: median $0.068 over 3 finished run(s)</title><path class="alone" d="M130.0,408.0 h180.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-180.5 z"/>
+<line class="w" x1="285.9" y1="415.0" x2="318.9" y2="415.0"/>
+<text class="t" x="324.9" y="420">$0.068</text></g>
+<g><title>monthly-end, with prompt-engine: median $0.065 over 3 finished run(s)</title><path class="pe" d="M130.0,424.0 h171.6 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-171.6 z"/>
+<line class="w" x1="291.6" y1="431.0" x2="307.3" y2="431.0"/>
+<text class="t" x="313.3" y="436">$0.065</text></g>
+<text class="t" x="118" y="479" text-anchor="end">monthly-totals</text>
+<g><title>monthly-totals, Claude alone: median $0.061 over 3 finished run(s)</title><path class="alone" d="M130.0,460.0 h160.7 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-160.7 z"/>
+<line class="w" x1="275.3" y1="467.0" x2="306.5" y2="467.0"/>
+<text class="t" x="312.5" y="472">$0.061</text></g>
+<g><title>monthly-totals, with prompt-engine: median $0.057 over 3 finished run(s)</title><path class="pe" d="M130.0,476.0 h149.2 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-149.2 z"/>
+<line class="w" x1="280.6" y1="483.0" x2="296.9" y2="483.0"/>
+<text class="t" x="302.9" y="488">$0.057</text></g>
+<text class="t" x="118" y="531" text-anchor="end">search</text>
+<g><title>search, Claude alone: median $0.067 over 3 finished run(s)</title><path class="alone" d="M130.0,512.0 h177.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-177.5 z"/>
+<line class="w" x1="293.0" y1="519.0" x2="324.6" y2="519.0"/>
+<text class="t" x="330.6" y="524">$0.067</text></g>
+<g><title>search, with prompt-engine: median $0.075 over 3 finished run(s)</title><path class="pe" d="M130.0,528.0 h199.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-199.0 z"/>
+<line class="w" x1="312.0" y1="535.0" x2="358.7" y2="535.0"/>
+<text class="t" x="364.7" y="540">$0.075</text></g>
+<text class="t" x="118" y="583" text-anchor="end">sort-order</text>
+<g><title>sort-order, Claude alone: median $0.046 over 3 finished run(s)</title><path class="alone" d="M130.0,564.0 h119.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-119.0 z"/>
+<line class="w" x1="250.9" y1="571.0" x2="253.6" y2="571.0"/>
+<text class="t" x="259.6" y="576">$0.046</text></g>
+<g><title>sort-order, with prompt-engine: median $0.044 over 3 finished run(s)</title><path class="pe" d="M130.0,580.0 h113.9 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-113.9 z"/>
+<line class="w" x1="245.9" y1="587.0" x2="249.4" y2="587.0"/>
+<text class="t" x="255.4" y="592">$0.044</text></g>
+<text class="t" x="118" y="635" text-anchor="end">split-cents</text>
+<g><title>split-cents, Claude alone: median $0.050 over 3 finished run(s)</title><path class="alone" d="M130.0,616.0 h131.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-131.5 z"/>
+<line class="w" x1="264.4" y1="623.0" x2="295.4" y2="623.0"/>
+<text class="t" x="301.4" y="628">$0.050</text></g>
+<g><title>split-cents, with prompt-engine: median $0.049 over 3 finished run(s)</title><path class="pe" d="M130.0,632.0 h128.4 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-128.4 z"/>
+<line class="w" x1="255.9" y1="639.0" x2="292.3" y2="639.0"/>
+<text class="t" x="298.3" y="644">$0.049</text></g>
+<text class="t" x="118" y="687" text-anchor="end">top-spending</text>
+<g><title>top-spending, Claude alone: median $0.078 over 3 finished run(s)</title><path class="alone" d="M130.0,668.0 h206.4 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-206.4 z"/>
+<line class="w" x1="320.8" y1="675.0" x2="340.9" y2="675.0"/>
+<text class="t" x="346.9" y="680">$0.078</text></g>
+<g><title>top-spending, with prompt-engine: median $0.073 over 3 finished run(s)</title><path class="pe" d="M130.0,684.0 h194.1 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-194.1 z"/>
+<line class="w" x1="322.6" y1="691.0" x2="343.2" y2="691.0"/>
+<text class="t" x="349.2" y="696">$0.073</text></g>
+<text class="t" x="500" y="82" font-weight="600">Median turns per run</text>
+<line class="g" x1="500.0" y1="92" x2="500.0" y2="710"/><text class="m" x="500.0" y="726" text-anchor="middle">0</text>
+<line class="g" x1="567.5" y1="92" x2="567.5" y2="710"/><text class="m" x="567.5" y="726" text-anchor="middle">5</text>
+<line class="g" x1="635.0" y1="92" x2="635.0" y2="710"/><text class="m" x="635.0" y="726" text-anchor="middle">10</text>
+<line class="g" x1="702.5" y1="92" x2="702.5" y2="710"/><text class="m" x="702.5" y="726" text-anchor="middle">15</text>
+<line class="g" x1="770.0" y1="92" x2="770.0" y2="710"/><text class="m" x="770.0" y="726" text-anchor="middle">20</text>
+<g><title>budget-income, Claude alone: median 7 over 3 finished run(s)</title><path class="alone" d="M500.0,96.0 h90.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-90.5 z"/>
+<line class="w" x1="581.0" y1="103.0" x2="621.5" y2="103.0"/>
+<text class="t" x="627.5" y="108">7</text></g>
+<g><title>budget-income, with prompt-engine: median 7 over 3 finished run(s)</title><path class="pe" d="M500.0,112.0 h90.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-90.5 z"/>
+<line class="w" x1="567.5" y1="119.0" x2="608.0" y2="119.0"/>
+<text class="t" x="614.0" y="124">7</text></g>
+<g><title>csv-export, Claude alone: median 8 over 3 finished run(s)</title><path class="alone" d="M500.0,148.0 h104.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-104.0 z"/>
+<line class="w" x1="594.5" y1="155.0" x2="608.0" y2="155.0"/>
+<text class="t" x="614.0" y="160">8</text></g>
+<g><title>csv-export, with prompt-engine: median 8 over 3 finished run(s)</title><path class="pe" d="M500.0,164.0 h104.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-104.0 z"/>
+<line class="w" x1="608.0" y1="171.0" x2="608.0" y2="171.0"/>
+<text class="t" x="614.0" y="176">8</text></g>
+<g><title>empty-amount, Claude alone: median 5 over 3 finished run(s)</title><path class="alone" d="M500.0,200.0 h63.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-63.5 z"/>
+<line class="w" x1="567.5" y1="207.0" x2="581.0" y2="207.0"/>
+<text class="t" x="587.0" y="212">5</text></g>
+<g><title>empty-amount, with prompt-engine: median 5 over 3 finished run(s)</title><path class="pe" d="M500.0,216.0 h63.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-63.5 z"/>
+<line class="w" x1="567.5" y1="223.0" x2="567.5" y2="223.0"/>
+<text class="t" x="573.5" y="228">5</text></g>
+<g><title>filter-category, Claude alone: median 7 over 3 finished run(s)</title><path class="alone" d="M500.0,252.0 h90.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-90.5 z"/>
+<line class="w" x1="581.0" y1="259.0" x2="621.5" y2="259.0"/>
+<text class="t" x="627.5" y="264">7</text></g>
+<g><title>filter-category, with prompt-engine: median 7 over 3 finished run(s)</title><path class="pe" d="M500.0,268.0 h90.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-90.5 z"/>
+<line class="w" x1="581.0" y1="275.0" x2="608.0" y2="275.0"/>
+<text class="t" x="614.0" y="280">7</text></g>
+<g><title>import-quoted, Claude alone: median 8 over 3 finished run(s)</title><path class="alone" d="M500.0,304.0 h104.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-104.0 z"/>
+<line class="w" x1="594.5" y1="311.0" x2="608.0" y2="311.0"/>
+<text class="t" x="614.0" y="316">8</text></g>
+<g><title>import-quoted, with prompt-engine: median 8 over 3 finished run(s)</title><path class="pe" d="M500.0,320.0 h104.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-104.0 z"/>
+<line class="w" x1="608.0" y1="327.0" x2="608.0" y2="327.0"/>
+<text class="t" x="614.0" y="332">8</text></g>
+<g><title>merge-duplicates, Claude alone: median 6 over 3 finished run(s)</title><path class="alone" d="M500.0,356.0 h77.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-77.0 z"/>
+<line class="w" x1="581.0" y1="363.0" x2="594.5" y2="363.0"/>
+<text class="t" x="600.5" y="368">6</text></g>
+<g><title>merge-duplicates, with prompt-engine: median 6 over 3 finished run(s)</title><path class="pe" d="M500.0,372.0 h77.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-77.0 z"/>
+<line class="w" x1="581.0" y1="379.0" x2="581.0" y2="379.0"/>
+<text class="t" x="587.0" y="384">6</text></g>
+<g><title>monthly-end, Claude alone: median 8 over 3 finished run(s)</title><path class="alone" d="M500.0,408.0 h104.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-104.0 z"/>
+<line class="w" x1="594.5" y1="415.0" x2="608.0" y2="415.0"/>
+<text class="t" x="614.0" y="420">8</text></g>
+<g><title>monthly-end, with prompt-engine: median 7 over 3 finished run(s)</title><path class="pe" d="M500.0,424.0 h90.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-90.5 z"/>
+<line class="w" x1="594.5" y1="431.0" x2="608.0" y2="431.0"/>
+<text class="t" x="614.0" y="436">7</text></g>
+<g><title>monthly-totals, Claude alone: median 8 over 3 finished run(s)</title><path class="alone" d="M500.0,460.0 h104.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-104.0 z"/>
+<line class="w" x1="594.5" y1="467.0" x2="621.5" y2="467.0"/>
+<text class="t" x="627.5" y="472">8</text></g>
+<g><title>monthly-totals, with prompt-engine: median 8 over 3 finished run(s)</title><path class="pe" d="M500.0,476.0 h104.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-104.0 z"/>
+<line class="w" x1="608.0" y1="483.0" x2="621.5" y2="483.0"/>
+<text class="t" x="627.5" y="488">8</text></g>
+<g><title>search, Claude alone: median 8 over 3 finished run(s)</title><path class="alone" d="M500.0,512.0 h104.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-104.0 z"/>
+<line class="w" x1="608.0" y1="519.0" x2="648.5" y2="519.0"/>
+<text class="t" x="654.5" y="524">8</text></g>
+<g><title>search, with prompt-engine: median 11 over 3 finished run(s)</title><path class="pe" d="M500.0,528.0 h144.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-144.5 z"/>
+<line class="w" x1="621.5" y1="535.0" x2="662.0" y2="535.0"/>
+<text class="t" x="668.0" y="540">11</text></g>
+<g><title>sort-order, Claude alone: median 4 over 3 finished run(s)</title><path class="alone" d="M500.0,564.0 h50.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-50.0 z"/>
+<line class="w" x1="554.0" y1="571.0" x2="554.0" y2="571.0"/>
+<text class="t" x="560.0" y="576">4</text></g>
+<g><title>sort-order, with prompt-engine: median 4 over 3 finished run(s)</title><path class="pe" d="M500.0,580.0 h50.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-50.0 z"/>
+<line class="w" x1="554.0" y1="587.0" x2="554.0" y2="587.0"/>
+<text class="t" x="560.0" y="592">4</text></g>
+<g><title>split-cents, Claude alone: median 5 over 3 finished run(s)</title><path class="alone" d="M500.0,616.0 h63.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-63.5 z"/>
+<line class="w" x1="567.5" y1="623.0" x2="594.5" y2="623.0"/>
+<text class="t" x="600.5" y="628">5</text></g>
+<g><title>split-cents, with prompt-engine: median 5 over 3 finished run(s)</title><path class="pe" d="M500.0,632.0 h63.5 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-63.5 z"/>
+<line class="w" x1="567.5" y1="639.0" x2="594.5" y2="639.0"/>
+<text class="t" x="600.5" y="644">5</text></g>
+<g><title>top-spending, Claude alone: median 10 over 3 finished run(s)</title><path class="alone" d="M500.0,668.0 h131.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-131.0 z"/>
+<line class="w" x1="581.0" y1="675.0" x2="635.0" y2="675.0"/>
+<text class="t" x="641.0" y="680">10</text></g>
+<g><title>top-spending, with prompt-engine: median 8 over 3 finished run(s)</title><path class="pe" d="M500.0,684.0 h104.0 a4,4 0 0 1 4,4 v6.0 a4,4 0 0 1 -4,4 h-104.0 z"/>
+<line class="w" x1="608.0" y1="691.0" x2="608.0" y2="691.0"/>
+<text class="t" x="614.0" y="696">8</text></g>
+<text class="m" x="20" y="748">Finished runs only (passed, with the cost known). Whiskers: lowest to highest run.</text></svg>

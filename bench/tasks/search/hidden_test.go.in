@@ -1,0 +1,27 @@
+package ledger
+
+import "testing"
+
+func TestHiddenSearch(t *testing.T) {
+	txs := []Transaction{
+		{Description: "Coffee beans", Category: "food"}, {Description: "Rent", Category: "home"},
+		{Description: "Coffee with Ana", Category: "fun"}, {Description: "Groceries", Category: "Food"},
+	}
+	names := func(ts []Transaction) (s string) {
+		for _, x := range ts {
+			s += x.Description + ";"
+		}
+		return s
+	}
+	for q, want := range map[string]string{
+		"coffee":      "Coffee beans;Coffee with Ana;",
+		"FOOD":        "Coffee beans;Groceries;",
+		"coffee food": "Coffee beans;",
+		"":            "",
+		"travel":      "",
+	} {
+		if got := names(Search(txs, q)); got != want {
+			t.Errorf("Search(%q) = %q, want %q", q, got, want)
+		}
+	}
+}

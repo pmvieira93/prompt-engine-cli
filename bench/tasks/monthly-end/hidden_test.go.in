@@ -1,0 +1,25 @@
+package ledger
+
+import (
+	"testing"
+	"time"
+)
+
+func TestHiddenNextDateMonthEnd(t *testing.T) {
+	d := func(y int, m time.Month, day int) time.Time { return time.Date(y, m, day, 0, 0, 0, 0, time.UTC) }
+	want := []time.Time{d(2026, 2, 28), d(2026, 3, 31), d(2026, 4, 30), d(2026, 5, 31)}
+	cur := d(2026, 1, 31)
+	for _, w := range want {
+		next, err := NextDate(cur, "monthly", 31)
+		if err != nil || !next.Equal(w) {
+			t.Fatalf("after %s: %s, %v; want %s", cur.Format("2006-01-02"), next.Format("2006-01-02"), err, w.Format("2006-01-02"))
+		}
+		cur = next
+	}
+	if got, _ := NextDate(d(2028, 1, 30), "monthly", 30); !got.Equal(d(2028, 2, 29)) {
+		t.Errorf("leap year: %s", got.Format("2006-01-02"))
+	}
+	if got, _ := NextDate(d(2026, 1, 15), "monthly", 15); !got.Equal(d(2026, 2, 15)) {
+		t.Errorf("mid-month: %s", got.Format("2006-01-02"))
+	}
+}

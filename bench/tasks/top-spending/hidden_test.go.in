@@ -1,0 +1,21 @@
+package ledger
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestHiddenTopSpending(t *testing.T) {
+	txs := []Transaction{
+		{Category: "food", Amount: -3000}, {Category: "home", Amount: -90000}, {Category: "food", Amount: -2000},
+		{Category: "pay", Amount: 300000}, {Category: "fun", Amount: -5000}, {Category: "books", Amount: -5000},
+		{Category: "food", Amount: 1000},
+	}
+	want := []CategoryTotal{{"home", 90000}, {"books", 5000}, {"food", 5000}}
+	if got := TopSpending(txs, 3); !reflect.DeepEqual(got, want) {
+		t.Errorf("TopSpending(3) = %v", got)
+	}
+	if got := TopSpending(txs, 10); len(got) != 4 {
+		t.Errorf("TopSpending(10) = %v (pay has no spending)", got)
+	}
+}

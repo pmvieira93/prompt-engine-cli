@@ -1,0 +1,29 @@
+package ledger
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestHiddenParseCSVQuoted(t *testing.T) {
+	in := "date,description,category,amount\n" +
+		"2026-01-06,\"Coffee, beans\",food,-12.50\n" +
+		"2026-01-07,\"The \"\"best\"\" job\",pay,3000.00\n" +
+		"2026-01-08,Rent,home,\"-1,250.00\"\n"
+	txs, err := ParseCSV(strings.NewReader(in))
+	if err != nil || len(txs) != 3 {
+		t.Fatalf("ParseCSV = %+v, %v", txs, err)
+	}
+	if txs[0].Description != "Coffee, beans" || txs[0].Amount != -1250 {
+		t.Errorf("first: %+v", txs[0])
+	}
+	if txs[1].Description != `The "best" job` || txs[1].Category != "pay" {
+		t.Errorf("second: %+v", txs[1])
+	}
+	if txs[2].Amount != -125000 {
+		t.Errorf("third: %+v", txs[2])
+	}
+	if _, err := ParseCSV(strings.NewReader("date,description,category,amount\n2026-01-06,a,b\n")); err == nil {
+		t.Error("three fields: no error")
+	}
+}
