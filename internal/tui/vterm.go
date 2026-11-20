@@ -99,9 +99,12 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 	}
 	// The GC lets the heap grow to twice the live heap (~12 MB at 200x60)
 	// between cycles, which lands just over the PRD's 30 MB budget during
-	// heavy output. A soft limit caps that with room to spare; measured at
-	// 200x60 while streaming, it holds ~24 MB with no extra CPU.
-	debug.SetMemoryLimit(memoryLimit)
+	// heavy output. Growing it by half instead keeps it near the budget.
+	// Not a memory limit: once the live heap passes one, the GC runs
+	// back to back on up to half the cores. Seen: a session 16 days old
+	// at ~100 MB used 350% CPU; with 40 MB live, a 28 MB limit ran 140
+	// cycles a second (240% CPU), this 2 (35%).
+	debug.SetGCPercent(gcPercent)
 	a := newApp(cols, rows, opt)
 	// 120 FPS (Bubble Tea's cap) halves the frame-tick share of echo latency;
 	// idle cost is unaffected since frames are only produced on change.
@@ -169,8 +172,8 @@ func Run(cmd *exec.Cmd, opt Options) (int, error) {
 }
 
 const (
-	scrollbackLines = 1        // x/vt ignores 0; nothing reads the scrollback
-	memoryLimit     = 28 << 20 // a ceiling; the live heap is ~12 MB at 200x60
+	scrollbackLines = 1  // x/vt ignores 0; nothing reads the scrollback
+	gcPercent       = 50 // the heap grows by half the live heap between cycles
 )
 
 type app struct {
