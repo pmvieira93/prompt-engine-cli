@@ -1,9 +1,9 @@
 # PRD Appendix 5: Cost-Aware Local Assistance
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.5 (section 2, core value proposition; section 4.2, the local AI engine; the Phase 5 roadmap)  
-**Appendix Version:** 1.3.5  
-**Date:** 2026-11-19  
-**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The cost benchmark run on 2026-11-10 (section 8.5): no measurable difference from the rewrite; it is the baseline FR-11.3, FR-11.4 and FR-11.6 must beat. Spike step 3 (routing) run on 2026-11-19 (section 10): a new task can be told from the prompt, the kind of work partly, light or heavy not; to be decided. Raised on 2026-10-30.
+**Appendix Version:** 1.3.6  
+**Date:** 2026-11-20  
+**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The cost benchmark run on 2026-11-10 (section 8.5): no measurable difference from the rewrite; it is the baseline FR-11.3, FR-11.4 and FR-11.6 must beat. Spike step 3 (routing) run on 2026-11-19 (section 10): a new task can be told from the prompt, the kind of work partly, light or heavy with a decision model of 4B or more (`pplx-decider-flash`, 4.6 GB); to be decided. Raised on 2026-10-30.
 
 ---
 
@@ -169,7 +169,7 @@ The spike's code and results go in `docs/spikes/`, like the earlier spikes.
 
 ## 6. Roadmap
 
-FR-11.1 is built (section 9). Next when picked up: the cost benchmark (section 8). FR-11.3 and FR-11.4 wait for both, so their effect can be measured, and both need spike steps 3 and 4 first: they rely on the same classifier. FR-11.6 starts with retrieval only, measured in the benchmark. Spike step 3 is done (section 10); its suggestions wait for the developer's decision, and step 4 can add other decision models (such as Laya) on the same labelled prompts.
+FR-11.1 is built (section 9). Next when picked up: the cost benchmark (section 8). FR-11.3 and FR-11.4 wait for both, so their effect can be measured, and both need spike steps 3 and 4 first: they rely on the same classifier. FR-11.6 starts with retrieval only, measured in the benchmark. Spike step 3 is done (section 10); its suggestions wait for the developer's decision. Eight decision models through Ollama were added to it on 2026-11-20.
 
 ---
 
@@ -257,26 +257,33 @@ A benchmark of `prompt-engine` overall (rewrite quality, guard rails, other tool
 
 ## 10. Routing spike, step 3 (2026-11-19)
 
-[The routing spike](spikes/routing.md): 669 of the developer's prompts from 64 sessions, 60 of them labelled by hand, sorted by keyword rules, an embeddings classifier (`nomic-embed-text` through Ollama, with a linear model) and `qwen2.5:3b`.
+[The routing spike](spikes/routing.md): 669 of the developer's prompts from 64 sessions, 60 of them labelled by hand, sorted by keyword rules, an embeddings classifier (`nomic-embed-text` through Ollama, with a linear model), `qwen2.5:3b`, and, on 2026-11-20, eight decision models through Ollama's decision endpoint, with no training: from 0.6B to 9B parameters, among them Laya, Jev and Perplexity's `pplx-decider-flash`.
 
-| Against the 60 hand labels | kind | tier | new task? |
-|---|---|---|---|
-| Always the commonest answer | 53% | 75% | 77% |
-| Keyword rules | 63% | 62% | 78% |
-| Embeddings classifier, trained on the hand labels | 70% | 75% | 90% |
-| `qwen2.5:3b` | 48% | 68% | 53% |
+| Against the 60 hand labels | kind | tier | new task? | memory | per prompt |
+|---|---|---|---|---|---|
+| Always the commonest answer | 53% | 75% | 77% | | |
+| Keyword rules | 63% | 62% | 78% | | under 1 ms |
+| Embeddings classifier, trained on the hand labels | 70% | 75% | **90%** | 0.3 GB | 14 ms |
+| `qwen2.5:3b` | 48% | 68% | 53% | 2.1 GB | 0.82 s |
+| Laya (421M) | 68% | 65% | 53% | 1.0 GB | 0.49 s |
+| `d3` (2B) | **73%** | 83% | 57% | 3.1 GB | 0.69 s |
+| `pplx-decider-flash` (4B, 4-bit) | 70% | **88%** | 82% | 4.6 GB | 0.98 s |
+| Jev (9B, 4-bit) | 63% | **92%** | 73% | 8.2 GB, 16 GB after 60 prompts | 1.6 s |
 
-* **A new task can be told from the prompt and the one before it.** The classifier never called a continuing prompt new, and found 8 of the 14 new tasks, in about 14 ms.
-* **The kind of work, partly.** The classifier finds most self-contained questions, but none of the 6 investigation prompts; keyword rules found 4.
-* **Light or heavy, not from the prompt.** Nothing beat always answering "light": most prompts are short replies whose weight depends on what came before.
+The decision models under 1 GB (`kev`, `tev1`, `d1-omni`) were near the baseline, and `strands-decider` (2B) called most prompts new tasks; the report has every model.
+
+* **A new task can be told from the prompt and the one before it.** The embeddings classifier never called a continuing prompt new, and found 8 of the 14 new tasks.
+* **Light or heavy, with a decision model of 4B or more.** `pplx-decider-flash` found 12 of the 15 heavy prompts, and was right on all 42 answers it gave with a confidence of 0.5 or more; its memory stayed at 4.6 GB. Jev did a little better, but its memory grew with use, from 8.2 to 16 GB over the 60 prompts, and Jev's 9B is its smallest size. Nothing without a decision model beat always answering "light": most prompts are short replies whose weight depends on what came before.
+* **The kind of work, partly.** The best reached 70–73%, but none found the 6 investigation prompts reliably (4 or 5 at best, with other prompts called investigations too).
 * **Labels must come from the developer.** Labels derived from what Claude did in each turn agreed with the hand labels only half the time on the kind; a classifier trained on them did worse than guessing.
-* **The small generative model was the worst choice** for routing: below the classifier on every label, and 60 times slower.
+* **Small models aren't enough.** `qwen2.5:3b` and the decision models under 1 GB were near the baseline. Laya, untrained, matched the classifier on the kind of work but was unsure of nearly every answer.
 
-The sample is small (6 investigation prompts) and the hand labels started as Claude's proposals, accepted by the developer.
+The sample is small (6 investigation prompts, 15 heavy ones) and the hand labels started as Claude's proposals, accepted by the developer. Every run was on an Apple Silicon Mac; `pplx-decider-flash`'s 4-bit tag uses Ollama's MLX runner, for Macs only.
 
 Suggested, for the developer to decide:
-* **FR-11.4:** build the `/clear` hint first, with the classifier and the context size (FR-11.1); drop the model hint, or base it on the session (the last turns' tool calls), not on the prompt.
+* **FR-11.4, the `/clear` hint:** build it first, with the embeddings classifier and the context size (FR-11.1).
+* **FR-11.4, the model hint:** `pplx-decider-flash`, offered only when it's confident. With the ghost-text and rewrite models and the classifier, about 10.6 GB in all. Where it doesn't fit or doesn't run, base the hint on the session (the last turns' tool calls), or leave it out.
 * **FR-11.6:** start it from an explicit trigger (words the developer lists, or a shortcut), not a classifier.
 * **FR-11.3:** keep proposed; it needs more hand labels, and a check of whether local answers are good enough.
-* **The decision model:** the embeddings classifier through Ollama, which needs no new runtime (section 5); a dedicated one (Laya, ModernBERT-based) can be compared in step 4. Hosted decision services are out: the prompts would leave the machine.
+* **The runtime (section 5):** both models run through Ollama, so no new runtime is needed.
 * **Labels:** the history (FR-5.4) can gather them as the developer works, a hint followed or dismissed counting as one.

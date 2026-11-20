@@ -3,7 +3,7 @@
 
 Can a prompt be routed before Claude sees it, and by what: keyword rules,
 a non-generative classifier (embeddings from Ollama with a linear model),
-or a small generative model through Ollama?
+a small generative model, or a decision model through Ollama?
 
     python3 -I docs/spikes/routing/routing.py extract   # prompts and derived labels
     python3 -I docs/spikes/routing/routing.py sample    # a file to label by hand
@@ -48,6 +48,9 @@ DATA = os.path.expanduser("~/.local/state/prompt-engine/spike-routing")
 OLLAMA = "http://localhost:11434"
 EMBED_MODEL = "nomic-embed-text"
 GEN_MODEL = "qwen2.5:3b"
+# Decision models, through Ollama's /v1/systemone: one choice per question.
+DECISION_MODELS = tuple(os.environ.get("ROUTING_DECISION", "kev:0.8b-q8_0,tev1:0.8b-q8_0,d1-omni:600m,laya,strands-decider:2b-nvfp4,d3:2b,"
+                                                "pplx-decider-flash:4b-nvfp4,autotrust-jev:9b-nvfp4,autotrust-jev:9b").split(","))
 KINDS, TIERS, NEWS = ("self", "inv", "agent"), ("light", "heavy"), ("yes", "no")
 
 READS = {"Read", "Grep", "Glob", "LS", "NotebookRead", "WebFetch", "WebSearch"}
@@ -407,6 +410,54 @@ def generative(ps):
     return cache
 
 
+# -------------------------------------------------------------- decision
+
+# The same three labels as questions with described options; the model
+# picks one and gives its probabilities. No training: the descriptions
+# are all it gets.
+QUESTIONS = {
+    "kind": {"type": "choice", "instructions": "What kind of request is the prompt, sent to an AI coding assistant?",
+             "criteria": {"self": "A self-contained question answerable without the developer's project, "
+                                  "such as what a regex, a git option or an error message means",
+                          "inv": "Reports a bug, an error or a ticket, or asks for a review: "
+                                 "the code must be investigated first",
+                          "agent": "Any other work on the project: files, commands, edits, commits, merges, the session"}},
+    "tier": {"type": "choice", "instructions": "How much work does the prompt ask of the coding assistant?",
+             "criteria": {"light": "Small: a short answer, a one-line change, a commit or a merge",
+                          "heavy": "Larger: several changes, an investigation, a design or a review"}},
+    "new": {"type": "choice", "instructions": "Does the prompt start a new task, or continue the previous prompt's?",
+            "criteria": {"yes": "Starts a new task unrelated to the previous prompt",
+                         "no": "Continues it: a reply, a follow-up, a yes, a correction"}},
+}
+
+
+def decision(ps, model):
+    """Each prompt's three answers from a decision model (cached)."""
+    path = os.path.join(DATA, f"decision-{model.replace(':', '_')}.json")
+    cache = json.load(open(path)) if os.path.exists(path) else {}
+    for p in ps:
+        if p["id"] in cache:
+            continue
+        # Laya reads at most 512 tokens per question, options included.
+        state = {"previous prompt": p["prev"][:400] or "(none: the first prompt of the session)",
+                 "prompt": p["text"][:1000]}
+        start = time.monotonic()
+        try:
+            req = urllib.request.Request(f"{OLLAMA}/v1/systemone", headers={"Content-Type": "application/json"},
+                                         data=json.dumps({"model": model, "state": state, "questions": QUESTIONS,
+                                                          "keep_alive": "10m"}).encode())
+            with urllib.request.urlopen(req, timeout=300) as r:
+                answers = json.loads(r.read())["answers"]
+            got = {k: a["choice"] for k, a in answers.items()}
+            got["confidence"] = {k: a.get("confidence") for k, a in answers.items()}
+        except (ValueError, OSError, KeyError) as e:
+            got = {"error": str(e)[:100]}
+        got["seconds"] = time.monotonic() - start
+        cache[p["id"]] = got
+        json.dump(cache, open(path, "w"))
+    return cache
+
+
 # -------------------------------------------------------------------- run
 
 def accuracy(pred, truth, classes):
@@ -448,6 +499,17 @@ def run(args):
         approaches["emb (hand)"] = {i: {label: own[label].get(i) for label in own} for i in hand}
     if gen:
         approaches[GEN_MODEL] = {i: g for i, g in gen.items() if "error" not in g}
+    # The decision models answer the hand-labelled prompts only: the
+    # comparison that counts, and the larger model is slow.
+    timed = {}
+    if hand and not args.no_decision:
+        for model in DECISION_MODELS:
+            got = decision([p for p in ps if p["id"] in hand], model)
+            approaches[model] = {i: g for i, g in got.items() if "error" not in g}
+            timed[model] = sorted(g["seconds"] for g in got.values())
+            errors = sum("error" in g for g in got.values())
+            if errors:
+                print(f"{model}: {errors} replies failed: {next(g['error'] for g in got.values() if 'error' in g)}")
     for label, classes in (("kind", KINDS), ("tier", TIERS), ("new", NEWS)):
         print(f"\n{label}")
         derived = {p["id"]: p[label] for p in ps}
@@ -463,6 +525,8 @@ def run(args):
     print("\nTime per prompt: rules under 1 ms; embeddings "
           f"{embed_s * 1000:.0f} ms (median, model loaded)" if embed_s else "\nTime per prompt: rules under 1 ms",
           f"; {GEN_MODEL} {secs[len(secs) // 2]:.2f} s (median)" if secs else "")
+    for model, secs in timed.items():
+        print(f"{model}: {secs[len(secs) // 2]:.2f} s per prompt, three questions (median)")
     errors = sum("error" in g for g in gen.values())
     if errors:
         print(f"{GEN_MODEL}: {errors} replies failed")
@@ -478,6 +542,7 @@ def main():
     s.add_argument("--force", action="store_true")
     r = sub.add_parser("run")
     r.add_argument("--no-gen", action="store_true", help="leave out the generative model")
+    r.add_argument("--no-decision", action="store_true", help="leave out the decision models")
     args = ap.parse_args()
     {"extract": extract, "sample": sample, "label": label, "run": run}[args.cmd](args)
 
