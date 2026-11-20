@@ -5,8 +5,8 @@ Branch `spike/routing`, 2026-11-19. Step 3 done. Eight decision models through O
 **Question:** can a prompt be sorted before Claude Code sees it, cheaply and locally, so that `prompt-engine` knows when to offer a local answer (FR-11.3), a lighter model or a `/clear` (FR-11.4), or a local pre-investigation (FR-11.6)? And by what: keyword rules, a small non-generative classifier, a small generative model, or a model made for decisions?
 
 **Short answer:** mostly, with two models side by side.
-* **Whether a prompt starts a new task:** yes. A classifier on embeddings, trained on the developer's labels, was right 90% of the time against 77% for always answering "continues". It never called a continuing prompt new, so it would never suggest `/clear` in the middle of a task. It needs 0.3 GB and 14 ms.
-* **Whether the work is light or heavy:** yes, with a decision model of 4B or more. Perplexity's `pplx-decider-flash` (4B, 4-bit) was right 88% of the time against 75% for always answering "light", and right on all 42 answers it gave with a confidence of 0.5 or more. It takes 4.6 GB, which doesn't grow with use, and 1 s per prompt. Jev (9B) did a little better (90–92%) in 8–16 GB, growing with use. Nothing without a decision model beat the baseline: "go ahead" or "fix all of them" says little about the work by itself.
+* **Whether a prompt starts a new task:** yes. A classifier on embeddings, trained on the developer's labels, was right 90% of the time against 77% for always answering "continues". It never called a continuing prompt new, so it would never suggest `/clear` in the middle of a task. It needs 0.3 GB and under 20 ms.
+* **Whether the work is light or heavy:** yes, with a decision model of 4B or more. Perplexity's `pplx-decider-flash` (4B, 4-bit) was right 88% of the time against 75% for always answering "light", and right on all 42 answers it gave with a confidence of 0.5 or more. It takes 4.6 GB, which doesn't grow with use, and 1 s per prompt. Jev did a little better, growing with use: 92% in its 4-bit version (8–16 GB), 90% in the full 9B (11–19 GB). Nothing without a decision model beat the baseline: "go ahead" or "fix all of them" says little about the work by itself.
 * **What kind of work it is:** partly. The best reached 70–73% against 53% (the embeddings classifier, `d3` and `pplx-decider-flash`), but no approach found the investigation prompts (a bug, a review) reliably, and those would start FR-11.6.
 * **Labels:** labels worked out from what Claude did in each turn turned out to be poor stand-ins for the developer's own (50% agreement on the kind), so a classifier has to learn from labels given by hand.
 
@@ -16,7 +16,7 @@ Branch `spike/routing`, 2026-11-19. Step 3 done. Eight decision models through O
 
 [`routing/routing.py`](routing/routing.py) reads Claude Code's local transcripts and prints totals only. The prompts, the labels and the models' answers stay in `~/.local/state/prompt-engine/spike-routing/`; Ollama runs locally, and nothing is sent anywhere.
 
-* **669 typed prompts** from 64 sessions, each with the prompt before it. Slash commands are left out.
+* **699 typed prompts** from 64 sessions, each with the prompt before it. Slash commands are left out, and what Claude did after one isn't counted for the prompt before it. *(Re-extracted on 2026-11-20 after a review: the first extract, 669 prompts, also dropped prompts starting with a file path, and added a slash command's work to the prompt before it. The re-extract also took in prompts typed since. Against the hand labels, only the classifier trained on the derived labels changed, by one row, below.)*
 * **Three labels per prompt** (Appendix 5, section 4, step 3):
 
   | Label | Values | For |
@@ -26,7 +26,7 @@ Branch `spike/routing`, 2026-11-19. Step 3 done. Eight decision models through O
   | new | `yes`: starts a new task; `no`: continues the last one | FR-11.4, `/clear` hint |
 
 * **Two sets of labels:**
-  * **derived**, for all 669, from what Claude did in the turn: no tools means `self`, three or more reads before the first edit means `inv`; at most 3 tool calls and 1,500 output tokens means `light`; the first prompt of a session, or no files shared with the last three turns, means a new task. Most prompts (565 of 669) get no derived `new`.
+  * **derived**, for all 699, from what Claude did in the turn: no tools means `self`, three or more reads before the first edit means `inv`; at most 3 tool calls and 1,500 output tokens means `light`; the first prompt of a session, or no files shared with the last three turns, means a new task. Most prompts (592 of 699) get no derived `new`.
   * **by hand**, for a sample of 60 (20 of each derived kind). Claude proposed the three labels for each prompt, from the prompt and the one before it, and the developer checked them in six rounds of ten. All 60 were accepted as proposed.
 * **Approaches**, on the same prompts:
   * **keyword rules**: regular expressions for questions, investigation words ("bug", "review", "why"...), project references and back-references ("it", "go ahead", "yes"...), like FR-12's keyword sections;
@@ -66,7 +66,7 @@ Against the 60 hand labels. The first row is what always giving the commonest an
 |---|---|---|---|
 | Always the commonest answer | 53% (`agent`) | 75% (`light`) | 77% (`no`) |
 | Keyword rules | 63% | 62% | 78% |
-| Embeddings, trained on the derived labels | 32% | 50% | — |
+| Embeddings, trained on the derived labels | 28% | 50% | — |
 | **Embeddings, trained on the hand labels** | 70% | 75% | **90%** |
 | `qwen2.5:3b` | 48% | 68% | 53% |
 | `kev` 0.8B | 53% | 68% | 57% |
@@ -91,7 +91,7 @@ On an Apple Silicon Mac with 24 GB; memory from `ollama ps`, each model loaded a
 | `qwen2.5-coder:1.5b` | ghost text, today | 1.1 GB | | | |
 | `qwen2.5:7b` | rewrites, today | 4.6 GB | | | |
 | Keyword rules | | | | under 1 ms | |
-| `nomic-embed-text` | the embeddings classifier | 0.3 GB | | 14 ms | |
+| `nomic-embed-text` | the embeddings classifier | 0.3 GB | | 14–20 ms | |
 | `qwen2.5:3b` | generative routing | 2.1 GB | | 0.82 s | |
 | `kev` 0.8B | decision | 4.4 GB | 4.4 GB | 0.22 s | 1.6 s |
 | `tev1` 0.8B | decision | 1.6 GB | 1.6 GB | 0.26 s | 0.8 s |
@@ -115,11 +115,11 @@ Three models grew with use, all on Ollama's MLX runner: Jev 4-bit went from 8.2 
 
 ### 2.3 The derived labels
 
-Against the derived labels, the embeddings classifier trained on them looked best (71% on tier against a 57% baseline, 50% on kind against 37%). Against the hand labels, the same classifier fell below the baseline: it had learned the derived labels, and they were wrong too often.
+Against the derived labels, the embeddings classifier trained on them looked best (71% on tier against a 58% baseline, 51% on kind against 37%). Against the hand labels, the same classifier fell below the baseline: it had learned the derived labels, and they were wrong too often.
 
 * **`inv`**: 20 prompts in the sample read files before editing, and only 1 of them was an investigation by hand. Claude reads files before most edits.
 * **`heavy`**: many tool calls doesn't mean heavy work. "commit, merge and push" takes several calls and is light.
-* **`new`**: the transcripts rarely show it; 104 of the 669 prompts have one.
+* **`new`**: the transcripts rarely show it; 107 of the 699 prompts have one.
 
 So labels worked out from the transcripts can't stand in for the developer's. A classifier for this has to learn from labels given by hand.
 
@@ -158,8 +158,8 @@ Each answer comes with a confidence, so a hint could be offered only when the mo
 
 For the developer to decide (Appendix 5, section 10):
 
-1. **The `/clear` hint (FR-11.4) is the one to build first,** with the embeddings classifier: 90%, never wrong on a continuing prompt, 0.3 GB and 14 ms. Section 8.4 already found it the more valuable hint: switching model or clearing pays off mainly at the start of a task. It would combine the classifier with the context size from FR-11.1.
-2. **The model hint can come from `pplx-decider-flash`,** offered only when it is confident (0.5 or more: 42 of 60 prompts, all right). It adds 4.6 GB that doesn't grow, and about 1 s after the prompt is sent. With the ghost-text and rewrite models it makes about 10.6 GB, which fits a 24 GB Mac. Jev was slightly more accurate but needs 8–16 GB, growing with use.
+1. **The `/clear` hint (FR-11.4) is the one to build first,** with the embeddings classifier: 90%, never wrong on a continuing prompt, 0.3 GB and under 20 ms. Section 8.4 already found it the more valuable hint: switching model or clearing pays off mainly at the start of a task. It would combine the classifier with the context size from FR-11.1.
+2. **The model hint can come from `pplx-decider-flash`,** offered only when it is confident (0.5 or more: 42 of 60 prompts, all right). It adds 4.6 GB that doesn't grow, and about 1 s after the prompt is sent. With the ghost-text and rewrite models it makes about 10.6 GB, which fits a 24 GB Mac. Jev was slightly more accurate but needs 8–16 GB in its 4-bit version and 11–19 GB in the full 9B, growing with use.
 3. **FR-11.6 should start from an explicit trigger.** The best found 4 or 5 of the 6 investigation prompts, and called others investigations too. Words the developer chooses, like FR-12's sections, or a shortcut, are more reliable for now.
 4. **Local answers (FR-11.3) need more labels.** `pplx-decider-flash` and Jev are rarely wrong when they say `self`, but miss many; the embeddings classifier and `d3` find more but are wrong more. Offered beside the prompt, a wrong one costs a wasted local answer, not a wrong reply.
 5. **The small models aren't worth it for routing.** `qwen2.5:3b` and the decision models under 1 GB were near the baseline; `strands-decider` called most prompts new tasks and grew to 7.3 GB. Laya matched the classifier on kind without training, but was unsure of nearly every answer; it could be looked at again once there are enough labels to train it.

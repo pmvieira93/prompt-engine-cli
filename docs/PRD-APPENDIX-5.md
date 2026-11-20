@@ -257,13 +257,13 @@ A benchmark of `prompt-engine` overall (rewrite quality, guard rails, other tool
 
 ## 10. Routing spike, step 3 (2026-11-19)
 
-[The routing spike](spikes/routing.md): 669 of the developer's prompts from 64 sessions, 60 of them labelled by hand, sorted by keyword rules, an embeddings classifier (`nomic-embed-text` through Ollama, with a linear model), `qwen2.5:3b`, and, on 2026-11-20, eight decision models through Ollama's decision endpoint, with no training: from 0.6B to 9B parameters, among them Laya, Jev and Perplexity's `pplx-decider-flash`.
+[The routing spike](spikes/routing.md): 699 of the developer's prompts from 64 sessions, 60 of them labelled by hand, sorted by keyword rules, an embeddings classifier (`nomic-embed-text` through Ollama, with a linear model), `qwen2.5:3b`, and, on 2026-11-20, eight decision models through Ollama's decision endpoint, with no training: from 0.6B to 9B parameters, among them Laya, Jev and Perplexity's `pplx-decider-flash`.
 
 | Against the 60 hand labels | kind | tier | new task? | memory | per prompt |
 |---|---|---|---|---|---|
 | Always the commonest answer | 53% | 75% | 77% | | |
 | Keyword rules | 63% | 62% | 78% | | under 1 ms |
-| Embeddings classifier, trained on the hand labels | 70% | 75% | **90%** | 0.3 GB | 14 ms |
+| Embeddings classifier, trained on the hand labels | 70% | 75% | **90%** | 0.3 GB | 14–20 ms |
 | `qwen2.5:3b` | 48% | 68% | 53% | 2.1 GB | 0.82 s |
 | Laya (421M) | 68% | 65% | 53% | 1.0 GB | 0.49 s |
 | `d3` (2B) | **73%** | 83% | 57% | 3.1 GB | 0.69 s |

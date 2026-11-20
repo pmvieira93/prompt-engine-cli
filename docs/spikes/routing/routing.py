@@ -31,6 +31,7 @@ Results: docs/spikes/routing.md.
 import argparse
 import collections
 import csv
+import hashlib
 import json
 import math
 import os
@@ -52,6 +53,8 @@ GEN_MODEL = "qwen2.5:3b"
 DECISION_MODELS = tuple(os.environ.get("ROUTING_DECISION", "kev:0.8b-q8_0,tev1:0.8b-q8_0,d1-omni:600m,laya,strands-decider:2b-nvfp4,d3:2b,"
                                                 "pplx-decider-flash:4b-nvfp4,autotrust-jev:9b-nvfp4,autotrust-jev:9b").split(","))
 KINDS, TIERS, NEWS = ("self", "inv", "agent"), ("light", "heavy"), ("yes", "no")
+# A slash command: a word after the slash, not a path such as /Users/me/app.
+COMMAND = re.compile(r"/[\w:.-]+(\s|$)")
 
 READS = {"Read", "Grep", "Glob", "LS", "NotebookRead", "WebFetch", "WebSearch"}
 EDITS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -81,7 +84,12 @@ def read_turns(path):
         msg = r.get("message") if isinstance(r.get("message"), dict) else {}
         if r.get("type") == "user":
             text = text_of(msg.get("content"))
-            if is_prompt(r, text) and not text.lstrip().startswith("/"):
+            if not is_prompt(r, text):
+                continue
+            if COMMAND.match(text.lstrip()):
+                # A slash command's work belongs to no typed prompt.
+                cur = None
+            else:
                 cur = dict(text=text.strip(), context=context, calls=0, out=0, tools=[], files=[], first=not turns)
                 turns.append(cur)
         elif r.get("type") == "assistant" and cur is not None:
@@ -168,7 +176,6 @@ def sample(args):
         w = csv.writer(f, delimiter="\t")
         w.writerow(["id", "kind", "tier", "new", "prompt", "previous prompt"])
         for p in picked:
-            flat = lambda s: " ".join(s.split())[:400]
             w.writerow([p["id"], "", "", "", flat(p["text"]), flat(p["prev"])])
     print(f"{len(picked)} prompts to label in {path}")
     print("Fill kind (self/inv/agent), tier (light/heavy) and new (yes/no); leave a cell empty if unsure.")
@@ -187,7 +194,9 @@ def key():
     try:
         tty.setraw(fd)
         # Straight from the terminal: sys.stdin's buffer could hold keys back.
-        return os.read(fd, 1).decode(errors="ignore")
+        b = os.read(fd, 1)
+        # None at the end of input; a byte of a non-ASCII key shows as '?'.
+        return b.decode(errors="replace") if b else None
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
@@ -212,7 +221,7 @@ def label(_args):
 
     todo = [r for r in rows if not all((r.get(k) or "").strip() for k in KEYS)]
     print(f"{len(rows) - len(todo)} of {len(rows)} labelled. Keys: shown with each question; "
-          "Enter skips one, q saves and quits.\n")
+          "Enter skips one, q or Ctrl+D saves and quits.\n")
     for n, row in enumerate(todo, 1):
         print(f"\033[1m[{len(rows) - len(todo) + n}/{len(rows)}]\033[0m")
         print(f"  previous: {row['previous prompt'][:200] or '(none: first prompt)'}")
@@ -223,12 +232,13 @@ def label(_args):
             choices = "  ".join(f"{k}={v}" for k, v in keys.items())
             while True:
                 print(f"  {field:5} ({choices}, Enter=skip): ", end="", flush=True)
-                k = key().lower()
-                if k == "q" or k == "\x03":
+                k = key()
+                if k is None or k.lower() in ("q", "\x03", "\x04"):
                     save()
                     print("\nsaved")
                     return
-                if k in keys or k in "\r\n":
+                k = k.lower()
+                if k in keys or k in ("\r", "\n"):
                     row[field] = keys.get(k, "")
                     print(row[field] or "skipped")
                     break
@@ -238,15 +248,46 @@ def label(_args):
     print(f"All done: saved to {path}")
 
 
-def hand_labels():
+def flat(s):
+    """A prompt as hand.tsv holds it: one line, at most 400 characters."""
+    return " ".join(s.split())[:400]
+
+
+def hand_labels(ps):
+    """The hand labels, by the id each prompt has in ps. Rows are matched by
+    their text, not just their id: ids are positions, which change when
+    extract is run again with other rules."""
     path = os.path.join(DATA, "hand.tsv")
     if not os.path.exists(path):
         return {}
+    by_id = {p["id"]: p for p in ps}
+    exact, loose = {}, collections.defaultdict(list)
+    for p in ps:
+        sid = p["id"].split("-")[0]
+        exact[sid, flat(p["text"]), flat(p["prev"])] = p["id"]
+        loose[sid, flat(p["text"])].append(p["id"])
+    allowed = {"kind": dict(zip("sia", KINDS)), "tier": dict(zip("lh", TIERS)), "new": dict(zip("yn", NEWS))}
     labels = {}
     for row in csv.DictReader(open(path), delimiter="\t"):
-        got = {k: (row.get(k) or "").strip().lower() or None for k in ("kind", "tier", "new")}
-        if any(got.values()):
+        got = {}
+        for k, short in allowed.items():
+            v = (row.get(k) or "").strip().lower()
+            v = short.get(v, v) or None
+            if v is not None and v not in short.values():
+                sys.exit(f"{path}: row {row['id']}: {k} is '{v}', not one of {', '.join(short.values())}")
+            got[k] = v
+        if not any(got.values()):
+            continue
+        sid, text, prev = row["id"].split("-")[0], row["prompt"], row["previous prompt"]
+        p = by_id.get(row["id"])
+        if p and flat(p["text"]) == text:
             labels[row["id"]] = got
+        elif (sid, text, prev) in exact:
+            labels[exact[sid, text, prev]] = got
+        elif len(loose[sid, text]) == 1:
+            labels[loose[sid, text][0]] = got
+        else:
+            print(f"hand.tsv: row {row['id']} matches no single prompt; left out", file=sys.stderr)
     return labels
 
 
@@ -277,6 +318,12 @@ def rules(p):
 
 # ------------------------------------------------------------- embeddings
 
+def content_key(*parts):
+    """A cache key from what was asked, so a changed prompt or question
+    is asked again rather than answered from the cache."""
+    return hashlib.sha1("\0".join(parts).encode()).hexdigest()[:16]
+
+
 def ollama(endpoint, body, timeout=120):
     req = urllib.request.Request(f"{OLLAMA}/api/{endpoint}", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -285,20 +332,26 @@ def ollama(endpoint, body, timeout=120):
 
 
 def embeddings(ps):
-    """Each prompt's vector (cached), and the median time per prompt."""
+    """Each prompt's vector, by id, and the median time per prompt. Cached by
+    the text embedded, and saved as it goes."""
     path = os.path.join(DATA, f"embed-{EMBED_MODEL}.json")
     cache = json.load(open(path)) if os.path.exists(path) else {}
     times = []
-    for p in ps:
-        if p["id"] in cache:
-            continue
-        start = time.monotonic()
-        # nomic-embed-text wants a task prefix.
-        v = ollama("embed", {"model": EMBED_MODEL, "input": "classification: " + p["text"][:2000]})["embeddings"][0]
-        times.append(time.monotonic() - start)
-        cache[p["id"]] = v
-    json.dump(cache, open(path, "w"))
-    return cache, (sorted(times)[len(times) // 2] if times else None)
+    try:
+        for n, p in enumerate(ps):
+            # nomic-embed-text wants a task prefix.
+            text = "classification: " + p["text"][:2000]
+            if content_key(text) in cache:
+                continue
+            start = time.monotonic()
+            cache[content_key(text)] = ollama("embed", {"model": EMBED_MODEL, "input": text})["embeddings"][0]
+            times.append(time.monotonic() - start)
+            if n % 50 == 0:
+                json.dump(cache, open(path, "w"))
+    finally:
+        json.dump(cache, open(path, "w"))
+    vecs = {p["id"]: cache[content_key("classification: " + p["text"][:2000])] for p in ps}
+    return vecs, (sorted(times)[len(times) // 2] if times else None)
 
 
 def cosine(a, b):
@@ -354,10 +407,19 @@ def features(p, vecs, label):
             1.0 if BACKREF.search(p["text"]) else 0.0, math.log(1 + len(p["text"].split())) / 5]
 
 
+TRAINING = "sgd-logistic-30-0.1-1e-4"  # change it when train or features change, so cached predictions aren't reused
+
+
 def classifier(ps, vecs, label, classes, truth, folds=5):
     """Each prompt's prediction from a model trained on the other folds,
     split by session so a session's prompts don't help predict each other.
-    truth gives the labels to learn from."""
+    truth gives the labels to learn from. Cached by everything it learns
+    from, since training in plain Python takes minutes."""
+    key = content_key(TRAINING, EMBED_MODEL, label, str(folds), json.dumps(
+        [[p["id"], p["text"], p["prev"], p["first"], truth.get(p["id"])] for p in ps]))
+    path = os.path.join(DATA, f"classifier-{key}.json")
+    if os.path.exists(path):
+        return json.load(open(path))
     sessions = sorted({p["id"].split("-")[0] for p in ps})
     random.Random(7).shuffle(sessions)
     fold = {s: i % folds for i, s in enumerate(sessions)}
@@ -365,11 +427,17 @@ def classifier(ps, vecs, label, classes, truth, folds=5):
     for f in range(folds):
         train_ps = [p for p in ps if fold[p["id"].split("-")[0]] != f and truth.get(p["id"]) is not None]
         if len({truth[p["id"]] for p in train_ps}) < 2:
+            # These prompts get no prediction, so this approach is scored
+            # on fewer prompts than the others: say so.
+            n = sum(fold[p["id"].split("-")[0]] == f for p in ps)
+            print(f"{label}: fold {f} skipped, its training prompts have one {label} value; "
+                  f"{n} prompts get no prediction", file=sys.stderr)
             continue
         model = train([features(p, vecs, label) for p in train_ps], [truth[p["id"]] for p in train_ps], classes)
         for p in ps:
             if fold[p["id"].split("-")[0]] == f:
                 pred[p["id"]] = model(features(p, vecs, label))
+    json.dump(pred, open(path, "w"))
     return pred
 
 
@@ -389,25 +457,30 @@ SCHEMA = {"type": "object", "required": ["kind", "tier", "new"], "properties": {
 
 
 def generative(ps):
-    path = os.path.join(DATA, f"gen-{GEN_MODEL.replace(':', '_')}.json")
+    """Each prompt's answers, by id. Cached by the prompt sent, in a file
+    named after the instructions and schema; failed calls are tried again."""
+    path = os.path.join(DATA, f"gen-{GEN_MODEL.replace(':', '_')}-"
+                              f"{content_key(GEN_PROMPT, json.dumps(SCHEMA, sort_keys=True))}.json")
     cache = json.load(open(path)) if os.path.exists(path) else {}
+    out = {}
     for i, p in enumerate(ps):
-        if p["id"] in cache:
-            continue
-        start = time.monotonic()
-        try:
-            r = ollama("generate", {"model": GEN_MODEL, "stream": False, "format": SCHEMA, "keep_alive": "10m",
-                                    "options": {"temperature": 0},
-                                    "prompt": GEN_PROMPT.format(prev=p["prev"][:500] or "(none)", text=p["text"][:1500])})
-            got = json.loads(r["response"])
-        except (ValueError, OSError) as e:
-            got = {"error": str(e)[:100]}
-        got["seconds"] = time.monotonic() - start
-        cache[p["id"]] = got
-        if i % 50 == 0:
-            json.dump(cache, open(path, "w"))
+        prompt = GEN_PROMPT.format(prev=p["prev"][:500] or "(none)", text=p["text"][:1500])
+        k = content_key(prompt)
+        if k not in cache or "error" in cache[k]:
+            start = time.monotonic()
+            try:
+                r = ollama("generate", {"model": GEN_MODEL, "stream": False, "format": SCHEMA, "keep_alive": "10m",
+                                        "options": {"temperature": 0}, "prompt": prompt})
+                got = json.loads(r["response"])
+            except (ValueError, OSError) as e:
+                got = {"error": str(e)[:100]}
+            got["seconds"] = time.monotonic() - start
+            cache[k] = got
+            if i % 50 == 0:
+                json.dump(cache, open(path, "w"))
+        out[p["id"]] = cache[k]
     json.dump(cache, open(path, "w"))
-    return cache
+    return out
 
 
 # -------------------------------------------------------------- decision
@@ -432,15 +505,21 @@ QUESTIONS = {
 
 
 def decision(ps, model):
-    """Each prompt's three answers from a decision model (cached)."""
-    path = os.path.join(DATA, f"decision-{model.replace(':', '_')}.json")
+    """Each prompt's three answers from a decision model, by id. Cached by
+    the state sent, in a file named after the questions; failed calls are
+    tried again."""
+    path = os.path.join(DATA, f"decision-{model.replace(':', '_')}-"
+                              f"{content_key(json.dumps(QUESTIONS, sort_keys=True))}.json")
     cache = json.load(open(path)) if os.path.exists(path) else {}
+    out = {}
     for p in ps:
-        if p["id"] in cache:
-            continue
         # Laya reads at most 512 tokens per question, options included.
         state = {"previous prompt": p["prev"][:400] or "(none: the first prompt of the session)",
                  "prompt": p["text"][:1000]}
+        k = content_key(json.dumps(state, sort_keys=True))
+        if k in cache and "error" not in cache[k]:
+            out[p["id"]] = cache[k]
+            continue
         start = time.monotonic()
         try:
             req = urllib.request.Request(f"{OLLAMA}/v1/systemone", headers={"Content-Type": "application/json"},
@@ -453,9 +532,9 @@ def decision(ps, model):
         except (ValueError, OSError, KeyError) as e:
             got = {"error": str(e)[:100]}
         got["seconds"] = time.monotonic() - start
-        cache[p["id"]] = got
+        cache[k] = out[p["id"]] = got
         json.dump(cache, open(path, "w"))
-    return cache
+    return out
 
 
 # -------------------------------------------------------------------- run
@@ -479,7 +558,7 @@ def accuracy(pred, truth, classes):
 
 def run(args):
     ps = load()
-    hand = hand_labels()
+    hand = hand_labels(ps)
     print(f"{len(ps)} prompts; {len(hand)} labelled by hand")
     show_counts(ps)
     vecs, embed_s = embeddings(ps)
