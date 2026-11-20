@@ -112,6 +112,8 @@ The PRD budget is **<30 MB RSS** for the `prompt-engine` process alone (not `cla
 
 A memory limit of 20 MB is below the live heap (about 17 MB) and made the GC run constantly: 136% CPU while streaming, 70% while idle. So the 28 MB limit is a knob that needs care, not a fix. The real fix is to stop allocating about 1 MB per frame: reuse buffers, and redraw only changed lines.
 
+> **Update 2026-11-20 (PR #39):** the 28 MB limit is gone. It thrashed as warned above: a session 16 days old, at ~100 MB, used 350% CPU in the GC. The heap now grows by half the live heap between cycles (`GOGC 50`), with no limit. Measured at 200×60 with the same load before and after: 25.9 MB idle, ~33 MB streaming, 6.7–6.8% CPU, unchanged. With 40 MB live (116×46), the limit ran ~140 GC cycles a second (~240% CPU), `GOGC 50` ~2 (~35%). The "soft limit" in the rows above and in §4 and §7 describes the spike, not the current code.
+
 ---
 
 ## 3. What works
