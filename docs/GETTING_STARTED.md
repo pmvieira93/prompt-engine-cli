@@ -161,7 +161,7 @@ echo 'alias claude=prompt-engine' >> ~/.zshrc
 | `ghost.style` rejected | The value must be on one line | `style: color:117`, not a nested `color:` key |
 | Rewrites never apply | `panel.guard_details: true` | Each stop names its guard. Rephrase, use `preview` to review, or `turn off:` that guard in `templates/guards.txt` |
 | "the second one" isn't named | `context: reading the transcript` in the debug log | Set `expand.context: reply`, and send a first prompt: the transcript is only used once it holds one of yours |
-| `prompt-engine` uses a lot of CPU or memory | `memory:` lines in the debug log, every 5 minutes: the CPU used since the last line (% of a core, as `ps` shows), the GC's share of it, and the live heap | A build from before the GC fix (PR #39) can spin in the GC once its heap passes 28 MB: restart it (`claude --continue`). If the live heap keeps growing, attach the log to a bug report |
+| `prompt-engine` uses a lot of CPU or memory | `memory:` lines in the debug log, every 5 minutes: the CPU used since the last line (% of a core, as `ps` shows), how much of it was the GC's, GC cycles a minute, and the live heap | Thousands of GC cycles a minute is a GC spin: a build from before the GC fix (PR #39) does it once its heap passes 28 MB; restart it (`claude --continue`). High CPU with few GC cycles, or a live heap that keeps growing: attach the log to a bug report |
 | Odd characters on screen | Run with `PROMPT_ENGINE_PASSTHROUGH=1` | If they remain, the cause isn't `prompt-engine` |
 | Need details for a bug report | `PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log prompt-engine` | Attach the log. Use harmless prompts: it records what you type |
 

@@ -214,9 +214,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if debugLog {
-		go watchMemory(ctx, memoryEvery, logf)
-	}
+	memoryDone := make(chan struct{})
+	go func() {
+		if debugLog {
+			watchMemory(ctx, memoryEvery, logf)
+		}
+		close(memoryDone)
+	}()
 	started := time.Now()
 
 	// The config in use: reloaded when the file is edited (FR-4.3).
@@ -1154,11 +1158,15 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		RawOutput:     rawOutput,
 		PanicOnGhost:  os.Getenv(envRenderPanic) != "",
 	})
-	// The last turn's tokens: recorded once the reader has caught up.
+	// The last turn's tokens: recorded once the reader has caught up. And
+	// the last memory line, which a busy process otherwise exits before.
 	cancel()
-	select {
-	case <-usageDone:
-	case <-time.After(2 * time.Second):
+	timeout := time.After(2 * time.Second)
+	for _, done := range []chan struct{}{usageDone, memoryDone} {
+		select {
+		case <-done:
+		case <-timeout:
+		}
 	}
 	return code, err
 }
