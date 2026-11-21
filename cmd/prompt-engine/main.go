@@ -198,7 +198,8 @@ func run() int {
 
 // runGhost runs cmd in the emulator UI with fake ghost-text suggestions.
 func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, tracker *input.Tracker, queue *rules.Queue, logf func(string, ...any), onFilterError func(error)) (int, error) {
-	if logf == nil {
+	debugLog := logf != nil
+	if !debugLog {
 		logf = func(string, ...any) {} // no debug log
 	}
 	// cfg has been validated (or is the defaults), so these parse.
@@ -213,6 +214,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if debugLog {
+		go watchMemory(ctx, memoryEvery, logf)
+	}
 	started := time.Now()
 
 	// The config in use: reloaded when the file is edited (FR-4.3).
