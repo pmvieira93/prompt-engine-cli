@@ -41,31 +41,33 @@ The local models take three roles, from small to large:
 * **Advising on how Claude is used** (FR-11.4): which model, and when to clear the context.
 * **Working before Claude, as an orchestrator** (FR-11.6): on tasks that do need the agent (a bug, a ticket, a review), the local side does the first part of the work with what is on the developer's machine, and Claude starts from its brief.
 
-The proposed flow for FR-11.3, FR-11.4 and FR-11.6, none of them built or decided (section 7):
+The flow for FR-11.3, FR-11.4 and FR-11.6 as decided on 2026-11-22 (section 11), none of it built yet. The first proposal routed every prompt through one classifier; section 10 showed it can't find the prompts to investigate, so FR-11.6 is started by the developer, and FR-11.3 waits.
 
 ```mermaid
 flowchart TD
-    User["Developer prompt"] --> Router["Local decision model (non-generative classifier)"]
+    User["Developer prompt"] --> NewTask{"New task?<br/>(embeddings classifier)"}
+    NewTask -->|"Yes"| Choice["Hint, when the context is large (FR-11.1):<br/>/clear, or write a handoff first<br/>(the developer picks)"]
+    NewTask -->|"No"| Size{"Session large or costly?<br/>(FR-11.1)"}
+    Size -->|"Yes"| Handoff["Hint: write a handoff, then /clear"]
+    Size -->|"No"| Tier{"Light or heavy?<br/>(pplx-decider-flash, when confident)"}
+    Choice -.->|"after /clear or a handoff"| Tier
+    Handoff -.-> Tier
+    Tier -->|"Light, on a bigger model"| Lighter["Hint: a lighter model (/model)"]
+    Tier -->|"Heavy, on a lighter model"| Heavier["Hint: a bigger model (/model)"]
+    Tier -->|"Unsure, or already right"| NoHint["No hint"]
 
-    Router -->|"Self-contained question"| LocalAns["Local model via Ollama (e.g. 7B)"]
-    LocalAns --> PanelZero["Answer offered in the panel"]
-
-    Router -->|"Bug, ticket or review"| Investigate["Local pre-investigation (FR-11.6)"]
+    Trigger["Developer's shortcut or listed word"] --> Investigate["Local pre-investigation (FR-11.6)"]
     Sources["Project index, other projects, history, past transcripts"] -.-> Investigate
-    Investigate --> Brief["Brief offered in the panel: where to look, likely causes, first-pass findings"]
+    Investigate --> Brief["Brief offered in the panel"]
 
-    Router -->|"Needs the codebase or tools"| Complexity{"Task complexity"}
-    Complexity -->|"Small, self-contained"| HaikuPrompt["Suggest a lighter model (/model)"]
-    Complexity -->|"Agentic, complex"| NoHint["No hint"]
+    Labels["Hints followed or dismissed<br/>(history, FR-5.4)"] -.->|"labels, later"| LocalAns["Local answers (FR-11.3): waiting"]
 
-    Router -->|"Starts a new task"| NewTask{"Context large?"}
-    Tracker["Context size (FR-11.1)"] -.-> NewTask
-    NewTask -->|"Yes"| ClearPrompt["Suggest /clear or /compact"]
-
-    Brief --> Claude["Claude Code"]
-    HaikuPrompt --> Claude
+    Choice --> Claude["Claude Code"]
+    Handoff --> Claude
+    Lighter --> Claude
+    Heavier --> Claude
     NoHint --> Claude
-    ClearPrompt --> Claude
+    Brief --> Claude
 ```
 
 The decision model never changes what is sent or which model answers: the prompt goes to Claude Code when the developer presses Enter, and the developer decides whether to follow a hint.
@@ -109,7 +111,7 @@ The decision model never changes what is sent or which model answers: the prompt
 
 ### 2.1 Other providers
 
-FR-11.1, FR-11.3 and FR-11.6 work at the prompt, so they carry over to the other CLIs of Phase 5 (GitHub Copilot, Gemini, Aider) once `prompt-engine` wraps them; reading token usage (FR-11.1) depends on each CLI's own records. FR-11.4 doesn't carry over as it is: its model tiers and commands (`/model`, `/compact`, `/clear`) are Claude Code's, so its hints and the classifier's tier labels need redoing for each CLI.
+FR-11.1, FR-11.3 and FR-11.6 work at the prompt, so they carry over to the other CLIs of Phase 5 (GitHub Copilot, Gemini, Aider) once `prompt-engine` wraps them; reading token usage (FR-11.1) depends on each CLI's own records. FR-11.4 doesn't carry over as it is: its model tiers and commands (`/model`, `/compact`, `/clear`) are Claude Code's, so its hints and the classifier's tier labels need redoing for each CLI. The handoff file (added on 2026-11-22) is the exception: any CLI can read it; only the command that clears the context differs.
 
 ---
 
@@ -170,7 +172,7 @@ The spike's code and results go in `docs/spikes/`, like the earlier spikes.
 
 ## 6. Roadmap
 
-FR-11.1 is built (section 9). Next when picked up: the cost benchmark (section 8). FR-11.3 and FR-11.4 wait for both, so their effect can be measured, and both need spike steps 3 and 4 first: they rely on the same classifier. FR-11.6 starts with retrieval only, measured in the benchmark. Spike step 3 is done (section 10), with eight decision models through Ollama added on 2026-11-20, and decided on 2026-11-22 (section 11): next is FR-11.4's context hints, then its model hint.
+FR-11.1 is built (section 9). Next when picked up: the cost benchmark (section 8). FR-11.3 and FR-11.4 wait for both, so their effect can be measured, and both need spike steps 3 and 4 first: they rely on the same classifier. Step 4's comparison of deciding models was done within step 3 (section 10); its answering half waits with FR-11.3. FR-11.6 starts with retrieval only, measured in the benchmark. Spike step 3 is done (section 10), with eight decision models through Ollama added on 2026-11-20, and decided on 2026-11-22 (section 11): next is FR-11.4's context hints, then its model hint.
 
 ---
 
@@ -296,10 +298,10 @@ Suggested, for the developer to decide (decided in section 11):
 On section 10's suggestions, the developer decided:
 
 * **FR-11.4, the context hints: build first, both, chosen by the situation.**
-  * **A new task, unrelated to the last one, and the previous one finished: suggest `/clear`.** The embeddings classifier decides "new task", with the context size from FR-11.1.
-  * **A large or costly session whose work goes on: suggest a handoff.** Claude writes the handoff file, then `/clear`, and the next session starts from the file, so nothing needed is lost. Raised by the developer while deciding: `/clear` alone drops what the next task still needs. The trigger is the session's size and cost (FR-11.1), so it needs no model; the thresholds are set when it is built, and the hint shows once per threshold, not on every prompt.
+  * **A new task: one hint offers both, and the developer picks.** The embeddings classifier decides "new task", with the context size from FR-11.1. Only the developer knows whether the last task is finished: if it is, and unrelated, `/clear`; if the next session still needs it, a handoff first. For example: *"New task? `/clear` (Ctrl+Q c), or write a handoff first (Ctrl+Q h)."*
+  * **A large or costly session, with no new task: suggest a handoff.** Claude writes the handoff file, then `/clear`, and the next session starts from the file, so nothing needed is lost. Raised by the developer while deciding: `/clear` alone drops what the next task still needs. The trigger is the session's size and cost (FR-11.1), so it needs no model; the thresholds are set when it is built, and the hint shows once per threshold, not on every prompt.
   * Both only suggest; the developer runs the command or sends the handoff prompt, which can be edited first.
-* **FR-11.4, the model hint: build after the context hints,** with `pplx-decider-flash`, shown only when it's confident. Switching models mid-session rewrites Claude's prompt cache (section 8.4), so the hint matters most at the start of a task: right after `/clear` or a handoff. Where the model doesn't fit or doesn't run (it's Mac-only), there is no model hint.
+* **FR-11.4, the model hint: build after the context hints,** with `pplx-decider-flash`, shown only when it's confident. Switching models mid-session rewrites Claude's prompt cache (section 8.4), so the hint matters most at the start of a task: right after `/clear` or a handoff. Where the model doesn't fit or doesn't run (the 4-bit tag measured runs only on Macs; other tags weren't tried), there is no model hint.
 * **FR-11.6: started only by the developer,** with a shortcut or a word the developer lists, never by a classifier: none of the models found the investigation prompts reliably. Retrieval first, measured in a cost benchmark on a larger project.
 * **FR-11.3: stays proposed.** The history (FR-5.4) gathers labels as the developer works, a hint followed or dismissed counting as one, so the classifier can be retrained and checked again.
 * **The runtime:** both models run through Ollama; no new runtime.
