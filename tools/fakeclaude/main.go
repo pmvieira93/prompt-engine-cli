@@ -10,7 +10,9 @@
 //     <pasted_content> tags, as claude 2.1.311 does before the model sees it;
 //   - the UserPromptSubmit hook from --settings, which prompt-engine uses to
 //     add rules;
-//   - with CLAUDE_CONFIG_DIR set, a transcript under its projects folder:
+//   - with CLAUDE_CONFIG_DIR set, a transcript under its projects folder,
+//     and /clear starting a new one that begins with the command, as claude
+//     2.1.309 does:
 //     each prompt and a reply with token usage, as claude 2.1.311 records
 //     them. Without it, nothing is written, so a test can't touch the
 //     developer's own ~/.claude.
@@ -33,6 +35,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -54,6 +57,8 @@ type fake struct {
 	paste      strings.Builder
 	hook       string // the UserPromptSubmit command
 	record     *os.File
+	configDir  string // CLAUDE_CONFIG_DIR, for the transcript /clear starts
+	clears     int
 	replies    int
 }
 
@@ -75,13 +80,13 @@ func main() {
 	}
 
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		file, err := openTranscript(dir)
+		file, err := openTranscript(dir, 0)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "fakeclaude:", err)
 			os.Exit(1)
 		}
-		defer file.Close()
-		f.record = file
+		defer func() { f.record.Close() }()
+		f.record, f.configDir = file, dir
 	}
 
 	state, err := term.MakeRaw(int(os.Stdin.Fd()))
@@ -248,6 +253,10 @@ func (f *fake) submit() {
 	if strings.TrimSpace(sent) == "" {
 		return
 	}
+	if strings.TrimSpace(sent) == "/clear" {
+		f.clear()
+		return
+	}
 	if context := f.runHook(sent); context != "" {
 		sent += "\n\n" + context
 	}
@@ -261,9 +270,30 @@ func (f *fake) submit() {
 	f.text, f.offered = nil, f.suggestion
 }
 
+// clear forgets the conversation and, with a transcript, starts a new one
+// that begins with the command.
+func (f *fake) clear() {
+	f.transcript, f.text, f.offered, f.replies = nil, nil, "", 0
+	if f.record == nil {
+		return
+	}
+	f.clears++
+	file, err := openTranscript(f.configDir, f.clears)
+	if err != nil {
+		return
+	}
+	f.record.Close()
+	f.record = file
+	cwd, _ := os.Getwd()
+	line, _ := json.Marshal(map[string]any{"type": "user", "cwd": cwd, "timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"message": map[string]any{"role": "user", "content": "<command-name>/clear</command-name>"}})
+	fmt.Fprintf(f.record, "%s\n", line)
+}
+
 // openTranscript creates the session's transcript where claude keeps it:
-// <dir>/projects/<working directory, with "/" as "-">/<session id>.jsonl.
-func openTranscript(dir string) (*os.File, error) {
+// <dir>/projects/<working directory, with "/" as "-">/<session id>.jsonl;
+// n counts the ones /clear started before it.
+func openTranscript(dir string, n int) (*os.File, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -277,7 +307,7 @@ func openTranscript(dir string) (*os.File, error) {
 	if err := os.MkdirAll(folder, 0o700); err != nil {
 		return nil, err
 	}
-	return os.OpenFile(filepath.Join(folder, fmt.Sprintf("fake-%d.jsonl", os.Getpid())), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	return os.OpenFile(filepath.Join(folder, fmt.Sprintf("fake-%d-%d.jsonl", os.Getpid(), n)), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }
 
 // writeTranscript records prompt and a reply to it, with usage: the

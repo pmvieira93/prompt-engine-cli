@@ -51,6 +51,7 @@ You'll see Claude Code as usual. Now try each feature:
 | **Ctrl+Q**, then **e** | Rewrite the prompt, or apply the prepared preview |
 | **Ctrl+Q**, then **u** | Undo the last rewrite |
 | **Ctrl+Q**, then **s** | The next rewrite style for this prompt (`default` → `llm` → `human` → `both`); on a rewrite, rewrite it again in that style |
+| **Ctrl+Q**, then **h** | Put the handoff prompt in place of the typed one (**Ctrl+Q**, then **u** brings it back) |
 | **Ctrl+Q**, then **p** | Open or close the side panel |
 | **Ctrl+Q**, then **+** / **−** | Widen or narrow the panel |
 | **Ctrl+Q**, then **Esc** | Cancel the leader key |
@@ -127,6 +128,8 @@ To add a rule only when it fits, start a section with its words. This one goes o
 [bug|crash]
 Find the cause before proposing a fix.
 ```
+
+**Hand off a long session.** Once Claude Code's context reaches 120k tokens (`hints.handoff_at`), a hint suggests a handoff. **Ctrl+Q, then h** puts a prompt in that asks Claude to write `HANDOFF.md`: the goal, what's done, the decisions, the files, what's left. Send it, run `/clear`, and the empty prompt offers *Read HANDOFF.md and continue from it.* as ghost text, so the fresh session starts from it. To ask for something else, write your own prompt in `~/.config/prompt-engine/templates/handoff.txt`.
 
 **Change how ghost text looks:**
 

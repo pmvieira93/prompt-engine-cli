@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off rewrite nested
+#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff guards guards_off rewrite nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -389,6 +389,44 @@ exit'
 	check "the second, recorded at exit, names the second" same "$(sed -n 's/.*"kind":"usage","prompt_time":"\([^"]*\)".*"cache_read_tokens":42000.*/\1/p' "$h")" "$(grep -v '"kind"' "$h" | sed -n '2s/^{"time":"\([^"]*\)".*/\1/p')"
 }
 
+case_handoff() {
+	echo "handoff: a large context brings the hint; the shortcut puts the handoff prompt in, undo brings the typed one back"
+	PE_HISTORY="$work/history/handoff.jsonl" run_case handoff 'reply on
+wait "❯" 5s
+send "say hello"
+sleep 300ms
+send "\r"
+wait "write a handoff" 6s
+dump
+send "next task"
+sleep 300ms
+send "\x11h"
+wait "Write HANDOFF.md" 3s
+send "\x11u"
+sleep 500ms
+dump
+send "\x11h"
+wait "Write HANDOFF.md" 3s
+send "\r"
+wait "Reply to: Write HANDOFF.md" 3s
+send "/clear"
+sleep 300ms
+send "\r"
+wait "Read HANDOFF.md and continue" 8s
+dump
+send "\x04"
+exit' 'hints:
+  handoff_at: 40000'
+	local h="$work/history/handoff.jsonl"
+	check "the hint shows once the context reaches hints.handoff_at" shown 'context 41k: write a handoff and start fresh? ctrl+q then h'
+	check "the log has it" logged 'hint: handoff, context 41k'
+	check "undo brings the typed prompt back" logged 'expand: undone, back to "next task"'
+	check "the handoff prompt is sent" sent '"Write HANDOFF.md for a fresh session to continue this work: the goal, what'"'"'s done, the decisions made and why, the files involved, what'"'"'s left, and open questions. Keep it under a page."'
+	check "the history records the hint as followed" grep -q '"hint":"handoff","hint_followed":true' "$h"
+	check "after /clear, reading the handoff is offered" logged 'hint: offered "Read HANDOFF.md and continue from it." after /clear'
+	check "and shown as ghost text" shown 'Read HANDOFF.md and continue from it.'
+}
+
 case_guards() {
 	echo "guards: templates/guards.txt adds a rule, an edit applies at once, and deleting it leaves the built-in guards"
 	local g="$work/guards/templates/guards.txt" sent="$work/guards/sent.jsonl"
@@ -475,7 +513,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off rewrite nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff guards guards_off rewrite nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done
