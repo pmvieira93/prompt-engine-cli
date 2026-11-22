@@ -1,9 +1,9 @@
 # PRD Appendix 5: Cost-Aware Local Assistance
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.5 (section 2, core value proposition; section 4.2, the local AI engine; the Phase 5 roadmap)  
-**Appendix Version:** 1.3.6  
-**Date:** 2026-11-20  
-**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The cost benchmark run on 2026-11-10 (section 8.5): no measurable difference from the rewrite; it is the baseline FR-11.3, FR-11.4 and FR-11.6 must beat. Spike step 3 (routing) run on 2026-11-19 (section 10): a new task can be told from the prompt, the kind of work partly, light or heavy with a decision model of 4B or more (`pplx-decider-flash`, 4.6 GB); to be decided. Raised on 2026-10-30.
+**Appendix Version:** 1.4.0  
+**Date:** 2026-11-22  
+**Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The cost benchmark run on 2026-11-10 (section 8.5): no measurable difference from the rewrite; it is the baseline FR-11.3, FR-11.4 and FR-11.6 must beat. Spike step 3 (routing) run on 2026-11-19 (section 10): a new task can be told from the prompt, the kind of work partly, light or heavy with a decision model of 4B or more (`pplx-decider-flash`, 4.6 GB). Decided on 2026-11-22 (section 11): FR-11.4 to build, the context hints first (`/clear` for a new task, a handoff file for a large session that goes on), then the model hint; FR-11.6 started only by the developer; FR-11.3 waits for labels, gathered as the developer works. Raised on 2026-10-30.
 
 ---
 
@@ -84,6 +84,7 @@ The decision model never changes what is sent or which model answers: the prompt
 * **FR-11.4: Model and context hints.** The classifier would estimate task complexity and context continuity:
   * Suggest a lighter model (Haiku, via `/model`) for small, self-contained tasks, leaving Sonnet or Opus for agentic work.
   * Suggest `/compact` or `/clear` when the classifier says the new prompt starts an unrelated task and FR-11.1 shows the context is large, to avoid carrying forward obsolete context.
+  * *Added on 2026-11-22:* suggest a **handoff** when the session itself has grown large or costly (FR-11.1's context size and cost), whatever the prompt: Claude writes a handoff file (the goal, what's done, the decisions and why, the files involved, what's left, open questions), and the next session starts from it after `/clear`. Unlike `/compact`, the developer can read and edit it, and it outlives the session. It needs no model.
   * `prompt-engine` would only suggest; the developer would run the command.
 * **FR-11.5 (later, not in scope yet): Split calls below Claude Code.** A local proxy between Claude Code and its API (Claude Code accepts a custom API address) could:
   * send small calls (titles, summaries, quick checks) to a local model;
@@ -169,7 +170,7 @@ The spike's code and results go in `docs/spikes/`, like the earlier spikes.
 
 ## 6. Roadmap
 
-FR-11.1 is built (section 9). Next when picked up: the cost benchmark (section 8). FR-11.3 and FR-11.4 wait for both, so their effect can be measured, and both need spike steps 3 and 4 first: they rely on the same classifier. FR-11.6 starts with retrieval only, measured in the benchmark. Spike step 3 is done (section 10); its suggestions wait for the developer's decision. Eight decision models through Ollama were added to it on 2026-11-20.
+FR-11.1 is built (section 9). Next when picked up: the cost benchmark (section 8). FR-11.3 and FR-11.4 wait for both, so their effect can be measured, and both need spike steps 3 and 4 first: they rely on the same classifier. FR-11.6 starts with retrieval only, measured in the benchmark. Spike step 3 is done (section 10), with eight decision models through Ollama added on 2026-11-20, and decided on 2026-11-22 (section 11): next is FR-11.4's context hints, then its model hint.
 
 ---
 
@@ -280,10 +281,27 @@ The decision models under 1 GB (`kev`, `tev1`, `d1-omni`) were near the baseline
 
 The sample is small (6 investigation prompts, 15 heavy ones) and the hand labels started as Claude's proposals, accepted by the developer. Every run was on an Apple Silicon Mac; `pplx-decider-flash`'s 4-bit tag uses Ollama's MLX runner, for Macs only.
 
-Suggested, for the developer to decide:
+Suggested, for the developer to decide (decided in section 11):
 * **FR-11.4, the `/clear` hint:** build it first, with the embeddings classifier and the context size (FR-11.1).
 * **FR-11.4, the model hint:** `pplx-decider-flash`, offered only when it's confident. With the ghost-text and rewrite models and the classifier, about 10.6 GB in all. Where it doesn't fit or doesn't run, base the hint on the session (the last turns' tool calls), or leave it out.
 * **FR-11.6:** start it from an explicit trigger (words the developer lists, or a shortcut), not a classifier.
 * **FR-11.3:** keep proposed; it needs more hand labels, and a check of whether local answers are good enough.
 * **The runtime (section 5):** both models run through Ollama, so no new runtime is needed.
 * **Labels:** the history (FR-5.4) can gather them as the developer works, a hint followed or dismissed counting as one.
+
+---
+
+## 11. Decisions after the routing spike (2026-11-22)
+
+On section 10's suggestions, the developer decided:
+
+* **FR-11.4, the context hints: build first, both, chosen by the situation.**
+  * **A new task, unrelated to the last one, and the previous one finished: suggest `/clear`.** The embeddings classifier decides "new task", with the context size from FR-11.1.
+  * **A large or costly session whose work goes on: suggest a handoff.** Claude writes the handoff file, then `/clear`, and the next session starts from the file, so nothing needed is lost. Raised by the developer while deciding: `/clear` alone drops what the next task still needs. The trigger is the session's size and cost (FR-11.1), so it needs no model; the thresholds are set when it is built, and the hint shows once per threshold, not on every prompt.
+  * Both only suggest; the developer runs the command or sends the handoff prompt, which can be edited first.
+* **FR-11.4, the model hint: build after the context hints,** with `pplx-decider-flash`, shown only when it's confident. Switching models mid-session rewrites Claude's prompt cache (section 8.4), so the hint matters most at the start of a task: right after `/clear` or a handoff. Where the model doesn't fit or doesn't run (it's Mac-only), there is no model hint.
+* **FR-11.6: started only by the developer,** with a shortcut or a word the developer lists, never by a classifier: none of the models found the investigation prompts reliably. Retrieval first, measured in a cost benchmark on a larger project.
+* **FR-11.3: stays proposed.** The history (FR-5.4) gathers labels as the developer works, a hint followed or dismissed counting as one, so the classifier can be retrained and checked again.
+* **The runtime:** both models run through Ollama; no new runtime.
+
+Each part is measured against the cost benchmark (section 8.5) once it exists.
