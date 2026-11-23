@@ -129,7 +129,7 @@ To add a rule only when it fits, start a section with its words. This one goes o
 Find the cause before proposing a fix.
 ```
 
-**Hand off a long session.** Once Claude Code's context reaches 120k tokens (`hints.handoff_at`), a hint suggests a handoff. **Ctrl+Q, then h** puts a prompt in that asks Claude to write `HANDOFF.md`: the goal, what's done, the decisions, the files, what's left. Send it, run `/clear`, and the empty prompt offers *Read HANDOFF.md and continue from it.* as ghost text, so the fresh session starts from it. To ask for something else, write your own prompt in `~/.config/prompt-engine/templates/handoff.txt`.
+**Hand off a long session.** Once Claude Code's context reaches 120k tokens (`hints.handoff_at`), a hint suggests a handoff. **Ctrl+Q, then h** puts a prompt in that asks Claude to write `HANDOFF.md` in eight sections: objective, essential context, what has been done, current state, next steps, open questions, relevant artifacts, and instructions for the next session, ending with a pointer to this session's transcript. Send it, run `/clear`, and the empty prompt offers *Read HANDOFF.md and continue from it.* as ghost text, so the fresh session starts from it. To ask for something else, write your own prompt in `~/.config/prompt-engine/templates/handoff.txt`; `{transcript}` in it becomes the transcript's path.
 
 **Change how ghost text looks:**
 

@@ -421,7 +421,8 @@ exit' 'hints:
 	check "the hint shows once the context reaches hints.handoff_at" shown 'context 41k: write a handoff and start fresh? ctrl+q then h'
 	check "the log has it" logged 'hint: handoff, context 41k'
 	check "undo brings the typed prompt back" logged 'expand: undone, back to "next task"'
-	check "the handoff prompt is sent" sent '"Write HANDOFF.md for a fresh session to continue this work: the goal, what'"'"'s done, the decisions made and why, the files involved, what'"'"'s left, and open questions. Keep it under a page."'
+	check "the handoff prompt is sent, with its sections, line by line" sh -c 'tail -n 1 "$1" | grep -qF "with this structure:\\n\\n# Handoff: [short and descriptive title]" && tail -n 1 "$1" | grep -qF "\\n## 8. Instructions for the Next Session\\n"' _ "$dir/sent.jsonl"
+	check "and names the transcript" sh -c 'tail -n 1 "$1" | grep -q "Original session: .*/claude/projects/.*\\.jsonl\\."' _ "$dir/sent.jsonl"
 	check "the history records the hint as followed" grep -q '"hint":"handoff","hint_followed":true' "$h"
 	check "after /clear, reading the handoff is offered" logged 'hint: offered "Read HANDOFF.md and continue from it." after /clear'
 	check "and shown as ghost text" shown 'Read HANDOFF.md and continue from it.'

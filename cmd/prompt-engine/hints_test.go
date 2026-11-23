@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,19 +36,24 @@ func TestHandoffDue(t *testing.T) {
 
 func TestHandoffPrompt(t *testing.T) {
 	dir := t.TempDir()
-	if got := handoffPrompt(dir); got != defaultHandoff {
+	got := handoffPrompt(dir, "/p/s.jsonl")
+	if !strings.HasPrefix(got, "Write HANDOFF.md") || !strings.Contains(got, "## 8. Instructions for the Next Session") ||
+		!strings.Contains(got, "*Original session: /p/s.jsonl.") {
 		t.Fatalf("no file: %q", got)
+	}
+	if got := handoffPrompt(dir, ""); !strings.Contains(got, "Original session: unknown.") {
+		t.Fatalf("no transcript: %q", got)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "handoff.txt"), []byte("  \n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := handoffPrompt(dir); got != defaultHandoff {
+	if got := handoffPrompt(dir, ""); !strings.HasPrefix(got, "Write HANDOFF.md") {
 		t.Fatalf("empty file: %q", got)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "handoff.txt"), []byte("Write NOTES.md.\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "handoff.txt"), []byte("Write NOTES.md; see {transcript}.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := handoffPrompt(dir); got != "Write NOTES.md." {
+	if got := handoffPrompt(dir, "/p/s.jsonl"); got != "Write NOTES.md; see /p/s.jsonl." {
 		t.Fatalf("file: %q", got)
 	}
 }

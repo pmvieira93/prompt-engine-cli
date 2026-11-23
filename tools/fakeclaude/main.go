@@ -141,6 +141,9 @@ func (f *fake) input(in string) (rest string, quit bool) {
 		switch {
 		case strings.HasPrefix(in, pasteStart):
 			in, f.inPaste = in[len(pasteStart):], true
+		case strings.HasPrefix(in, "\x1b\r"): // Alt+Enter: a line break, as prompt-engine types one
+			f.insert("\n")
+			in = in[2:]
 		case strings.HasPrefix(in, "\x1b[C"): // →
 			f.accept()
 			in = in[3:]

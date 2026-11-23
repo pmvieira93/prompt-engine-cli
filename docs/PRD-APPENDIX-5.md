@@ -303,7 +303,7 @@ On section 10's suggestions, the developer decided:
   * Both only suggest; the developer runs the command or sends the handoff prompt, which can be edited first.
   * *The handoff hint was built on 2026-11-22:*
     * from `hints.handoff_at` (default 120k tokens of context, then every 40k more, 0 for off), a notice at the cursor and a line in the panel;
-    * **Ctrl+Q, then h** puts the prompt from `templates/handoff.txt` (or a built-in one asking for `HANDOFF.md`) in place of the typed one, which **Ctrl+Q, then u** brings back;
+    * **Ctrl+Q, then h** puts the prompt from `templates/handoff.txt` (or a built-in one asking for `HANDOFF.md` in the developer's eight sections, ending with the session's transcript path; `{transcript}` fills it in either) in place of the typed one, which **Ctrl+Q, then u** brings back;
     * after `/clear` that follows a handoff, the empty prompt offers "Read HANDOFF.md and continue from it." as ghost text;
     * the history records each hint, and whether it was followed (`hint`, `hint_followed`), the labels FR-11.3 waits for.
   * The new-task hint is next.

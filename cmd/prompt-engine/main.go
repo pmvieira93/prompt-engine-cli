@@ -812,7 +812,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			return
 		}
 		dir, _ := live.Load().TemplatesDir()
-		text := handoffPrompt(dir)
+		transcript, _ := sess.transcriptPath()
+		text := handoffPrompt(dir, transcript)
 		if err := ctrl.Replace(s.Rev, s.Text, text); err != nil {
 			logf("handoff: not applied: %v", err)
 			flashNotice(ctrl, "handoff: "+err.Error())
