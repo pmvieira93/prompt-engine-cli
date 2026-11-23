@@ -74,6 +74,18 @@ sent_any() { grep -qF -- "$1" "$dir/sent.jsonl"; }
 first_sent() { [ "$(head -n 1 "$dir/sent.jsonl")" = "$1" ]; }
 shown() { grep -qF -- "$1" "$dir/screen.txt"; }
 fails_shown() { ! shown "$1"; }
+not_logged() { ! logged "$1"; }
+# last_sent_has text...: the last prompt sent holds every text, as its JSON
+# string (a line break is \n).
+last_sent_has() {
+	local last t
+	last=$(tail -n 1 "$dir/sent.jsonl")
+	for t in "$@"; do [[ $last == *"$t"* ]] || return 1; done
+}
+has() { [[ $1 == *"$2"* ]]; }
+lacks() { [[ $1 != *"$2"* ]]; }
+# prompt_line n history: the nth prompt's line, skipping usage lines.
+prompt_line() { grep -v '"kind"' "$2" | sed -n "${1}p"; }
 same() { [ -n "$1" ] && [ "$1" = "$2" ]; }
 printed() { grep -qF -- "$1" "$dir/out.json"; }
 
@@ -421,8 +433,8 @@ exit' 'hints:
 	check "the hint shows once the context reaches hints.handoff_at" shown 'context 41k: write a handoff and start fresh? ctrl+q then h'
 	check "the log has it" logged 'hint: handoff, context 41k'
 	check "undo brings the typed prompt back" logged 'expand: undone, back to "next task"'
-	check "the handoff prompt is sent, with its sections, line by line" sh -c 'tail -n 1 "$1" | grep -qF "with this structure:\\n\\n# Handoff: [short and descriptive title]" && tail -n 1 "$1" | grep -qF "\\n## 8. Instructions for the Next Session\\n"' _ "$dir/sent.jsonl"
-	check "and names the transcript" sh -c 'tail -n 1 "$1" | grep -q "Original session: .*/claude/projects/.*\\.jsonl\\."' _ "$dir/sent.jsonl"
+	check "the handoff prompt is sent, with its sections, line by line" last_sent_has 'with this structure:\n\n# Handoff: [short and descriptive title]' '\n## 8. Instructions for the Next Session\n'
+	check "and names the transcript" last_sent_has 'Original session: ' '/claude/projects/' '.jsonl. Indicative only'
 	check "the history records the hint as followed" grep -q '"hint":"handoff","hint_followed":true' "$h"
 	check "after /clear, reading the handoff is offered" logged 'hint: offered "Read HANDOFF.md and continue from it." after /clear'
 	check "and shown as ghost text" shown 'Read HANDOFF.md and continue from it.'
@@ -464,12 +476,13 @@ wait "Reply to: third" 3s
 send "\x04"
 exit' 'hints:
   handoff_at: 40000'
-	local prompts
-	prompts=$(grep -v '"kind"' "$work/history/handoff_undo.jsonl")
-	check "the undone prompt has the hint, not followed" sh -c 'echo "$1" | sed -n 2p | grep -q "\"hint\":\"handoff\"" && ! echo "$1" | sed -n 2p | grep -q hint_followed' _ "$prompts"
-	check "no handoff is offered after /clear" sh -c '! grep -q "hint: offered" "$1"' _ "$dir/pe.log"
+	local undone
+	undone=$(prompt_line 2 "$work/history/handoff_undo.jsonl")
+	check "the undone prompt has the hint" has "$undone" '"hint":"handoff"'
+	check "but not followed" lacks "$undone" hint_followed
+	check "no handoff is offered after /clear" not_logged 'hint: offered'
 	check "the hint shows again in the fresh session" test "$(grep -c 'hint: handoff, context' "$dir/pe.log")" -ge 2
-	check "/clear drops it: the next prompt has no hint" sh -c '! echo "$1" | sed -n 4p | grep -q hint' _ "$prompts"
+	check "/clear drops it: the next prompt has no hint" lacks "$(prompt_line 4 "$work/history/handoff_undo.jsonl")" '"hint"'
 }
 
 case_guards() {
