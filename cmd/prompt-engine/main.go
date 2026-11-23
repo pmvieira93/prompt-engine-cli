@@ -1036,7 +1036,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			logf("expand: no preview for %q: %s (%s)%s", plan.Masked, reason, took, rejectedBy)
 		} else {
 			logf("expand: preview ready for %q: %q (%s, style %s)", s.Text, out, took, style)
-			if !ctrl.PanelOpen() {
+			// Not over a notice already shown, e.g. a hint: seen hiding the
+			// new-task hint 0.3s after it showed.
+			if !ctrl.PanelOpen() && ctrl.Notice() == "" {
 				k := ctrl.CurrentKeys()
 				flashNotice(ctrl, fmt.Sprintf("✎ rewrite ready · %s then %s uses it, %s then %s shows it", k.Leader, k.Expand, k.Leader, k.Panel))
 			}

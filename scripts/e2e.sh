@@ -534,6 +534,7 @@ wait "Reply to: say hello" 3s
 sleep 2500ms
 send "add a csv export to the ledger report with a header row"
 wait "a new task?" 4s
+sleep 1500ms
 dump
 send "\x11h"
 wait "Write HANDOFF.md" 3s
@@ -545,12 +546,16 @@ wait "❯ add a csv export" 10s
 dump
 send "\x04"
 exit' 'hints:
-  handoff_at: 0'
+  handoff_at: 0
+expand:
+  on_enter: preview'
 	check "the hint shows for an unrelated prompt" shown 'context 41k, a new task? ctrl+q then c: /clear first'
 	check "the log has it" logged 'hint: new task, context 41k: "add a csv export to the ledger report with a header row"'
 	check "the history records it as followed" grep -q '"hint":"new_task","hint_followed":true' "$work/history/new_task.jsonl"
 	check "after /clear, the new task comes back" logged 'hint: put back "add a csv export to the ledger report with a header row" after /clear'
 	check "rather than reading the handoff" not_logged 'hint: offered'
+	check "a rewrite preview is prepared meanwhile" logged 'expand: preview ready for "add a csv export'
+	check "but doesn't hide the hint" fails_shown '✎ rewrite ready'
 }
 
 case_guards() {
