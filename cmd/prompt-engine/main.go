@@ -236,6 +236,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	}
 	// The hint shown since the last prompt, and whether it was taken (PRD
 	// Appendix 5, FR-11.4); and the context size it was last shown at.
+	// Never call ctrl while holding it: Enter calls record, which takes it,
+	// with ctrl locked, so the other order deadlocks.
 	var hint struct {
 		sync.Mutex
 		shown     string // the hint shown since the last prompt: "handoff" or "new_task"
@@ -377,15 +379,21 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		// on disk if that's ever seen to lose one.
 		ok := retry(480, func() bool {
 			hint.Lock()
-			defer hint.Unlock()
-			if hint.restore != text {
+			dropped := hint.restore != text
+			hint.Unlock()
+			if dropped {
 				return true // dropped, by a prompt sent after a handoff
 			}
+			// A prompt sent meanwhile changes the revision, so Replace refuses.
 			s := tracker.Snapshot()
 			if !s.Synced || s.Text != "" || (ctrl.Gate != nil && !ctrl.Gate()) || ctrl.Replace(s.Rev, "", text) != nil {
 				return false
 			}
-			hint.restore, hint.stashed = "", false
+			hint.Lock()
+			if hint.restore == text {
+				hint.restore, hint.stashed = "", false
+			}
+			hint.Unlock()
 			logf("hint: put back %q after /clear", text)
 			return true
 		})
@@ -1145,18 +1153,19 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		// Shown, and so recorded, only once the notice can be drawn: the
 		// history's labels mustn't count a hint nobody saw.
 		retry(40, func() bool {
+			drawable := ctrl.Gate == nil || ctrl.Gate()
 			hint.Lock()
-			defer hint.Unlock()
-			if hint.shown != "" || tracker.Snapshot().Text != s.Text {
-				return true
+			stale := hint.shown != "" || tracker.Snapshot().Text != s.Text
+			show := !stale && drawable
+			if show {
+				hint.shown = "new_task"
 			}
-			if ctrl.Gate != nil && !ctrl.Gate() {
-				return false
+			hint.Unlock()
+			if show {
+				logf("hint: new task, context %s: %q", tokens(size), s.Text)
+				ctrl.SetBriefNotice(msg)
 			}
-			hint.shown = "new_task"
-			logf("hint: new task, context %s: %q", tokens(size), s.Text)
-			ctrl.SetBriefNotice(msg)
-			return true
+			return stale || show
 		})
 		ctrl.Redraw()
 	}
@@ -1487,8 +1496,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		Status: func() []string {
 			lines := append(slices.Clone(*status.Load()), guardStatusLines(live.Load().Expand.Guards == "off", *guardStatus.Load())...)
 			lines = append(lines, sess.usageLines()...)
-			hint.Lock()
 			keys := ctrl.CurrentKeys()
+			hint.Lock()
 			switch {
 			case hint.followed:
 			case hint.shown == "handoff":
