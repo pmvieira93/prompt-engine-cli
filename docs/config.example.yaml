@@ -60,6 +60,7 @@ keys:                  # shortcuts are leader-prefixed, like tmux: press leader,
   undo: u              # put back the prompt from before the last rewrite
   style: s             # the next rewrite style, for this prompt only: default → llm → human → both
   handoff: h           # put the handoff prompt (templates/handoff.txt) in place of the typed one; undo brings it back
+  clear: c             # send /clear (once Claude's reply has ended), then put the typed prompt back, unsent
   panel_wider: "+"     # widen the panel by 5%
   panel_narrower: "-"  # narrow it by 5%
 
@@ -74,6 +75,8 @@ templates:
 hints:
   handoff_at: 120000   # once Claude's context reaches this many tokens (and every 40k more), suggest a handoff:
                        # Claude writes HANDOFF.md, you /clear, and the next session starts from it; 0 turns it off
+  new_task_at: 30000   # from this context size, a prompt that starts a new task gets a hint: /clear first, or a handoff;
+                       # needs `ollama pull nomic-embed-text`; 0 turns it off
 
 history:
   enabled: true        # one JSON line of metrics per prompt sent

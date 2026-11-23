@@ -55,6 +55,10 @@ var (
 	closedCode        = regexp.MustCompile("(?s)```.*?```")
 )
 
+// HasPlaceholder reports whether text shows claude's "[Pasted text #1 …]"
+// label for a long paste, whose text is then unknown.
+func HasPlaceholder(text string) bool { return claudePlaceholder.MatchString(text) }
+
 // PlanRewrite splits text into what is rewritten and what is kept, given
 // what was pasted into it (input.State.Pastes).
 func PlanRewrite(text string, pastes []string) Plan {

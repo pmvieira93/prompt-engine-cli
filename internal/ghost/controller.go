@@ -65,6 +65,8 @@ type Controller struct {
 	// OnHandoff, if set before use, is called after Leader then
 	// Keys.Handoff, with the prompt as it is then. It must not block.
 	OnHandoff func(s input.State)
+	// OnClear, likewise, after Leader then Keys.Clear.
+	OnClear func(s input.State)
 
 	// CanInsert, if set, must approve every Replace: e.g. the child's cursor
 	// is in its prompt, not a dialog.
@@ -167,7 +169,7 @@ const RepeatTime = time.Second
 
 // Keys are prompt-engine's shortcuts: Leader, then one of the others.
 type Keys struct {
-	Leader, Panel, Expand, Undo, Style, Handoff, Wider, Narrower input.Binding
+	Leader, Panel, Expand, Undo, Style, Handoff, Clear, Wider, Narrower input.Binding
 }
 
 // SetKeys replaces the shortcut keys, e.g. after the config is edited. It
@@ -451,6 +453,13 @@ func (c *Controller) Filter(p []byte) []byte {
 				s, fn := c.Tracker.Snapshot(), c.OnHandoff
 				actions = append(actions, func() { fn(s) })
 				out = append(out, c.Keys.Handoff.Rest(k)...)
+			case c.Keys.Clear.MatchesHeld(k) && c.OnClear != nil:
+				c.logf("leader: clear")
+				res = append(res, c.Tracker.Filter(out)...)
+				out = out[:0]
+				s, fn := c.Tracker.Snapshot(), c.OnClear
+				actions = append(actions, func() { fn(s) })
+				out = append(out, c.Keys.Clear.Rest(k)...)
 			case c.Keys.Leader.Matches(k):
 				c.logf("leader: sent %s to child", c.Keys.Leader)
 				out = append(out, k.Raw...)

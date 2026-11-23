@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo guards guards_off rewrite nested
+#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo clear new_task guards guards_off rewrite nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -428,7 +428,8 @@ wait "Read HANDOFF.md and continue" 8s
 dump
 send "\x04"
 exit' 'hints:
-  handoff_at: 40000'
+  handoff_at: 40000
+  new_task_at: 0'
 	local h="$work/history/handoff.jsonl"
 	check "the hint shows once the context reaches hints.handoff_at" shown 'context 41k: write a handoff and start fresh? ctrl+q then h'
 	check "the log has it" logged 'hint: handoff, context 41k'
@@ -475,7 +476,8 @@ send "\r"
 wait "Reply to: third" 3s
 send "\x04"
 exit' 'hints:
-  handoff_at: 40000'
+  handoff_at: 40000
+  new_task_at: 0'
 	local undone
 	undone=$(prompt_line 2 "$work/history/handoff_undo.jsonl")
 	check "the undone prompt has the hint" has "$undone" '"hint":"handoff"'
@@ -483,6 +485,83 @@ exit' 'hints:
 	check "no handoff is offered after /clear" not_logged 'hint: offered'
 	check "the hint shows again in the fresh session" test "$(grep -c 'hint: handoff, context' "$dir/pe.log")" -ge 2
 	check "/clear drops it: the next prompt has no hint" lacks "$(prompt_line 4 "$work/history/handoff_undo.jsonl")" '"hint"'
+}
+
+case_clear() {
+	echo "clear: the shortcut sends /clear, then puts the typed prompt back, unsent"
+	run_case clear 'reply on
+wait "❯" 5s
+send "say hello"
+sleep 300ms
+send "\r"
+wait "Reply to: say hello" 3s
+sleep 2500ms
+send "a new task"
+sleep 300ms
+send "\x11c"
+sleep 4s
+dump
+send "\r"
+wait "Reply to: a new task" 3s
+sleep 2500ms
+send "second task"
+sleep 300ms
+send "\x11c"
+sleep 50ms
+send "quick"
+sleep 300ms
+send "\r"
+wait "Reply to: quick" 3s
+sleep 1500ms
+dump
+send "\x04"
+exit' 'hints:
+  new_task_at: 0'
+	check "/clear is sent, and seen in the transcript" logged 'context: /clear: the earlier reply'
+	check "the typed prompt is put back after it" logged 'hint: put back "a new task" after /clear'
+	check "and shown, unsent" shown '❯ a new task'
+	check "a prompt typed and sent before it's back doesn't lose it" logged 'hint: put back "second task" after /clear'
+}
+
+case_new_task() {
+	echo "new_task: an unrelated prompt, pasted, brings the hint; after a handoff, the clear shortcut on the empty prompt brings the new task back"
+	PE_HISTORY="$work/history/new_task.jsonl" run_case new_task 'reply on
+wait "❯" 5s
+send "say hello"
+sleep 300ms
+send "\r"
+wait "Reply to: say hello" 3s
+sleep 2500ms
+send "\x1b[200~add a csv export to the ledger report with a header row\x1b[201~"
+wait "a new task?" 4s
+sleep 1500ms
+dump
+send "\x03"
+sleep 300ms
+send "\x1b[200~add a csv export to the ledger report with a header row\x1b[201~"
+wait "a new task?" 4s
+dump
+send "\x11h"
+wait "Write HANDOFF.md" 3s
+send "\r"
+wait "Reply to: Write HANDOFF.md" 3s
+sleep 2500ms
+send "\x11c"
+wait "❯ add a csv export" 10s
+dump
+send "\x04"
+exit' 'hints:
+  handoff_at: 0
+expand:
+  on_enter: preview'
+	check "the hint shows for an unrelated prompt" shown 'context 41k, a new task? ctrl+q then c: /clear first'
+	check "the log has it" logged 'hint: new task, context 41k: "add a csv export to the ledger report with a header row"'
+	check "an emptied prompt (Ctrl+C) gets it again" test "$(grep -c 'hint: new task, context' "$dir/pe.log")" -eq 2
+	check "the history records it as followed" grep -q '"hint":"new_task","hint_followed":true' "$work/history/new_task.jsonl"
+	check "after /clear, the new task comes back" logged 'hint: put back "add a csv export to the ledger report with a header row" after /clear'
+	check "rather than reading the handoff" not_logged 'hint: offered'
+	check "a rewrite preview is prepared meanwhile" logged 'expand: preview ready for "add a csv export'
+	check "but doesn't hide the hint" fails_shown '✎ rewrite ready'
 }
 
 case_guards() {
@@ -571,7 +650,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo guards guards_off rewrite nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo clear new_task guards guards_off rewrite nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

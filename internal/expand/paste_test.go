@@ -99,3 +99,9 @@ func TestForContext(t *testing.T) {
 		}
 	}
 }
+
+func TestHasPlaceholder(t *testing.T) {
+	if !HasPlaceholder("fix [Pasted text #1 +5 lines] now") || HasPlaceholder("write a haiku about the moon") {
+		t.Fatal("HasPlaceholder must find claude's label, and only it")
+	}
+}
