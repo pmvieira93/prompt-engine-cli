@@ -237,8 +237,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	// Appendix 5, FR-11.4); and the context size it was last shown at.
 	var hint struct {
 		sync.Mutex
-		shown     string
-		followed  bool
+		shown     string // a hint was shown since the last prompt
+		followed  bool   // the handoff shortcut was used, and not undone
 		last      int64
 		handedOff bool // a handoff prompt was sent: offer to read it after /clear
 	}
@@ -321,15 +321,33 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		due, last := handoffDue(context, int64(live.Load().Hints.HandoffAt), hint.last)
 		hint.last = last
 		if due {
-			hint.shown, hint.followed = "handoff", false
+			hint.shown = "handoff"
 		}
 		hint.Unlock()
-		if due {
-			keys := ctrl.CurrentKeys()
-			logf("hint: handoff, context %s", tokens(context))
-			ctrl.SetBriefNotice(fmt.Sprintf("context %s: write a handoff and start fresh? %s then %s",
-				tokens(context), keys.Leader, keys.Handoff))
+		if !due {
+			return
 		}
+		keys := ctrl.CurrentKeys()
+		msg := fmt.Sprintf("context %s: write a handoff and start fresh? %s then %s", tokens(context), keys.Leader, keys.Handoff)
+		logf("hint: handoff, context %s", tokens(context))
+		// The notice is drawn at the cursor, so only once it's in the
+		// prompt: the context grows during a reply, maybe under a dialog.
+		// The panel line shows meanwhile.
+		go func() {
+			for range 1200 { // 10 minutes
+				hint.Lock()
+				pending := hint.shown == "handoff" && !hint.followed
+				hint.Unlock()
+				if !pending {
+					return
+				}
+				if ctrl.Gate == nil || ctrl.Gate() {
+					ctrl.SetBriefNotice(msg)
+					return
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+		}()
 	}
 	sess.needed = func() bool {
 		return ctrl.PanelOpen() || live.Load().History.Enabled || live.Load().Hints.HandoffAt > 0
@@ -341,6 +359,11 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		hint.Lock()
 		offer := hint.handedOff
 		hint.handedOff = false
+		if !hint.followed {
+			// /clear took the hint's "start fresh", without a handoff: no
+			// label is better than "dismissed".
+			hint.shown = ""
+		}
 		hint.Unlock()
 		if !offer {
 			return
@@ -431,6 +454,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			}
 			if next.History != prev.History {
 				applied = append(applied, "history") // read on each submit
+			}
+			if next.Hints != prev.Hints {
+				applied = append(applied, "hints") // read on each usage update
 			}
 			if next.Panel.Visible != prev.Panel.Visible {
 				restart = append(restart, "panel.visible") // only opens it at startup
@@ -760,6 +786,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			logf("expand: undo not applied: %v", err)
 			return
 		}
+		expansion.Lock()
+		handoff := expansion.style == "handoff"
+		expansion.Unlock()
+		if handoff {
+			hint.Lock()
+			hint.followed = false
+			hint.Unlock()
+		}
 		logf("expand: undone, back to %q", original)
 	}
 	// keys.handoff: the handoff prompt in place of the typed one, which
@@ -788,7 +822,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		expansion.original, expansion.pastes, expansion.expanded, expansion.style = s.Text, s.Pastes, text, "handoff"
 		expansion.Unlock()
 		hint.Lock()
-		hint.shown, hint.followed = "handoff", true
+		hint.followed = true
 		hint.Unlock()
 		logf("handoff: replaced %q with the handoff prompt", s.Text)
 	}
@@ -1097,9 +1131,11 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		expansion.original, expansion.pastes, expansion.expanded, expansion.style = "", nil, "", ""
 		expansion.Unlock()
 		hint.Lock()
-		sub.Hint, sub.HintFollowed = hint.shown, hint.followed
-		if hint.shown == "handoff" && hint.followed {
-			hint.handedOff = true
+		if hint.shown != "" || hint.followed {
+			sub.Hint, sub.HintFollowed = "handoff", hint.followed
+		}
+		if hint.followed {
+			hint.handedOff = true // until /clear, even with prompts after it
 		}
 		hint.shown, hint.followed = "", false
 		hint.Unlock()
