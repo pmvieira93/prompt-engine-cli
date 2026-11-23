@@ -131,8 +131,9 @@ func read(dir string) (names []string, entries []entry) {
 	return names, entries
 }
 
-// pasteTag is what claude puts around a large paste before the hook sees it.
-var pasteTag = regexp.MustCompile(`</?pasted_content id="[0-9a-f]{4}">`)
+// pasteTag is what claude puts around a large paste before the hook sees it:
+// the same pattern as transcript's, so a new id format doesn't break one only.
+var pasteTag = regexp.MustCompile(`</?pasted_content(?: id="[^"]*")?>`)
 
 // bare returns prompt without what claude changes in it: tags around
 // pastes, and space.
