@@ -1,9 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 )
 
 // Hints on how Claude Code is used (PRD Appendix 5, FR-11.4, section 11).
@@ -78,4 +87,89 @@ func handoffPrompt(dir, transcript string) string {
 		transcript = "unknown"
 	}
 	return strings.ReplaceAll(text, "{transcript}", transcript)
+}
+
+// newTaskPause is how long typing pauses before a prompt is checked for a
+// new task.
+const newTaskPause = time.Second
+
+// embedModel gives the vectors the new-task classifier was trained on.
+const embedModel = "nomic-embed-text"
+
+// backRef is a word that refers to the conversation so far: the routing
+// spike's BACKREF, case-sensitive as it was trained.
+var backRef = regexp.MustCompile(`\b(it|that|this|those|these|them|also|again|same|above|previous|continue|go ahead|yes|ok|` +
+	`okay|sure|merge|commit|push|reply|fix (all|them|it))\b`)
+
+// newTaskWeights are a logistic regression on [cosine with the previous
+// prompt, first prompt, backRef, log(1+words)/5] scaled to unit length,
+// then the bias; trained on the developer's 60 hand labels (routing spike,
+// docs/spikes/routing.md: 90%, never "new" for a continuing prompt).
+var newTaskWeights = [5]float64{-6.0313, 3.6789, -0.2616, 5.0222, 0.5849}
+
+// newTask reports whether a prompt starts a new task, given the cosine
+// between its vector and the previous prompt's.
+func newTask(text string, cosine float64) bool {
+	x := []float64{cosine, 0, 0, math.Log(1+float64(len(strings.Fields(text)))) / 5}
+	if backRef.MatchString(text) {
+		x[2] = 1
+	}
+	var norm float64
+	for _, v := range x {
+		norm += v * v
+	}
+	norm = math.Sqrt(norm)
+	if norm == 0 {
+		norm = 1
+	}
+	score := newTaskWeights[4]
+	for i, v := range x {
+		score += newTaskWeights[i] * v / norm
+	}
+	return score > 0
+}
+
+func cosine(a, b []float64) float64 {
+	var dot, na, nb float64
+	for i := range min(len(a), len(b)) {
+		dot, na, nb = dot+a[i]*b[i], na+a[i]*a[i], nb+b[i]*b[i]
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return dot / math.Sqrt(na*nb)
+}
+
+// embed returns text's vector from Ollama at endpoint, as the classifier
+// was trained: with nomic-embed-text's task prefix, the first 2,000
+// characters.
+func embed(ctx context.Context, endpoint, text string) ([]float64, error) {
+	if r := []rune(text); len(r) > 2000 {
+		text = string(r[:2000])
+	}
+	body, _ := json.Marshal(map[string]string{"model": embedModel, "input": "classification: " + text})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(endpoint, "/")+"/api/embed", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Embeddings [][]float64 `json:"embeddings"`
+		Error      string      `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("%s: %w", resp.Status, err)
+	}
+	switch {
+	case out.Error != "":
+		return nil, errors.New(out.Error)
+	case len(out.Embeddings) == 0:
+		return nil, fmt.Errorf("%s: no embedding", resp.Status)
+	}
+	return out.Embeddings[0], nil
 }

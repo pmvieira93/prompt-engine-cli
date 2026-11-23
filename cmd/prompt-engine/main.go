@@ -10,6 +10,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -237,10 +238,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	// Appendix 5, FR-11.4); and the context size it was last shown at.
 	var hint struct {
 		sync.Mutex
-		shown     string // a hint was shown since the last prompt
-		followed  bool   // the handoff shortcut was used, and not undone
+		shown     string // the hint shown since the last prompt: "handoff" or "new_task"
+		followed  bool   // its shortcut was used, and not undone
 		last      int64
-		handedOff bool // a handoff prompt was sent: offer to read it after /clear
+		handedOff bool   // a handoff prompt was sent: offer to read it after /clear
+		restore   string // the typed prompt to put back after /clear
+		checked   string // the prompt last checked for a new task
+		prev      []float64
+		prevText  string // the prompt prev is the vector of
 	}
 	// The prompts sent in this session, as sent without the rules, for the
 	// models' context (expand.context, ghost.context).
@@ -350,14 +355,35 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		}()
 	}
 	sess.needed = func() bool {
-		return ctrl.PanelOpen() || live.Load().History.Enabled || live.Load().Hints.HandoffAt > 0
+		h := live.Load().Hints
+		return ctrl.PanelOpen() || live.Load().History.Enabled || h.HandoffAt > 0 || h.NewTaskAt > 0
+	}
+	// putBack types the prompt kept for after /clear into the empty prompt,
+	// once Claude has redrawn it.
+	putBack := func() {
+		hint.Lock()
+		text := hint.restore
+		hint.restore = ""
+		hint.Unlock()
+		if text == "" {
+			return
+		}
+		for range 20 {
+			if s := tracker.Snapshot(); s.Synced && s.Text == "" && (ctrl.Gate == nil || ctrl.Gate()) && ctrl.Replace(s.Rev, "", text) == nil {
+				logf("hint: put back %q after /clear", text)
+				return
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		logf("hint: couldn't put back %q after /clear", text)
+		flashNotice(ctrl, "couldn't put your prompt back after /clear")
 	}
 	// After /clear that follows a handoff, offer to read it.
 	cleared := sess.onClear
 	sess.onClear = func(t time.Time) {
 		cleared(t)
 		hint.Lock()
-		offer := hint.handedOff
+		offer := hint.handedOff && hint.restore == ""
 		hint.handedOff = false
 		if !hint.followed {
 			// /clear took the hint's "start fresh", without a handoff: no
@@ -365,6 +391,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			hint.shown = ""
 		}
 		hint.Unlock()
+		go putBack()
 		if !offer {
 			return
 		}
@@ -827,6 +854,47 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		hint.Unlock()
 		logf("handoff: replaced %q with the handoff prompt", s.Text)
 	}
+	// keys.clear: /clear, then the typed prompt back, unsent, for a new
+	// task in a fresh context (FR-11.4).
+	ctrl.OnClear = func(s input.State) {
+		path, _ := sess.transcriptPath()
+		t, ok := sess.turn()
+		switch {
+		case !s.Synced:
+			flashNotice(ctrl, "clear: the prompt isn't readable here")
+		case len(s.Pastes) > 0:
+			// Typed back, a paste would only be its "[Pasted text]" label.
+			flashNotice(ctrl, "clear: a paste can't be put back: type /clear yourself")
+		case path == "":
+			// /clear is seen in the transcript: without it, the prompt
+			// would never be put back.
+			flashNotice(ctrl, "clear: Claude's transcript isn't found: type /clear yourself")
+		case ok && !t.Done:
+			// shortcut: a prompt sent a moment ago isn't in the transcript
+			// yet, so this can miss a reply that just started.
+			flashNotice(ctrl, "clear: Claude is still replying")
+		default:
+			if err := ctrl.Replace(s.Rev, s.Text, "/clear"); err != nil {
+				logf("clear: not applied: %v", err)
+				flashNotice(ctrl, "clear: "+err.Error())
+				return
+			}
+			hint.Lock()
+			hint.restore = strings.TrimSpace(s.Text)
+			hint.followed = hint.shown == "new_task" // after the handoff hint, /clear alone isn't a handoff
+			hint.Unlock()
+			logf("clear: sending /clear, then putting back %q", s.Text)
+			if err := ctrl.Submit(tracker.Snapshot().Rev, "/clear"); err != nil {
+				// Enter on /clear still puts the prompt back.
+				logf("clear: /clear not sent: %v", err)
+				flashNotice(ctrl, "clear: /clear not sent: "+err.Error())
+				return
+			}
+			// In case /clear isn't seen in the transcript: the prompt
+			// mustn't be lost. A no-op once it's back.
+			time.AfterFunc(8*time.Second, putBack)
+		}
+	}
 
 	// Preview mode (expand.on_enter: preview, PRD Appendix 1, FR-7.6):
 	// when typing pauses, a rewrite is prepared in the background and the
@@ -967,6 +1035,78 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 				timer.Stop()
 			}
 			timer = time.AfterFunc(live.Load().Expand.PreviewPause, preparePreview)
+		}
+	}()
+
+	// The new-task hint (FR-11.4): when typing pauses on a prompt that
+	// starts a new task, once the context is large, suggest /clear or a
+	// handoff first.
+	checkNewTask := func() {
+		at := int64(live.Load().Hints.NewTaskAt)
+		var size int64
+		if t := sess.tally.Load(); t != nil {
+			size = t.Context
+		}
+		s := tracker.Snapshot()
+		prev := lastPrompts(1)
+		if at <= 0 || size < at || rules.SkipReason(s) != "" || len(prev) == 0 {
+			return
+		}
+		hint.Lock()
+		skip := hint.shown != "" || hint.checked == s.Text
+		hint.checked = s.Text
+		prevVec := hint.prev
+		if hint.prevText != prev[0] {
+			prevVec = nil
+		}
+		hint.Unlock()
+		if skip {
+			return
+		}
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second) // the model may need loading
+		defer cancel()
+		endpoint := live.Load().LLM.Endpoint
+		if prevVec == nil {
+			v, err := embed(ctx, endpoint, prev[0])
+			if err != nil {
+				logf("hint: new task not checked: %v", err)
+				return
+			}
+			prevVec = v
+			hint.Lock()
+			hint.prev, hint.prevText = v, prev[0]
+			hint.Unlock()
+		}
+		v, err := embed(ctx, endpoint, s.Text)
+		if err != nil {
+			logf("hint: new task not checked: %v", err)
+			return
+		}
+		if !newTask(s.Text, cosine(v, prevVec)) {
+			return
+		}
+		hint.Lock()
+		if hint.shown != "" || tracker.Snapshot().Text != s.Text {
+			hint.Unlock()
+			return
+		}
+		hint.shown = "new_task"
+		hint.Unlock()
+		k := ctrl.CurrentKeys()
+		logf("hint: new task, context %s: %q", tokens(size), s.Text)
+		if ctrl.Gate == nil || ctrl.Gate() {
+			ctrl.SetBriefNotice(fmt.Sprintf("context %s, a new task? %s then %s: /clear first · %s then %s: a handoff first",
+				tokens(size), k.Leader, k.Clear, k.Leader, k.Handoff))
+		}
+		ctrl.Redraw()
+	}
+	go func() {
+		var timer *time.Timer
+		for range tracker.Subscribe() {
+			if timer != nil {
+				timer.Stop()
+			}
+			timer = time.AfterFunc(newTaskPause, checkNewTask)
 		}
 	}()
 
@@ -1129,14 +1269,20 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		if expansion.expanded != "" && s.Text == expansion.expanded && expansion.style != "handoff" {
 			sub.Raw, sub.Expanded, sub.Style = expansion.original, true, expansion.style
 		}
+		handoff := expansion.expanded != "" && s.Text == expansion.expanded && expansion.style == "handoff"
+		typed := strings.TrimSpace(expansion.original)
 		expansion.original, expansion.pastes, expansion.expanded, expansion.style = "", nil, "", ""
 		expansion.Unlock()
 		hint.Lock()
 		if hint.shown != "" || hint.followed {
-			sub.Hint, sub.HintFollowed = "handoff", hint.followed
+			sub.Hint, sub.HintFollowed = cmp.Or(hint.shown, "handoff"), hint.followed
 		}
-		if hint.followed {
+		hint.restore = ""
+		if handoff {
 			hint.handedOff = true // until /clear, even with prompts after it
+			if hint.shown == "new_task" {
+				hint.restore = typed // the new task, after /clear, rather than reading the handoff
+			}
 		}
 		hint.shown, hint.followed = "", false
 		hint.Unlock()
@@ -1266,9 +1412,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			lines := append(slices.Clone(*status.Load()), guardStatusLines(live.Load().Expand.Guards == "off", *guardStatus.Load())...)
 			lines = append(lines, sess.usageLines()...)
 			hint.Lock()
-			if hint.shown == "handoff" && !hint.followed {
-				keys := ctrl.CurrentKeys()
+			keys := ctrl.CurrentKeys()
+			switch {
+			case hint.followed:
+			case hint.shown == "handoff":
 				lines = append(lines, fmt.Sprintf("hint:        a handoff (%s then %s)", keys.Leader, keys.Handoff))
+			case hint.shown == "new_task":
+				lines = append(lines, fmt.Sprintf("hint:        a new task: /clear (%s then %s) or a handoff (%s then %s)",
+					keys.Leader, keys.Clear, keys.Leader, keys.Handoff))
 			}
 			hint.Unlock()
 			if injector != nil {
@@ -1455,7 +1606,7 @@ func bindings(k config.KeysConfig) ghost.Keys {
 	parse := func(s string) input.Binding { b, _ := input.ParseBinding(s); return b }
 	return ghost.Keys{
 		Leader: parse(k.Leader), Panel: parse(k.Panel),
-		Expand: parse(k.Expand), Undo: parse(k.Undo), Style: parse(k.Style), Handoff: parse(k.Handoff),
+		Expand: parse(k.Expand), Undo: parse(k.Undo), Style: parse(k.Style), Handoff: parse(k.Handoff), Clear: parse(k.Clear),
 		Wider: parse(k.Wider), Narrower: parse(k.Narrower),
 	}
 }

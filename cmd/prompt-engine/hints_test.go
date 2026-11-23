@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,5 +59,44 @@ func TestHandoffPrompt(t *testing.T) {
 	}
 	if got := handoffPrompt(dir, "/p/s.jsonl"); got != "Write NOTES.md; see /p/s.jsonl." {
 		t.Fatalf("file: %q", got)
+	}
+}
+
+func TestNewTask(t *testing.T) {
+	for _, c := range []struct {
+		text   string
+		cosine float64
+		want   bool
+	}{
+		{"add a CSV export to the ledger report, with a header row and one line per entry", 0.3, true},
+		{"add a CSV export to the ledger report, with a header row and one line per entry", 0.7, false}, // close to the last prompt
+		{"fix it", 0.9, false},
+	} {
+		if got := newTask(c.text, c.cosine); got != c.want {
+			t.Errorf("newTask(%q, %v) = %v, want %v", c.text, c.cosine, got, c.want)
+		}
+	}
+}
+
+func TestEmbed(t *testing.T) {
+	var asked map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&asked)
+		if r.URL.Path != "/api/embed" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"embeddings":[[1,2,3]]}`))
+	}))
+	defer srv.Close()
+	v, err := embed(context.Background(), srv.URL+"/", "hello")
+	if err != nil || len(v) != 3 || v[2] != 3 {
+		t.Fatalf("embed = %v, %v", v, err)
+	}
+	if asked["model"] != embedModel || asked["input"] != "classification: hello" {
+		t.Fatalf("asked %v", asked)
+	}
+	if c := cosine([]float64{1, 0}, []float64{1, 0}); c != 1 {
+		t.Fatalf("cosine = %v", c)
 	}
 }

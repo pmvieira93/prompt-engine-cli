@@ -451,6 +451,18 @@ func TestLeaderHandoff(t *testing.T) {
 	}
 }
 
+func TestLeaderClear(t *testing.T) {
+	c, _, got := expandController(t)
+	c.Keys.Clear, _ = input.ParseBinding("c")
+	c.OnClear = func(s input.State) { *got = append(*got, "clear:"+s.Text) }
+	if out := string(c.Filter([]byte("new task\x1dc"))); out != "new task" {
+		t.Fatalf("child got %q", out)
+	}
+	if strings.Join(*got, "|") != "clear:new task" {
+		t.Fatalf("actions = %q", *got)
+	}
+}
+
 func TestBriefNoticeGoesAtNextKey(t *testing.T) {
 	c := &Controller{Tracker: input.NewTracker()}
 	c.Filter([]byte("fix"))

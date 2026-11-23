@@ -88,6 +88,7 @@ type KeysConfig struct {
 	Undo     string `yaml:"undo"`    // put back the prompt from before the last expansion
 	Style    string `yaml:"style"`   // the next rewrite style, for this prompt only
 	Handoff  string `yaml:"handoff"` // put the handoff prompt in place of the typed one
+	Clear    string `yaml:"clear"`   // send /clear, then put the typed prompt back
 	Wider    string `yaml:"panel_wider"`
 	Narrower string `yaml:"panel_narrower"`
 }
@@ -146,6 +147,9 @@ type HintsConfig struct {
 	// HandoffAt is the context size, in tokens, from which a handoff is
 	// suggested, and again every 40k tokens more; 0 turns it off.
 	HandoffAt int `yaml:"handoff_at"`
+	// NewTaskAt is the context size, in tokens, from which a prompt that
+	// starts a new task gets a /clear or handoff hint; 0 turns it off.
+	NewTaskAt int `yaml:"new_task_at"`
 }
 
 // HistoryConfig controls the log of sent prompts (one JSON line each).
@@ -199,12 +203,13 @@ func Default() Config {
 			Undo:     "u",
 			Style:    "s",
 			Handoff:  "h",
+			Clear:    "c",
 			Wider:    "+",
 			Narrower: "-",
 		},
 		History: HistoryConfig{Enabled: true},
 		// Claude Code's context window is 200k tokens.
-		Hints: HintsConfig{HandoffAt: 120_000},
+		Hints: HintsConfig{HandoffAt: 120_000, NewTaskAt: 30_000},
 		// Recent prompts resolved every follow-up tested ("add tests for
 		// it") without adding requirements to unrelated ones.
 		// Earlier prompts made 7 of 7 follow-up suggestions fit the
@@ -329,12 +334,14 @@ func (c Config) Validate() error {
 		return fmt.Errorf("panel.width must be a percentage between 10 and 90, got %d", c.Panel.Width)
 	case c.Hints.HandoffAt < 0:
 		return fmt.Errorf("hints.handoff_at must not be negative, got %d", c.Hints.HandoffAt)
+	case c.Hints.NewTaskAt < 0:
+		return fmt.Errorf("hints.new_task_at must not be negative, got %d", c.Hints.NewTaskAt)
 	}
 	seen := map[input.Binding]string{}
 	for _, k := range []struct{ name, value string }{
 		{"keys.leader", c.Keys.Leader}, {"keys.panel", c.Keys.Panel},
 		{"keys.expand", c.Keys.Expand}, {"keys.undo", c.Keys.Undo}, {"keys.style", c.Keys.Style},
-		{"keys.handoff", c.Keys.Handoff},
+		{"keys.handoff", c.Keys.Handoff}, {"keys.clear", c.Keys.Clear},
 		{"keys.panel_wider", c.Keys.Wider}, {"keys.panel_narrower", c.Keys.Narrower},
 	} {
 		b, err := input.ParseBinding(k.value)

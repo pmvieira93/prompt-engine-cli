@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo guards guards_off rewrite nested
+#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo clear guards guards_off rewrite nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -428,7 +428,8 @@ wait "Read HANDOFF.md and continue" 8s
 dump
 send "\x04"
 exit' 'hints:
-  handoff_at: 40000'
+  handoff_at: 40000
+  new_task_at: 0'
 	local h="$work/history/handoff.jsonl"
 	check "the hint shows once the context reaches hints.handoff_at" shown 'context 41k: write a handoff and start fresh? ctrl+q then h'
 	check "the log has it" logged 'hint: handoff, context 41k'
@@ -475,7 +476,8 @@ send "\r"
 wait "Reply to: third" 3s
 send "\x04"
 exit' 'hints:
-  handoff_at: 40000'
+  handoff_at: 40000
+  new_task_at: 0'
 	local undone
 	undone=$(prompt_line 2 "$work/history/handoff_undo.jsonl")
 	check "the undone prompt has the hint" has "$undone" '"hint":"handoff"'
@@ -483,6 +485,28 @@ exit' 'hints:
 	check "no handoff is offered after /clear" not_logged 'hint: offered'
 	check "the hint shows again in the fresh session" test "$(grep -c 'hint: handoff, context' "$dir/pe.log")" -ge 2
 	check "/clear drops it: the next prompt has no hint" lacks "$(prompt_line 4 "$work/history/handoff_undo.jsonl")" '"hint"'
+}
+
+case_clear() {
+	echo "clear: the shortcut sends /clear, then puts the typed prompt back, unsent"
+	run_case clear 'reply on
+wait "❯" 5s
+send "say hello"
+sleep 300ms
+send "\r"
+wait "Reply to: say hello" 3s
+sleep 2500ms
+send "a new task"
+sleep 300ms
+send "\x11c"
+sleep 4s
+dump
+send "\x04"
+exit' 'hints:
+  new_task_at: 0'
+	check "/clear is sent, and seen in the transcript" logged 'context: /clear: the earlier reply'
+	check "the typed prompt is put back after it" logged 'hint: put back "a new task" after /clear'
+	check "and shown, unsent" shown '❯ a new task'
 }
 
 case_guards() {
@@ -571,7 +595,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo guards guards_off rewrite nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo clear guards guards_off rewrite nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done
