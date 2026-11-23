@@ -95,6 +95,7 @@ func handoffPrompt(dir, transcript string) string {
 const newTaskPause = time.Second
 
 // embedModel gives the vectors the new-task classifier was trained on.
+// install.sh downloads and checks it as EMBED_MODEL: change both.
 const embedModel = "nomic-embed-text"
 
 // backRef is a word that refers to the conversation so far: the routing

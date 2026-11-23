@@ -956,7 +956,10 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		expanded := expansion.expanded != "" && s.Text == expansion.expanded
 		expansion.Unlock()
 		preview.Lock()
-		if cfg.Expand.OnEnter != "preview" || preview.text == s.Text && preview.asked == cfg.Expand.Style { // ready, or being prepared
+		// Ready, or being prepared; not one cancelled before it was ready,
+		// or the same text typed again would never get one.
+		prepared := preview.pending || preview.out != "" || preview.reason != ""
+		if cfg.Expand.OnEnter != "preview" || preview.text == s.Text && preview.asked == cfg.Expand.Style && prepared {
 			preview.Unlock()
 			return
 		}
@@ -1052,8 +1055,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			preview.Lock()
 			if preview.cancel != nil && tracker.Snapshot().Text != preview.text {
 				preview.cancel() // the prompt changed: that rewrite is stale
-				// Forgotten too, or the same text typed again counts as prepared.
-				preview.cancel, preview.pending, preview.text = nil, false, ""
+				preview.cancel, preview.pending = nil, false
+				logf("expand: preview for %q cancelled: the prompt changed", preview.text)
 			}
 			preview.Unlock()
 			if live.Load().Expand.OnEnter != "preview" {

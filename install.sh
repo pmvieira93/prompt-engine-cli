@@ -32,7 +32,7 @@ readonly GHOST_MODEL_DEFAULT="qwen2.5-coder:1.5b"
 readonly GHOST_MODEL_SIZE="1.0 GB"
 readonly EXPAND_MODEL_DEFAULT="qwen2.5:7b"
 readonly EXPAND_MODEL_SIZE="4.7 GB"
-readonly EMBED_MODEL="nomic-embed-text" # the new-task hint's (hints.new_task_at)
+readonly EMBED_MODEL="nomic-embed-text" # the new-task hint's: embedModel in cmd/prompt-engine/hints.go
 readonly EMBED_MODEL_SIZE="274 MB"
 readonly RAM_MIN_GB=8       # ghost text plus Claude Code
 readonly RAM_EXPAND_GB=16   # comfortable with the 7B rewrite model loaded too
@@ -770,7 +770,10 @@ install_models() {
 	if model_installed "$EMBED_MODEL"; then
 		ok "New-task hint model ready"
 	elif ask "Download $EMBED_MODEL ($EMBED_MODEL_SIZE) for the new-task hint (/clear or a handoff before an unrelated task)?" Y; then
-		pull_model "$EMBED_MODEL" "$EMBED_MODEL_SIZE"
+		# Optional: a failed download warns, and the install goes on.
+		info "Downloading $EMBED_MODEL ($EMBED_MODEL_SIZE)…"
+		if loudly ollama pull "$EMBED_MODEL"; then ok "$EMBED_MODEL installed"
+		else warn "Couldn't download $EMBED_MODEL. The new-task hint stays off until you run: ollama pull $EMBED_MODEL"; fi
 	else
 		note "Skipped. The new-task hint stays off until you run: ollama pull $EMBED_MODEL"
 	fi
@@ -855,8 +858,13 @@ health_check() {
 		else
 			warn_check "Rewrite model $EXPAND_MODEL failed: $(reply_error)" "ollama pull $EXPAND_MODEL"
 		fi
-		if model_installed "$EMBED_MODEL"; then ok "New-task hint model $EMBED_MODEL installed"
-		else warn_check "New-task hint model $EMBED_MODEL not installed (optional)" "ollama pull $EMBED_MODEL"; fi
+		if ! model_installed "$EMBED_MODEL"; then
+			warn_check "New-task hint model $EMBED_MODEL not installed (optional)" "ollama pull $EMBED_MODEL"
+		elif ms="$(timed_post /api/embed 60 "{\"model\":\"$EMBED_MODEL\",\"input\":\"classification: hello\"}")"; then
+			ok "New-task hint model $EMBED_MODEL answers (${ms} ms)"
+		else
+			warn_check "New-task hint model $EMBED_MODEL failed: $(reply_error)" "ollama pull $EMBED_MODEL (an old Ollama may lack /api/embed: update it)"
+		fi
 	fi
 	rm -f "$REPLY_FILE"
 }

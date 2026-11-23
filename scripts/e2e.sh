@@ -245,7 +245,9 @@ dump
 send "\x04"
 exit' 'expand:
   on_enter: preview'
+	check "Ctrl+C cancels the first, before it's ready" logged 'expand: preview for "fix the parser now" cancelled: the prompt changed'
 	check "the same text typed again gets one" logged 'expand: preview ready for "fix the parser now"'
+	check "only that one" test "$(grep -c 'expand: preview ready' "$dir/pe.log")" -eq 1
 }
 
 case_auto() {
