@@ -52,6 +52,7 @@ You'll see Claude Code as usual. Now try each feature:
 | **Ctrl+Q**, then **u** | Undo the last rewrite |
 | **Ctrl+Q**, then **s** | The next rewrite style for this prompt (`default` → `llm` → `human` → `both`); on a rewrite, rewrite it again in that style |
 | **Ctrl+Q**, then **h** | Put the handoff prompt in place of the typed one (**Ctrl+Q**, then **u** brings it back) |
+| **Ctrl+Q**, then **c** | Send `/clear`, then put the typed prompt back, unsent (once Claude's reply has ended) |
 | **Ctrl+Q**, then **p** | Open or close the side panel |
 | **Ctrl+Q**, then **+** / **−** | Widen or narrow the panel |
 | **Ctrl+Q**, then **Esc** | Cancel the leader key |
@@ -130,6 +131,8 @@ Find the cause before proposing a fix.
 ```
 
 **Hand off a long session.** Once Claude Code's context reaches 120k tokens (`hints.handoff_at`), a hint suggests a handoff. **Ctrl+Q, then h** puts a prompt in that asks Claude to write `HANDOFF.md` in eight sections: objective, essential context, what has been done, current state, next steps, open questions, relevant artifacts, and instructions for the next session, ending with a pointer to this session's transcript. Send it, run `/clear`, and the empty prompt offers *Read HANDOFF.md and continue from it.* as ghost text, so the fresh session starts from it. To ask for something else, write your own prompt in `~/.config/prompt-engine/templates/handoff.txt`; `{transcript}` in it becomes the transcript's path.
+
+**Start a new task in a fresh context.** Once the context reaches 30k tokens (`hints.new_task_at`), a prompt that starts an unrelated task gets a hint when you pause typing: **Ctrl+Q, then c** runs `/clear` and puts your prompt back, unsent; **Ctrl+Q, then h** writes a handoff first, and after `/clear` your new task comes back. It needs `ollama pull nomic-embed-text`. Each hint turns off with `0`: `hints.handoff_at: 0`, `hints.new_task_at: 0`.
 
 **Change how ghost text looks:**
 
