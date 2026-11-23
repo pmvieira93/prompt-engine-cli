@@ -36,7 +36,7 @@ The script asks before it changes anything, on your terminal even when it's pipe
    - from source: builds it with Go.
 
    If you have no config file, it writes a commented one. If you have no `guards.txt`, it writes one that is all comments, for [your own guard rails](guide/guard-rails.md), in the folder `templates.dir` names.
-5. **Downloads the models.** The ghost text model is required. The rewrite model is optional: download it now, or later with `--expand-model`.
+5. **Downloads the models.** The ghost text model is required. The rewrite model is optional: download it now, or later with `--expand-model`. So is `nomic-embed-text` (274 MB), for the hint to `/clear` or hand off before an unrelated task.
 6. **Runs a health check:**
    - the binary starts Claude Code;
    - your config is valid;
@@ -101,6 +101,7 @@ curl -fsSL https://claude.ai/install.sh | bash   # Claude Code; run `claude` onc
 # 2. Models
 ollama pull qwen2.5-coder:1.5b   # ghost text (required, ~1 GB)
 ollama pull qwen2.5:7b           # prompt rewrites (optional, ~4.7 GB)
+ollama pull nomic-embed-text     # the new-task hint (optional, ~274 MB)
 
 # 3. Build
 go build -o ~/.local/bin/prompt-engine ./cmd/prompt-engine
@@ -117,5 +118,5 @@ Then run `prompt-engine` where you would run `claude`. `prompt-engine` won't wra
 ```sh
 rm ~/.local/bin/prompt-engine
 rm -r ~/.config/prompt-engine ~/.local/state/prompt-engine   # settings and history
-ollama rm qwen2.5-coder:1.5b qwen2.5:7b                      # the models, if nothing else uses them
+ollama rm qwen2.5-coder:1.5b qwen2.5:7b nomic-embed-text     # the models, if nothing else uses them
 ```

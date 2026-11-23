@@ -32,6 +32,8 @@ readonly GHOST_MODEL_DEFAULT="qwen2.5-coder:1.5b"
 readonly GHOST_MODEL_SIZE="1.0 GB"
 readonly EXPAND_MODEL_DEFAULT="qwen2.5:7b"
 readonly EXPAND_MODEL_SIZE="4.7 GB"
+readonly EMBED_MODEL="nomic-embed-text" # the new-task hint's: embedModel in cmd/prompt-engine/hints.go
+readonly EMBED_MODEL_SIZE="274 MB"
 readonly RAM_MIN_GB=8       # ghost text plus Claude Code
 readonly RAM_EXPAND_GB=16   # comfortable with the 7B rewrite model loaded too
 readonly DISK_MIN_GB=3      # Go build cache, the binary and the ghost model
@@ -746,13 +748,15 @@ pull_model() {
 install_models() {
 	step "Local models"
 	ensure_ollama_running
-	local ghost_state expand_state
+	local ghost_state expand_state embed_state
 	if model_installed "$GHOST_MODEL"; then ghost_state="${G}installed${N}"; else ghost_state="${Y}missing${N}"; fi
 	if model_installed "$EXPAND_MODEL"; then expand_state="${G}installed${N}"; else expand_state="${Y}missing${N}"; fi
+	if model_installed "$EMBED_MODEL"; then embed_state="${G}installed${N}"; else embed_state="${Y}missing${N}"; fi
 	printf '\n'
 	row "${B}Capability${N}" "${B}Model${N}" "${B}Status${N}"
 	row "Ghost text" "$GHOST_MODEL" "$ghost_state  ${D}required · $GHOST_MODEL_SIZE${N}"
 	row "Prompt rewrites" "$EXPAND_MODEL" "$expand_state  ${D}optional · $EXPAND_MODEL_SIZE${N}"
+	row "New-task hint" "$EMBED_MODEL" "$embed_state  ${D}optional · $EMBED_MODEL_SIZE${N}"
 	printf '\n'
 
 	if model_installed "$GHOST_MODEL"; then
@@ -761,6 +765,17 @@ install_models() {
 		pull_model "$GHOST_MODEL" "$GHOST_MODEL_SIZE"
 	else
 		warn "Skipped. Ghost text stays off until you run: ollama pull $GHOST_MODEL"
+	fi
+
+	if model_installed "$EMBED_MODEL"; then
+		ok "New-task hint model ready"
+	elif ask "Download $EMBED_MODEL ($EMBED_MODEL_SIZE) for the new-task hint (/clear or a handoff before an unrelated task)?" Y; then
+		# Optional: a failed download warns, and the install goes on.
+		info "Downloading $EMBED_MODEL ($EMBED_MODEL_SIZE)…"
+		if loudly ollama pull "$EMBED_MODEL"; then ok "$EMBED_MODEL installed"
+		else warn "Couldn't download $EMBED_MODEL. The new-task hint stays off until you run: ollama pull $EMBED_MODEL"; fi
+	else
+		note "Skipped. The new-task hint stays off until you run: ollama pull $EMBED_MODEL"
 	fi
 
 	[ "$OFFER_EXPAND" = 1 ] || { note "Rewrite model skipped (--skip-expand)."; return 0; }
@@ -842,6 +857,13 @@ health_check() {
 			ok "Rewrite model $EXPAND_MODEL answers (${ms} ms, including loading)"
 		else
 			warn_check "Rewrite model $EXPAND_MODEL failed: $(reply_error)" "ollama pull $EXPAND_MODEL"
+		fi
+		if ! model_installed "$EMBED_MODEL"; then
+			warn_check "New-task hint model $EMBED_MODEL not installed (optional)" "ollama pull $EMBED_MODEL"
+		elif ms="$(timed_post /api/embed 60 "{\"model\":\"$EMBED_MODEL\",\"input\":\"classification: hello\"}")"; then
+			ok "New-task hint model $EMBED_MODEL answers (${ms} ms)"
+		else
+			warn_check "New-task hint model $EMBED_MODEL failed: $(reply_error)" "ollama pull $EMBED_MODEL (an old Ollama may lack /api/embed: update it)"
 		fi
 	fi
 	rm -f "$REPLY_FILE"
