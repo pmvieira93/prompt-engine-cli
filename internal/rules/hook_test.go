@@ -73,7 +73,8 @@ func TestTakeSeesThroughPasteTags(t *testing.T) {
 		q := queue(t)
 		put(t, q, "other", "wrong")
 		put(t, q, "explain: a\nb\nc\nd", "rules")
-		sent := "explain: \n\n" + open + "\na\nb\nc\nd\n</pasted_content>\n"
+		closing := strings.Replace(open, "<", "</", 1) // claude repeats the id
+		sent := "explain: \n\n" + open + "\na\nb\nc\nd\n" + closing + "\n"
 		if got, _ := Take(q.Dir, sent); got != "rules" {
 			t.Fatalf("%s: got %q", open, got)
 		}

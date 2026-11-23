@@ -557,7 +557,7 @@ install_dep() {
 }
 
 install_go_tarball() {
-	local ver url want got dest="$HOME/.local/go"
+	local ver url want got new dest="$HOME/.local/go"
 	ver="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n 1)"
 	[ -n "$ver" ] || die "Couldn't find the latest Go version."
 	# dl.google.com, not go.dev: go.dev answers a .sha256 link with a web page.
@@ -569,10 +569,14 @@ install_go_tarball() {
 	want="$(curl -fsSL "$url.sha256" 2>>"$LOG_FILE")"
 	got="$(sha256_of "$WORK_DIR/go.tar.gz")"
 	[ -n "$want" ] && [ "$want" = "$got" ] || die "The Go download doesn't match its checksum; your Go wasn't changed."
-	tar -xzf "$WORK_DIR/go.tar.gz" -C "$WORK_DIR" 2>>"$LOG_FILE" || die "Couldn't unpack $ver; your Go wasn't changed."
+	# Unpacked next to $dest, so the swap is a rename: from a /tmp on another
+	# filesystem, mv would copy, and a full disk would leave no Go.
 	mkdir -p "$HOME/.local" || die "Go didn't install."
+	new="$(mktemp -d "$HOME/.local/.go-new.XXXXXX")" || die "Go didn't install."
+	tar -xzf "$WORK_DIR/go.tar.gz" -C "$new" 2>>"$LOG_FILE" || { rm -rf "$new"; die "Couldn't unpack $ver; your Go wasn't changed."; }
 	rm -rf "$dest"
-	mv "$WORK_DIR/go" "$dest" || die "Go didn't install."
+	mv "$new/go" "$dest" || die "Go didn't install."
+	rm -rf "$new"
 	add_path "$dest/bin"
 	PATH_HINTS="${PATH_HINTS}$dest/bin
 "
