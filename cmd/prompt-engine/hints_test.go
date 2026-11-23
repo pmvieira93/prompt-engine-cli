@@ -96,6 +96,9 @@ func TestEmbed(t *testing.T) {
 	if asked["model"] != embedModel || asked["input"] != "classification: hello" {
 		t.Fatalf("asked %v", asked)
 	}
+	if !backRef.MatchString("OK. Same for Parse") {
+		t.Fatal("backRef must ignore case, as the spike's BACKREF does")
+	}
 	if c := cosine([]float64{1, 0}, []float64{1, 0}); c != 1 {
 		t.Fatalf("cosine = %v", c)
 	}

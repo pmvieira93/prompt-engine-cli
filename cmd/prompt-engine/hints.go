@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"math"
 	"net/http"
 	"os"
@@ -97,8 +98,8 @@ const newTaskPause = time.Second
 const embedModel = "nomic-embed-text"
 
 // backRef is a word that refers to the conversation so far: the routing
-// spike's BACKREF, case-sensitive as it was trained.
-var backRef = regexp.MustCompile(`\b(it|that|this|those|these|them|also|again|same|above|previous|continue|go ahead|yes|ok|` +
+// spike's BACKREF, which ignores case.
+var backRef = regexp.MustCompile(`(?i)\b(it|that|this|those|these|them|also|again|same|above|previous|continue|go ahead|yes|ok|` +
 	`okay|sure|merge|commit|push|reply|fix (all|them|it))\b`)
 
 // newTaskWeights are a logistic regression on [cosine with the previous
@@ -172,4 +173,28 @@ func embed(ctx context.Context, endpoint, text string) ([]float64, error) {
 		return nil, fmt.Errorf("%s: no embedding", resp.Status)
 	}
 	return out.Embeddings[0], nil
+}
+
+// fakeEmbed stands in for embed in tests: a vector of word counts, so
+// prompts sharing no word are unrelated.
+func fakeEmbed(_ context.Context, _, text string) ([]float64, error) {
+	v := make([]float64, 64)
+	for _, w := range strings.Fields(strings.ToLower(text)) {
+		h := fnv.New32a()
+		h.Write([]byte(w))
+		v[h.Sum32()%64]++
+	}
+	return v, nil
+}
+
+// retry calls try up to n times, 250ms apart, until it returns true, and
+// reports whether it did.
+func retry(n int, try func() bool) bool {
+	for range n {
+		if try() {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return false
 }
