@@ -557,13 +557,22 @@ install_dep() {
 }
 
 install_go_tarball() {
-	local ver url dest="$HOME/.local/go"
+	local ver url want got dest="$HOME/.local/go"
 	ver="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n 1)"
 	[ -n "$ver" ] || die "Couldn't find the latest Go version."
-	url="https://go.dev/dl/${ver}.linux-${ARCH}.tar.gz"
+	# dl.google.com, not go.dev: go.dev answers a .sha256 link with a web page.
+	url="https://dl.google.com/go/${ver}.linux-${ARCH}.tar.gz"
 	if [ "$DRY_RUN" = 1 ]; then info "would install $ver from $url into $dest"; return 0; fi
-	quietly "Downloading $ver" sh -c "rm -rf '$dest' && mkdir -p '$HOME/.local' && curl -fsSL '$url' | tar -xz -C '$HOME/.local'" ||
-		die "Go didn't install."
+	[ -n "$WORK_DIR" ] || WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/prompt-engine-install.XXXXXX")"
+	# The Go in place is replaced only once the new one is checked and unpacked.
+	quietly "Downloading $ver" curl -fsSL -o "$WORK_DIR/go.tar.gz" "$url" || die "Go didn't download; your Go wasn't changed."
+	want="$(curl -fsSL "$url.sha256" 2>>"$LOG_FILE")"
+	got="$(sha256_of "$WORK_DIR/go.tar.gz")"
+	[ -n "$want" ] && [ "$want" = "$got" ] || die "The Go download doesn't match its checksum; your Go wasn't changed."
+	tar -xzf "$WORK_DIR/go.tar.gz" -C "$WORK_DIR" 2>>"$LOG_FILE" || die "Couldn't unpack $ver; your Go wasn't changed."
+	mkdir -p "$HOME/.local" || die "Go didn't install."
+	rm -rf "$dest"
+	mv "$WORK_DIR/go" "$dest" || die "Go didn't install."
 	add_path "$dest/bin"
 	PATH_HINTS="${PATH_HINTS}$dest/bin
 "
@@ -699,7 +708,7 @@ install_from_release() {
 		info "would download $RELEASES_URL/download/$tag/$name.tar.gz, check it against checksums.txt and install it to $bin"
 		return 0
 	fi
-	WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/prompt-engine-install.XXXXXX")"
+	[ -n "$WORK_DIR" ] || WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/prompt-engine-install.XXXXXX")"
 	quietly "Downloading $name.tar.gz" \
 		curl -fsSL -o "$WORK_DIR/$name.tar.gz" "$RELEASES_URL/download/$tag/$name.tar.gz" ||
 		die "Couldn't download $tag for $os/$ARCH. Check the version, or build with --from source."

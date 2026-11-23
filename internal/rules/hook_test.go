@@ -69,12 +69,14 @@ func TestPutReplacesSameText(t *testing.T) {
 }
 
 func TestTakeSeesThroughPasteTags(t *testing.T) {
-	q := queue(t)
-	put(t, q, "other", "wrong")
-	put(t, q, "explain: a\nb\nc\nd", "rules")
-	sent := "explain: \n\n<pasted_content id=\"abc7\">\na\nb\nc\nd\n</pasted_content id=\"abc7\">\n"
-	if got, _ := Take(q.Dir, sent); got != "rules" {
-		t.Fatalf("got %q", got)
+	for _, open := range []string{`<pasted_content id="abc7">`, `<pasted_content id="3f9a0c12">`, `<pasted_content>`} {
+		q := queue(t)
+		put(t, q, "other", "wrong")
+		put(t, q, "explain: a\nb\nc\nd", "rules")
+		sent := "explain: \n\n" + open + "\na\nb\nc\nd\n</pasted_content>\n"
+		if got, _ := Take(q.Dir, sent); got != "rules" {
+			t.Fatalf("%s: got %q", open, got)
+		}
 	}
 }
 
