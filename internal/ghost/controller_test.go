@@ -439,6 +439,18 @@ func TestLeaderStyle(t *testing.T) {
 	}
 }
 
+func TestLeaderHandoff(t *testing.T) {
+	c, _, got := expandController(t)
+	c.Keys.Handoff, _ = input.ParseBinding("h")
+	c.OnHandoff = func(s input.State) { *got = append(*got, "handoff:"+s.Text) }
+	if out := string(c.Filter([]byte("next task\x1dh"))); out != "next task" {
+		t.Fatalf("child got %q", out)
+	}
+	if strings.Join(*got, "|") != "handoff:next task" {
+		t.Fatalf("actions = %q", *got)
+	}
+}
+
 func TestBriefNoticeGoesAtNextKey(t *testing.T) {
 	c := &Controller{Tracker: input.NewTracker()}
 	c.Filter([]byte("fix"))

@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off rewrite nested
+#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo guards guards_off rewrite nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -74,6 +74,18 @@ sent_any() { grep -qF -- "$1" "$dir/sent.jsonl"; }
 first_sent() { [ "$(head -n 1 "$dir/sent.jsonl")" = "$1" ]; }
 shown() { grep -qF -- "$1" "$dir/screen.txt"; }
 fails_shown() { ! shown "$1"; }
+not_logged() { ! logged "$1"; }
+# last_sent_has text...: the last prompt sent holds every text, as its JSON
+# string (a line break is \n).
+last_sent_has() {
+	local last t
+	last=$(tail -n 1 "$dir/sent.jsonl")
+	for t in "$@"; do [[ $last == *"$t"* ]] || return 1; done
+}
+has() { [[ $1 == *"$2"* ]]; }
+lacks() { [[ $1 != *"$2"* ]]; }
+# prompt_line n history: the nth prompt's line, skipping usage lines.
+prompt_line() { grep -v '"kind"' "$2" | sed -n "${1}p"; }
 same() { [ -n "$1" ] && [ "$1" = "$2" ]; }
 printed() { grep -qF -- "$1" "$dir/out.json"; }
 
@@ -389,6 +401,90 @@ exit'
 	check "the second, recorded at exit, names the second" same "$(sed -n 's/.*"kind":"usage","prompt_time":"\([^"]*\)".*"cache_read_tokens":42000.*/\1/p' "$h")" "$(grep -v '"kind"' "$h" | sed -n '2s/^{"time":"\([^"]*\)".*/\1/p')"
 }
 
+case_handoff() {
+	echo "handoff: a large context brings the hint; the shortcut puts the handoff prompt in, undo brings the typed one back"
+	PE_HISTORY="$work/history/handoff.jsonl" run_case handoff 'reply on
+wait "❯" 5s
+send "say hello"
+sleep 300ms
+send "\r"
+wait "write a handoff" 6s
+dump
+send "next task"
+sleep 300ms
+send "\x11h"
+wait "Write HANDOFF.md" 3s
+send "\x11u"
+sleep 500ms
+dump
+send "\x11h"
+wait "Write HANDOFF.md" 3s
+send "\r"
+wait "Reply to: Write HANDOFF.md" 3s
+send "/clear"
+sleep 300ms
+send "\r"
+wait "Read HANDOFF.md and continue" 8s
+dump
+send "\x04"
+exit' 'hints:
+  handoff_at: 40000'
+	local h="$work/history/handoff.jsonl"
+	check "the hint shows once the context reaches hints.handoff_at" shown 'context 41k: write a handoff and start fresh? ctrl+q then h'
+	check "the log has it" logged 'hint: handoff, context 41k'
+	check "undo brings the typed prompt back" logged 'expand: undone, back to "next task"'
+	check "the handoff prompt is sent, with its sections, line by line" last_sent_has 'with this structure:\n\n# Handoff: [short and descriptive title]' '\n## 8. Instructions for the Next Session\n'
+	check "and names the transcript" last_sent_has 'Original session: ' '/claude/projects/' '.jsonl. Indicative only'
+	check "the history records the hint as followed" grep -q '"hint":"handoff","hint_followed":true' "$h"
+	check "after /clear, reading the handoff is offered" logged 'hint: offered "Read HANDOFF.md and continue from it." after /clear'
+	check "and shown as ghost text" shown 'Read HANDOFF.md and continue from it.'
+}
+
+case_handoff_undo() {
+	echo "handoff_undo: undone, the hint counts as not followed and nothing is offered after /clear; /clear drops a pending hint"
+	PE_HISTORY="$work/history/handoff_undo.jsonl" run_case handoff_undo 'reply on
+wait "❯" 5s
+send "say hello"
+sleep 300ms
+send "\r"
+wait "write a handoff" 6s
+send "next task"
+sleep 300ms
+send "\x11h"
+wait "Write HANDOFF.md" 3s
+send "\x11u"
+sleep 500ms
+send "\r"
+wait "Reply to: next task" 3s
+send "/clear"
+sleep 300ms
+send "\r"
+sleep 3s
+send "after clear"
+sleep 300ms
+send "\r"
+wait "Reply to: after clear" 3s
+sleep 3s
+send "/clear"
+sleep 300ms
+send "\r"
+sleep 3s
+send "third"
+sleep 300ms
+send "\r"
+wait "Reply to: third" 3s
+send "\x04"
+exit' 'hints:
+  handoff_at: 40000'
+	local undone
+	undone=$(prompt_line 2 "$work/history/handoff_undo.jsonl")
+	check "the undone prompt has the hint" has "$undone" '"hint":"handoff"'
+	check "but not followed" lacks "$undone" hint_followed
+	check "no handoff is offered after /clear" not_logged 'hint: offered'
+	check "the hint shows again in the fresh session" test "$(grep -c 'hint: handoff, context' "$dir/pe.log")" -ge 2
+	check "/clear drops it: the next prompt has no hint" lacks "$(prompt_line 4 "$work/history/handoff_undo.jsonl")" '"hint"'
+}
+
 case_guards() {
 	echo "guards: templates/guards.txt adds a rule, an edit applies at once, and deleting it leaves the built-in guards"
 	local g="$work/guards/templates/guards.txt" sent="$work/guards/sent.jsonl"
@@ -475,7 +571,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage guards guards_off rewrite nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo guards guards_off rewrite nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

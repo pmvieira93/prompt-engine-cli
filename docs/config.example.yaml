@@ -59,6 +59,7 @@ keys:                  # shortcuts are leader-prefixed, like tmux: press leader,
   expand: e            # rewrite the prompt in place (or apply the preview)
   undo: u              # put back the prompt from before the last rewrite
   style: s             # the next rewrite style, for this prompt only: default → llm → human → both
+  handoff: h           # put the handoff prompt (templates/handoff.txt) in place of the typed one; undo brings it back
   panel_wider: "+"     # widen the panel by 5%
   panel_narrower: "-"  # narrow it by 5%
 
@@ -69,6 +70,10 @@ templates:
                        # a line like [test|tests] starts a section, added only to prompts with those words
                        # templates/system.txt: replaces the rewrite instructions (and every style)
                        # templates/guards.txt: your own guard rails (see docs/guards.example.txt)
+
+hints:
+  handoff_at: 120000   # once Claude's context reaches this many tokens (and every 40k more), suggest a handoff:
+                       # Claude writes HANDOFF.md, you /clear, and the next session starts from it; 0 turns it off
 
 history:
   enabled: true        # one JSON line of metrics per prompt sent

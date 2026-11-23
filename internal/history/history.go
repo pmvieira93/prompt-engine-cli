@@ -32,6 +32,11 @@ type Submission struct {
 	// GuardDetail is what tripped it, for the panel; not recorded.
 	GuardDetail string
 	Rejected    string // the rewrite it stopped
+	// Hint is a hint shown before this prompt (PRD Appendix 5, FR-11.4),
+	// e.g. "handoff", and HintFollowed whether the developer took it: the
+	// labels FR-11.3 is to be trained on.
+	Hint         string
+	HintFollowed bool
 }
 
 // Diff compares what was typed with what was sent.
@@ -58,6 +63,8 @@ type record struct {
 	Raw          string    `json:"raw,omitempty"`
 	Sent         string    `json:"sent,omitempty"`
 	Rejected     string    `json:"rejected,omitempty"`
+	Hint         string    `json:"hint,omitempty"`
+	HintFollowed bool      `json:"hint_followed,omitempty"`
 }
 
 // Log appends submissions to a JSON Lines file.
@@ -101,6 +108,8 @@ func (l *Log) Append(s Submission) error {
 		Auto:         s.Auto,
 		Stopped:      s.Stopped,
 		Guard:        s.Guard,
+		Hint:         s.Hint,
+		HintFollowed: s.HintFollowed,
 	}
 	if l.IncludeText {
 		r.Raw, r.Sent, r.Rejected = s.Raw, s.Sent, s.Rejected

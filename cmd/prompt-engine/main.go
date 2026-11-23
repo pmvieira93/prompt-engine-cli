@@ -233,6 +233,15 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			warn("%v; no guidance is added until it's fixed", err)
 		}
 	}
+	// The hint shown since the last prompt, and whether it was taken (PRD
+	// Appendix 5, FR-11.4); and the context size it was last shown at.
+	var hint struct {
+		sync.Mutex
+		shown     string // a hint was shown since the last prompt
+		followed  bool   // the handoff shortcut was used, and not undone
+		last      int64
+		handedOff bool // a handoff prompt was sent: offer to read it after /clear
+	}
 	// The prompts sent in this session, as sent without the rules, for the
 	// models' context (expand.context, ghost.context).
 	var recent struct {
@@ -302,8 +311,74 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			Context: t.Context, Model: t.Model, Subagents: t.Subagents,
 		}, logf)
 	}
-	sess.redraw = ctrl.Redraw
-	sess.needed = func() bool { return ctrl.PanelOpen() || live.Load().History.Enabled }
+	sess.redraw = func() {
+		ctrl.Redraw()
+		var context int64
+		if t := sess.tally.Load(); t != nil {
+			context = t.Context
+		}
+		hint.Lock()
+		due, last := handoffDue(context, int64(live.Load().Hints.HandoffAt), hint.last)
+		hint.last = last
+		if due {
+			hint.shown = "handoff"
+		}
+		hint.Unlock()
+		if !due {
+			return
+		}
+		keys := ctrl.CurrentKeys()
+		msg := fmt.Sprintf("context %s: write a handoff and start fresh? %s then %s", tokens(context), keys.Leader, keys.Handoff)
+		logf("hint: handoff, context %s", tokens(context))
+		// The notice is drawn at the cursor, so only once it's in the
+		// prompt: the context grows during a reply, maybe under a dialog.
+		// The panel line shows meanwhile.
+		go func() {
+			for range 1200 { // 10 minutes
+				hint.Lock()
+				pending := hint.shown == "handoff" && !hint.followed
+				hint.Unlock()
+				if !pending {
+					return
+				}
+				if ctrl.Gate == nil || ctrl.Gate() {
+					ctrl.SetBriefNotice(msg)
+					return
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+		}()
+	}
+	sess.needed = func() bool {
+		return ctrl.PanelOpen() || live.Load().History.Enabled || live.Load().Hints.HandoffAt > 0
+	}
+	// After /clear that follows a handoff, offer to read it.
+	cleared := sess.onClear
+	sess.onClear = func(t time.Time) {
+		cleared(t)
+		hint.Lock()
+		offer := hint.handedOff
+		hint.handedOff = false
+		if !hint.followed {
+			// /clear took the hint's "start fresh", without a handoff: no
+			// label is better than "dismissed".
+			hint.shown = ""
+		}
+		hint.Unlock()
+		if !offer {
+			return
+		}
+		go func() {
+			// Claude redraws its empty prompt after /clear: wait for it.
+			for range 20 {
+				if ctrl.Show(afterHandoff, tracker.Snapshot().Rev) {
+					logf("hint: offered %q after /clear", afterHandoff)
+					return
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+		}()
+	}
 	usageDone := make(chan struct{})
 	go func() {
 		sess.watchUsage(ctx)
@@ -379,6 +454,9 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			}
 			if next.History != prev.History {
 				applied = append(applied, "history") // read on each submit
+			}
+			if next.Hints != prev.Hints {
+				applied = append(applied, "hints") // read on each usage update
 			}
 			if next.Panel.Visible != prev.Panel.Visible {
 				restart = append(restart, "panel.visible") // only opens it at startup
@@ -708,7 +786,46 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			logf("expand: undo not applied: %v", err)
 			return
 		}
+		expansion.Lock()
+		handoff := expansion.style == "handoff"
+		expansion.Unlock()
+		if handoff {
+			hint.Lock()
+			hint.followed = false
+			hint.Unlock()
+		}
 		logf("expand: undone, back to %q", original)
+	}
+	// keys.handoff: the handoff prompt in place of the typed one, which
+	// keys.undo brings back, like a rewrite's.
+	ctrl.OnHandoff = func(s input.State) {
+		if !s.Synced {
+			logf("handoff: the prompt's text is unknown")
+			flashNotice(ctrl, "handoff: the prompt isn't readable here")
+			return
+		}
+		expansion.Lock()
+		running := expansion.running
+		expansion.Unlock()
+		if running {
+			logf("handoff: a rewrite is running")
+			return
+		}
+		dir, _ := live.Load().TemplatesDir()
+		transcript, _ := sess.transcriptPath()
+		text := handoffPrompt(dir, transcript)
+		if err := ctrl.Replace(s.Rev, s.Text, text); err != nil {
+			logf("handoff: not applied: %v", err)
+			flashNotice(ctrl, "handoff: "+err.Error())
+			return
+		}
+		expansion.Lock()
+		expansion.original, expansion.pastes, expansion.expanded, expansion.style = s.Text, s.Pastes, text, "handoff"
+		expansion.Unlock()
+		hint.Lock()
+		hint.followed = true
+		hint.Unlock()
+		logf("handoff: replaced %q with the handoff prompt", s.Text)
 	}
 
 	// Preview mode (expand.on_enter: preview, PRD Appendix 1, FR-7.6):
@@ -968,7 +1085,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		injector.Typed = func(s input.State) (string, []string) {
 			expansion.Lock()
 			defer expansion.Unlock()
-			if expansion.expanded != "" && s.Text == expansion.expanded {
+			if expansion.expanded != "" && s.Text == expansion.expanded && expansion.style != "handoff" {
 				return expansion.original, expansion.pastes
 			}
 			return s.Text, s.Pastes
@@ -1009,11 +1126,20 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		}
 		sub := history.Submission{Time: time.Now(), Session: sessionID, Raw: s.Text, Sent: s.Text, Rules: appended != "", Sections: sections}
 		expansion.Lock()
-		if expansion.expanded != "" && s.Text == expansion.expanded {
+		if expansion.expanded != "" && s.Text == expansion.expanded && expansion.style != "handoff" {
 			sub.Raw, sub.Expanded, sub.Style = expansion.original, true, expansion.style
 		}
 		expansion.original, expansion.pastes, expansion.expanded, expansion.style = "", nil, "", ""
 		expansion.Unlock()
+		hint.Lock()
+		if hint.shown != "" || hint.followed {
+			sub.Hint, sub.HintFollowed = "handoff", hint.followed
+		}
+		if hint.followed {
+			hint.handedOff = true // until /clear, even with prompts after it
+		}
+		hint.shown, hint.followed = "", false
+		hint.Unlock()
 		auto.Lock()
 		sub.Auto, sub.Stopped, sub.Guard, sub.GuardDetail, sub.Rejected = auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected
 		auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected = false, "", "", "", ""
@@ -1139,6 +1265,12 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		Status: func() []string {
 			lines := append(slices.Clone(*status.Load()), guardStatusLines(live.Load().Expand.Guards == "off", *guardStatus.Load())...)
 			lines = append(lines, sess.usageLines()...)
+			hint.Lock()
+			if hint.shown == "handoff" && !hint.followed {
+				keys := ctrl.CurrentKeys()
+				lines = append(lines, fmt.Sprintf("hint:        a handoff (%s then %s)", keys.Leader, keys.Handoff))
+			}
+			hint.Unlock()
 			if injector != nil {
 				var last []string
 				if sub := lastSent.Load(); sub != nil {
@@ -1323,7 +1455,7 @@ func bindings(k config.KeysConfig) ghost.Keys {
 	parse := func(s string) input.Binding { b, _ := input.ParseBinding(s); return b }
 	return ghost.Keys{
 		Leader: parse(k.Leader), Panel: parse(k.Panel),
-		Expand: parse(k.Expand), Undo: parse(k.Undo), Style: parse(k.Style),
+		Expand: parse(k.Expand), Undo: parse(k.Undo), Style: parse(k.Style), Handoff: parse(k.Handoff),
 		Wider: parse(k.Wider), Narrower: parse(k.Narrower),
 	}
 }

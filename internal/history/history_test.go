@@ -21,6 +21,7 @@ func TestAppend(t *testing.T) {
 		Rules:    true,
 		Guard:    "negation",
 		Rejected: "Fix the bug without tests.",
+		Hint:     "handoff",
 	}
 
 	metrics := &Log{Path: path}
@@ -56,6 +57,9 @@ func TestAppend(t *testing.T) {
 	}
 	if first.Guard != "negation" {
 		t.Errorf("guard = %q", first.Guard)
+	}
+	if first.Hint != "handoff" || first.HintFollowed {
+		t.Errorf("hint = %q, followed %v", first.Hint, first.HintFollowed)
 	}
 	if first.Raw != "" || first.Sent != "" || first.Rejected != "" {
 		t.Error("prompt text stored without IncludeText")
