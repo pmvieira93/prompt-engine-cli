@@ -108,9 +108,16 @@ var backRef = regexp.MustCompile(`(?i)\b(it|that|this|those|these|them|also|agai
 // docs/spikes/routing.md: 90%, never "new" for a continuing prompt).
 var newTaskWeights = [5]float64{-6.0313, 3.6789, -0.2616, 5.0222, 0.5849}
 
-// newTask reports whether a prompt starts a new task, given the cosine
-// between its vector and the previous prompt's.
-func newTask(text string, cosine float64) bool {
+// newTaskThreshold is the score above which a prompt starts a new task.
+// Cross-validated on the hand labels: at 0, 9 of 14 new tasks and no
+// follow-up; at -0.5, 10 of 14 and still none; at -0.75, 11 but 2 of 46
+// follow-ups too (2026-11-23).
+const newTaskThreshold = -0.5
+
+// newTaskScore is how much a prompt looks like the start of a new task,
+// given the cosine between its vector and the previous prompt's: above
+// newTaskThreshold, it is one.
+func newTaskScore(text string, cosine float64) float64 {
 	x := []float64{cosine, 0, 0, math.Log(1+float64(len(strings.Fields(text)))) / 5}
 	if backRef.MatchString(text) {
 		x[2] = 1
@@ -127,7 +134,7 @@ func newTask(text string, cosine float64) bool {
 	for i, v := range x {
 		score += newTaskWeights[i] * v / norm
 	}
-	return score > 0
+	return score
 }
 
 func cosine(a, b []float64) float64 {

@@ -1126,7 +1126,10 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		hint.Lock()
 		hint.embedErr = ""
 		hint.Unlock()
-		if !newTask(s.Text, cosine(v, prevVec)) {
+		sim := cosine(v, prevVec)
+		score := newTaskScore(s.Text, sim)
+		logf("hint: new task? %s (score %.2f, similarity %.2f)", map[bool]string{true: "yes", false: "no"}[score > newTaskThreshold], score, sim)
+		if score <= newTaskThreshold {
 			return
 		}
 		k := ctrl.CurrentKeys()

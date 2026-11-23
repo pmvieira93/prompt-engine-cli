@@ -71,9 +71,10 @@ func TestNewTask(t *testing.T) {
 		{"add a CSV export to the ledger report, with a header row and one line per entry", 0.3, true},
 		{"add a CSV export to the ledger report, with a header row and one line per entry", 0.7, false}, // close to the last prompt
 		{"fix it", 0.9, false},
+		{"Write a haiku about the ocean and the moon at night.", 0.544, true}, // the hand test that missed at threshold 0
 	} {
-		if got := newTask(c.text, c.cosine); got != c.want {
-			t.Errorf("newTask(%q, %v) = %v, want %v", c.text, c.cosine, got, c.want)
+		if got := newTaskScore(c.text, c.cosine) > newTaskThreshold; got != c.want {
+			t.Errorf("new task for %q at %v = %v, want %v", c.text, c.cosine, got, c.want)
 		}
 	}
 }
