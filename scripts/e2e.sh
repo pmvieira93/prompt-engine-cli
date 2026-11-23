@@ -6,7 +6,7 @@
 # needed, so CI runs it on every push. scripts/smoke.sh checks the same
 # flows against the real claude and models.
 #
-#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo clear new_task guards guards_off rewrite nested
+#   scripts/e2e.sh [case]...   cases: ghost rules rules_all rules_sections rules_hook panel preview preview_retype auto accept style history usage handoff handoff_undo clear new_task guards guards_off rewrite nested
 #
 # Each case checks the debug log, what claude received (the fake records
 # each submitted prompt), and the screen. On a failure, the case's files
@@ -50,6 +50,7 @@ EOF
 			CLAUDE_CONFIG_DIR="$dir/claude" \
 			${NESTED:+PROMPT_ENGINE_ACTIVE=1} \
 			${PE_HISTORY:+PROMPT_ENGINE_HISTORY="$PE_HISTORY"} \
+			${PE_FAKE_DELAY:+PROMPT_ENGINE_FAKE_DELAY="$PE_FAKE_DELAY"} \
 			"$bin/vtharness" -cols 120 -rows 30 -- "$bin/prompt-engine" \
 			<<<"$script" >"$dir/screen.txt" 2>&1
 	) 2>/dev/null || echo "harness: exited with an error" >>"$dir/screen.txt"
@@ -228,6 +229,23 @@ panel:
   visible: true'
 	check "preview prepared" logged 'expand: preview ready for "fix the parser now"'
 	check "claude received the rewrite" sent '"Please fix the parser now."'
+}
+
+case_preview_retype() {
+	echo "preview_retype: a preview cancelled by Ctrl+C is prepared again for the same text"
+	PE_FAKE_DELAY=2s run_case preview_retype 'reply on
+wait "❯" 5s
+send "fix the parser now"
+sleep 1500ms
+send "\x03"
+sleep 300ms
+send "fix the parser now"
+sleep 4500ms
+dump
+send "\x04"
+exit' 'expand:
+  on_enter: preview'
+	check "the same text typed again gets one" logged 'expand: preview ready for "fix the parser now"'
 }
 
 case_auto() {
@@ -650,7 +668,7 @@ exit'
 }
 
 cases=("$@")
-[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview auto accept style history usage handoff handoff_undo clear new_task guards guards_off rewrite nested)
+[ ${#cases[@]} -gt 0 ] || cases=(ghost rules rules_all rules_sections rules_hook panel preview preview_retype auto accept style history usage handoff handoff_undo clear new_task guards guards_off rewrite nested)
 for c in "${cases[@]}"; do
 	"case_$c"
 done

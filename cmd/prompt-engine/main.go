@@ -60,8 +60,8 @@ const envDebugLog = "PROMPT_ENGINE_DEBUG_LOG"
 //     of the emulator UI, to tell whether a glitch comes from the emulator.
 //   - PROMPT_ENGINE_SUGGESTER (ollama or fake) overrides llm.provider, e.g.
 //     to run the manual tests with the fake suggester's fixed results.
-//   - PROMPT_ENGINE_FAKE_DELAY (a duration) slows the fake suggester down to
-//     mimic a model.
+//   - PROMPT_ENGINE_FAKE_DELAY (a duration) slows the fake suggester and
+//     the fake rewrites down to mimic a model.
 //   - PROMPT_ENGINE_DEBUG_OUTPUT names a file that receives a copy of all
 //     of the child's output, to debug how it draws.
 //   - PROMPT_ENGINE_TEST_RENDER_PANIC=1 makes the renderer panic on the first
@@ -1052,7 +1052,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			preview.Lock()
 			if preview.cancel != nil && tracker.Snapshot().Text != preview.text {
 				preview.cancel() // the prompt changed: that rewrite is stale
-				preview.cancel, preview.pending = nil, false
+				// Forgotten too, or the same text typed again counts as prepared.
+				preview.cancel, preview.pending, preview.text = nil, false, ""
 			}
 			preview.Unlock()
 			if live.Load().Expand.OnEnter != "preview" {
@@ -1789,6 +1790,13 @@ func expandPrompt(ctx context.Context, cfg config.Config, rules *expand.Rules, p
 	}
 	style = e.StyleName()
 	if provider == "fake" {
+		if d, _ := time.ParseDuration(os.Getenv(envFakeDelay)); d > 0 {
+			select {
+			case <-time.After(d):
+			case <-ctx.Done():
+				return "", "", ctx.Err()
+			}
+		}
 		lines := e.Context(ctx)
 		out := "Please " + expand.StripContext(text) + "."
 		if style != expand.StyleDefault && slices.Contains(expand.Styles, style) {

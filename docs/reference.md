@@ -98,7 +98,7 @@ Every argument goes on to `claude`, except these, which start with `--pe-`:
 | `PROMPT_ENGINE_PASSTHROUGH` | `1` runs a plain pass-through with no ghost text or panel, to tell whether a glitch is `prompt-engine`'s |
 | **Testing** | |
 | `PROMPT_ENGINE_SUGGESTER` | `fake` or `ollama`, overriding `llm.provider` |
-| `PROMPT_ENGINE_FAKE_DELAY` | A delay for the fake suggester, such as `300ms`, to mimic a model |
+| `PROMPT_ENGINE_FAKE_DELAY` | A delay for the fake suggester and the fake rewrites, such as `300ms`, to mimic a model |
 | `PROMPT_ENGINE_TEST_RENDER_PANIC` | `1` makes the display layer fail, to test the pass-through fallback |
 | **Internal** | |
 | `PROMPT_ENGINE_ACTIVE` | Set for the wrapped CLI, so a nested `prompt-engine` doesn't wrap twice. To test `prompt-engine` from such a session, use `scripts/test-env.sh` ([testing guide](TESTING.md), 1.2b) |
