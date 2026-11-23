@@ -524,7 +524,7 @@ exit' 'hints:
 }
 
 case_new_task() {
-	echo "new_task: an unrelated prompt brings the hint; after a handoff, the clear shortcut on the empty prompt brings the new task back"
+	echo "new_task: an unrelated prompt, pasted, brings the hint; after a handoff, the clear shortcut on the empty prompt brings the new task back"
 	PE_HISTORY="$work/history/new_task.jsonl" run_case new_task 'reply on
 wait "❯" 5s
 send "say hello"
@@ -532,7 +532,7 @@ sleep 300ms
 send "\r"
 wait "Reply to: say hello" 3s
 sleep 2500ms
-send "add a csv export to the ledger report with a header row"
+send "\x1b[200~add a csv export to the ledger report with a header row\x1b[201~"
 wait "a new task?" 4s
 sleep 1500ms
 dump

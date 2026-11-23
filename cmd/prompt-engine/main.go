@@ -882,9 +882,10 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		switch {
 		case !s.Synced:
 			flashNotice(ctrl, "clear: the prompt isn't readable here")
-		case len(s.Pastes) > 0:
-			// Typed back, a paste would only be its "[Pasted text]" label.
-			flashNotice(ctrl, "clear: a paste can't be put back: type /clear yourself")
+		case expand.HasPlaceholder(s.Text):
+			// Typed back, a long paste would only be its "[Pasted text]"
+			// label; a short one is plain text, and comes back.
+			flashNotice(ctrl, "clear: a [Pasted text] can't be put back: type /clear yourself")
 		case path == "":
 			// /clear is seen in the transcript: without it, the prompt
 			// would never be put back.
@@ -1326,7 +1327,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		}
 		handoff := expansion.expanded != "" && s.Text == expansion.expanded && expansion.style == "handoff"
 		typed := strings.TrimSpace(expansion.original)
-		pasted := len(expansion.pastes) > 0
+		pasted := expand.HasPlaceholder(typed)
 		expansion.original, expansion.pastes, expansion.expanded, expansion.style = "", nil, "", ""
 		expansion.Unlock()
 		hint.Lock()
@@ -1340,7 +1341,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			hint.handedOff = true // until /clear, even with prompts after it
 			if hint.shown == "new_task" && !pasted && !hint.stashed {
 				// The new task, after /clear, rather than reading the
-				// handoff; not with a paste, which would come back as its label.
+				// handoff; not with a long paste's label, which would come back as is.
 				hint.restore = typed
 			}
 		} else {
