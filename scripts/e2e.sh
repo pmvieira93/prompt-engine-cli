@@ -536,6 +536,11 @@ send "\x1b[200~add a csv export to the ledger report with a header row\x1b[201~"
 wait "a new task?" 4s
 sleep 1500ms
 dump
+send "\x03"
+sleep 300ms
+send "\x1b[200~add a csv export to the ledger report with a header row\x1b[201~"
+wait "a new task?" 4s
+dump
 send "\x11h"
 wait "Write HANDOFF.md" 3s
 send "\r"
@@ -551,6 +556,7 @@ expand:
   on_enter: preview'
 	check "the hint shows for an unrelated prompt" shown 'context 41k, a new task? ctrl+q then c: /clear first'
 	check "the log has it" logged 'hint: new task, context 41k: "add a csv export to the ledger report with a header row"'
+	check "an emptied prompt (Ctrl+C) gets it again" test "$(grep -c 'hint: new task, context' "$dir/pe.log")" -eq 2
 	check "the history records it as followed" grep -q '"hint":"new_task","hint_followed":true' "$work/history/new_task.jsonl"
 	check "after /clear, the new task comes back" logged 'hint: put back "add a csv export to the ledger report with a header row" after /clear'
 	check "rather than reading the handoff" not_logged 'hint: offered'

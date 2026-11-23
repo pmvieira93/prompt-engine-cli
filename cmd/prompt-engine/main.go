@@ -1159,6 +1159,15 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	go func() {
 		var timer *time.Timer
 		for range tracker.Subscribe() {
+			if s := tracker.Snapshot(); s.Synced && strings.TrimSpace(s.Text) == "" {
+				// An emptied prompt starts another: its new task gets the
+				// hint again. Seen in hand tests: Ctrl+C, then the next task.
+				hint.Lock()
+				if hint.shown == "new_task" && !hint.followed {
+					hint.shown, hint.checked = "", ""
+				}
+				hint.Unlock()
+			}
 			if timer != nil {
 				timer.Stop()
 			}
