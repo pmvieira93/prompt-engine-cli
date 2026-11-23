@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pmvieira93/prompt-engine-cli/internal/history"
 )
 
 func TestHandoffDue(t *testing.T) {
@@ -102,5 +104,30 @@ func TestEmbed(t *testing.T) {
 	}
 	if c := cosine([]float64{1, 0}, []float64{1, 0}); c != 1 {
 		t.Fatalf("cosine = %v", c)
+	}
+}
+
+func TestHintsSent(t *testing.T) {
+	h := &hints{shown: "new_task"}
+	sub := history.Submission{Raw: "fix the build"}
+	h.sent(&sub, false, "")
+	if sub.Hint != "new_task" || sub.HintFollowed || h.shown != "" || h.typed != "fix the build" {
+		t.Fatalf("dismissed hint: sub %+v, hints %+v", sub, h)
+	}
+
+	// A handoff after the new-task hint: the new task comes back after
+	// /clear, and the classifier still compares with the last typed prompt.
+	h.shown, h.followed = "new_task", true
+	sub = history.Submission{Raw: "Write HANDOFF.md"}
+	h.sent(&sub, true, "add dark mode")
+	if sub.Hint != "new_task" || !sub.HintFollowed || !h.handedOff || h.restore != "add dark mode" || h.typed != "fix the build" {
+		t.Fatalf("handoff: sub %+v, hints %+v", sub, h)
+	}
+
+	// A paste's label can't be typed back.
+	h = &hints{shown: "new_task", followed: true}
+	h.sent(&history.Submission{}, true, "explain [Pasted text #1 +40 lines]")
+	if h.restore != "" {
+		t.Fatalf("kept %q", h.restore)
 	}
 }

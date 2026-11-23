@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,7 +14,16 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/pmvieira93/prompt-engine-cli/internal/config"
+	"github.com/pmvieira93/prompt-engine-cli/internal/expand"
+	"github.com/pmvieira93/prompt-engine-cli/internal/ghost"
+	"github.com/pmvieira93/prompt-engine-cli/internal/history"
+	"github.com/pmvieira93/prompt-engine-cli/internal/input"
+	"github.com/pmvieira93/prompt-engine-cli/internal/rules"
 )
 
 // Hints on how Claude Code is used (PRD Appendix 5, FR-11.4, section 11).
@@ -205,4 +215,348 @@ func retry(n int, try func() bool) bool {
 		time.Sleep(250 * time.Millisecond)
 	}
 	return false
+}
+
+// hints shows the context hints and keeps what they need: the hint shown
+// since the last prompt, whether it was taken, and the prompt to put back
+// after /clear.
+type hints struct {
+	ctrl    *ghost.Controller
+	tracker *input.Tracker
+	sess    *sessionInfo
+	live    *atomic.Pointer[config.Config]
+	logf    func(string, ...any)
+
+	// mu guards the fields below. Never call ctrl while holding it: Enter
+	// calls sent, which takes it, with ctrl locked, so the other order
+	// deadlocks.
+	mu        sync.Mutex
+	shown     string // the hint shown since the last prompt: "handoff" or "new_task"
+	followed  bool   // its shortcut was used, and not undone
+	last      int64  // the context the handoff hint was last shown at
+	handedOff bool   // a handoff prompt was sent: offer to read it after /clear
+	restore   string // the typed prompt to put back after /clear
+	stashed   bool   // restore is from keys.clear: kept until it's back
+	putting   bool   // putBack is running
+	checked   string // the prompt last checked for a new task
+	typed     string // the last prompt sent, as typed: the classifier compares with it
+	prev      []float64
+	prevText  string // the prompt prev is the vector of
+	embedErr  string // the last embedding error, logged once
+}
+
+// usage is told the context size when it changes: it shows the handoff
+// hint once it's due.
+func (h *hints) usage(context int64) {
+	h.mu.Lock()
+	due, last := handoffDue(context, int64(h.live.Load().Hints.HandoffAt), h.last)
+	h.last = last
+	if due {
+		h.shown = "handoff"
+	}
+	h.mu.Unlock()
+	if !due {
+		return
+	}
+	keys := h.ctrl.CurrentKeys()
+	msg := fmt.Sprintf("context %s: write a handoff and start fresh? %s then %s", tokens(context), keys.Leader, keys.Handoff)
+	h.logf("hint: handoff, context %s", tokens(context))
+	// The notice is drawn at the cursor, so only once it's in the
+	// prompt: the context grows during a reply, maybe under a dialog.
+	// The panel line shows meanwhile.
+	go func() {
+		for range 1200 { // 10 minutes
+			h.mu.Lock()
+			pending := h.shown == "handoff" && !h.followed
+			h.mu.Unlock()
+			if !pending {
+				return
+			}
+			if h.ctrl.Gate == nil || h.ctrl.Gate() {
+				h.ctrl.SetBriefNotice(msg)
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
+}
+
+// follow records whether the hint's shortcut was taken: a handoff, or its
+// undo.
+func (h *hints) follow(taken bool) {
+	h.mu.Lock()
+	h.followed = taken
+	h.mu.Unlock()
+}
+
+// putBack types the prompt kept for after /clear into the empty prompt,
+// once Claude has redrawn it, or once what was typed meanwhile is sent.
+func (h *hints) putBack() {
+	h.mu.Lock()
+	text := h.restore
+	if text == "" || h.putting {
+		h.mu.Unlock()
+		return
+	}
+	h.putting = true
+	h.mu.Unlock()
+	// shortcut: given up after 2 minutes of a non-empty prompt; keep it
+	// on disk if that's ever seen to lose one.
+	ok := retry(480, func() bool {
+		h.mu.Lock()
+		dropped := h.restore != text
+		h.mu.Unlock()
+		if dropped {
+			return true // dropped, by a prompt sent after a handoff
+		}
+		// A prompt sent meanwhile changes the revision, so Replace refuses.
+		s := h.tracker.Snapshot()
+		if !s.Synced || s.Text != "" || (h.ctrl.Gate != nil && !h.ctrl.Gate()) || h.ctrl.Replace(s.Rev, "", text) != nil {
+			return false
+		}
+		h.mu.Lock()
+		if h.restore == text {
+			h.restore, h.stashed = "", false
+		}
+		h.mu.Unlock()
+		h.logf("hint: put back %q after /clear", text)
+		return true
+	})
+	h.mu.Lock()
+	h.putting = false
+	if !ok {
+		h.restore, h.stashed = "", false
+	}
+	h.mu.Unlock()
+	if !ok {
+		h.logf("hint: couldn't put back %q after /clear", text)
+		flashNotice(h.ctrl, "couldn't put your prompt back after /clear")
+	}
+}
+
+// cleared is told when /clear is seen: it puts the kept prompt back, or,
+// after a handoff, offers to read it.
+func (h *hints) cleared() {
+	h.mu.Lock()
+	offer := h.handedOff && h.restore == ""
+	h.handedOff = false
+	h.typed, h.checked = "", "" // a new conversation: no prompt before
+	if !h.followed {
+		// /clear took the hint's "start fresh", without a handoff: no
+		// label is better than "dismissed".
+		h.shown = ""
+	}
+	h.mu.Unlock()
+	go h.putBack()
+	if !offer {
+		return
+	}
+	go retry(20, func() bool {
+		ok := h.ctrl.Show(afterHandoff, h.tracker.Snapshot().Rev) // once Claude has redrawn its empty prompt
+		if ok {
+			h.logf("hint: offered %q after /clear", afterHandoff)
+		}
+		return ok
+	})
+}
+
+// clear answers keys.clear: /clear, then the typed prompt back, unsent,
+// for a new task in a fresh context.
+func (h *hints) clear(s input.State) {
+	path, _ := h.sess.transcriptPath()
+	t, ok := h.sess.turn()
+	switch {
+	case !s.Synced:
+		flashNotice(h.ctrl, "clear: the prompt isn't readable here")
+	case expand.HasPlaceholder(s.Text):
+		// Typed back, a long paste would only be its "[Pasted text]"
+		// label; a short one is plain text, and comes back.
+		flashNotice(h.ctrl, "clear: a [Pasted text] can't be put back: type /clear yourself")
+	case path == "":
+		// /clear is seen in the transcript: without it, the prompt
+		// would never be put back.
+		flashNotice(h.ctrl, "clear: Claude's transcript isn't found: type /clear yourself")
+	case ok && !t.Done:
+		// shortcut: a prompt sent a moment ago isn't in the transcript
+		// yet, so this can miss a reply that just started.
+		flashNotice(h.ctrl, "clear: Claude is still replying")
+	default:
+		if err := h.ctrl.Replace(s.Rev, s.Text, "/clear"); err != nil {
+			h.logf("clear: not applied: %v", err)
+			flashNotice(h.ctrl, "clear: "+err.Error())
+			return
+		}
+		h.mu.Lock()
+		if typed := strings.TrimSpace(s.Text); typed != "" || h.restore == "" {
+			h.restore = typed
+		} // else the new task kept by a handoff comes back
+		h.stashed = h.restore != ""
+		h.followed = h.shown == "new_task" // after the handoff hint, /clear alone isn't a handoff
+		restore := h.restore
+		h.mu.Unlock()
+		h.logf("clear: sending /clear, then putting back %q", restore)
+		if err := h.ctrl.Submit(h.tracker.Snapshot().Rev, "/clear"); err != nil {
+			// Enter on /clear still puts the prompt back.
+			h.logf("clear: /clear not sent: %v", err)
+			flashNotice(h.ctrl, "clear: /clear not sent: "+err.Error())
+			return
+		}
+		// In case /clear isn't seen in the transcript: the prompt
+		// mustn't be lost. A no-op once it's back.
+		time.AfterFunc(8*time.Second, h.putBack)
+	}
+}
+
+// checkNewTask shows the new-task hint when the prompt starts a new task
+// and the context is large: /clear or a handoff first.
+func (h *hints) checkNewTask(ctx context.Context) {
+	cfg := h.live.Load()
+	at := int64(cfg.Hints.NewTaskAt)
+	var size int64
+	if t := h.sess.tally.Load(); t != nil {
+		size = t.Context
+	}
+	s := h.tracker.Snapshot()
+	h.mu.Lock()
+	prev := h.typed
+	skip := h.shown != "" || h.checked == s.Text
+	prevVec := h.prev
+	if h.prevText != prev {
+		prevVec = nil
+	}
+	h.mu.Unlock()
+	embedder := embed
+	if os.Getenv(envSuggester) == "fake" {
+		embedder = fakeEmbed
+	} else if cfg.LLM.Provider != "ollama" {
+		return // the embedding model runs through Ollama, like the rewrites
+	}
+	if skip || at <= 0 || size < at || rules.SkipReason(s) != "" || prev == "" {
+		return
+	}
+	h.mu.Lock()
+	h.checked = s.Text
+	h.mu.Unlock()
+	failed := func(err error) {
+		h.mu.Lock()
+		if h.checked == s.Text {
+			h.checked = "" // checked again at the next pause
+		}
+		again := h.embedErr == err.Error()
+		h.embedErr = err.Error()
+		h.mu.Unlock()
+		if !again {
+			h.logf("hint: new task not checked: %v (it needs `ollama pull %s`; logged once until it works)", err, embedModel)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second) // the model may need loading
+	defer cancel()
+	if prevVec == nil {
+		v, err := embedder(ctx, cfg.LLM.Endpoint, prev)
+		if err != nil {
+			failed(err)
+			return
+		}
+		prevVec = v
+		h.mu.Lock()
+		h.prev, h.prevText = v, prev
+		h.mu.Unlock()
+	}
+	v, err := embedder(ctx, cfg.LLM.Endpoint, s.Text)
+	if err != nil {
+		failed(err)
+		return
+	}
+	h.mu.Lock()
+	h.embedErr = ""
+	h.mu.Unlock()
+	sim := cosine(v, prevVec)
+	score := newTaskScore(s.Text, sim)
+	h.logf("hint: new task? %s (score %.2f, similarity %.2f)", map[bool]string{true: "yes", false: "no"}[score > newTaskThreshold], score, sim)
+	if score <= newTaskThreshold {
+		return
+	}
+	k := h.ctrl.CurrentKeys()
+	msg := fmt.Sprintf("context %s, a new task? %s then %s: /clear first · %s then %s: a handoff first",
+		tokens(size), k.Leader, k.Clear, k.Leader, k.Handoff)
+	// Shown, and so recorded, only once the notice can be drawn: the
+	// history's labels mustn't count a hint nobody saw.
+	retry(40, func() bool {
+		drawable := h.ctrl.Gate == nil || h.ctrl.Gate()
+		h.mu.Lock()
+		stale := h.shown != "" || h.tracker.Snapshot().Text != s.Text
+		show := !stale && drawable
+		if show {
+			h.shown = "new_task"
+		}
+		h.mu.Unlock()
+		if show {
+			h.logf("hint: new task, context %s: %q", tokens(size), s.Text)
+			h.ctrl.SetBriefNotice(msg)
+		}
+		return stale || show
+	})
+	h.ctrl.Redraw()
+}
+
+// watchTyping checks the prompt for a new task each time typing pauses.
+func (h *hints) watchTyping(ctx context.Context) {
+	var timer *time.Timer
+	for range h.tracker.Subscribe() {
+		if s := h.tracker.Snapshot(); s.Synced && strings.TrimSpace(s.Text) == "" {
+			// An emptied prompt starts another: its new task gets the
+			// hint again. Seen in hand tests: Ctrl+C, then the next task.
+			h.mu.Lock()
+			if h.shown == "new_task" && !h.followed {
+				h.shown, h.checked = "", ""
+			}
+			h.mu.Unlock()
+		}
+		if timer != nil {
+			timer.Stop()
+		}
+		timer = time.AfterFunc(newTaskPause, func() { h.checkNewTask(ctx) })
+	}
+}
+
+// sent records the hint shown before sub, and whether it was taken, and
+// keeps what the next /clear needs. handoff is whether sub is the handoff
+// prompt, and typed what it replaced.
+func (h *hints) sent(sub *history.Submission, handoff bool, typed string) {
+	pasted := expand.HasPlaceholder(typed)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.shown != "" || h.followed {
+		sub.Hint, sub.HintFollowed = cmp.Or(h.shown, "handoff"), h.followed
+	}
+	if !h.stashed {
+		h.restore = "" // a prompt sent after a handoff: it isn't followed by /clear
+	}
+	if handoff {
+		h.handedOff = true // until /clear, even with prompts after it
+		if h.shown == "new_task" && !pasted && !h.stashed {
+			// The new task, after /clear, rather than reading the
+			// handoff; not with a long paste's label, which would come back as is.
+			h.restore = typed
+		}
+	} else {
+		h.typed = sub.Raw
+	}
+	h.shown, h.followed = "", false
+}
+
+// status is the panel's line about the hint shown, if one is.
+func (h *hints) status() []string {
+	keys := h.ctrl.CurrentKeys()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	switch {
+	case h.followed:
+	case h.shown == "handoff":
+		return []string{fmt.Sprintf("hint:        a handoff (%s then %s)", keys.Leader, keys.Handoff)}
+	case h.shown == "new_task":
+		return []string{fmt.Sprintf("hint:        a new task: /clear (%s then %s) or a handoff (%s then %s)",
+			keys.Leader, keys.Clear, keys.Leader, keys.Handoff)}
+	}
+	return nil
 }
