@@ -483,8 +483,6 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		})
 	}
 
-	// Prompt expansion: leader, then keys.expand, rewrites the prompt in
-	// place for the user to review; keys.undo puts the original back.
 	// What the expansion model is told about the session, by level
 	// (expand.context; PRD Appendix 1, FR-6).
 	sessionContext := func() expand.SessionContext {
@@ -502,274 +500,22 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		}
 		return sc
 	}
-
-	var expansion struct {
-		sync.Mutex
-		running            bool
-		original, expanded string
-		pastes             []string // original's
-		style              string   // of expanded, for the history
-	}
-	// The style for the prompt being written (PRD Appendix 2, FR-8.6):
-	// keys.style picks it, and it lasts until the prompt is sent or
-	// cleared. "" is expand.style.
-	var promptStyle struct {
-		sync.Mutex
-		style string
-	}
-	styleFor := func(cfg config.Config) string {
-		promptStyle.Lock()
-		defer promptStyle.Unlock()
-		if promptStyle.style != "" {
-			return promptStyle.style
-		}
-		return cfg.Expand.Style
-	}
-	withStyle := func(cfg config.Config) config.Config {
-		cfg.Expand.Style = styleFor(cfg)
-		return cfg
-	}
-	// chosen is how the panel and notices name the style for this prompt
-	// when keys.style picked one; plain otherwise.
-	chosen := func(plain string) string {
-		promptStyle.Lock()
-		defer promptStyle.Unlock()
-		if promptStyle.style == "" {
-			return plain
-		}
-		return promptStyle.style + ", for this prompt"
-	}
-	go func() {
-		for range tracker.Subscribe() {
-			if tracker.Snapshot().Text != "" {
-				continue
-			}
-			promptStyle.Lock()
-			was := promptStyle.style
-			promptStyle.style = ""
-			promptStyle.Unlock()
-			if was != "" {
-				logf("style: back to %s (the prompt was sent or cleared)", live.Load().Expand.Style)
-			}
-		}
-	}()
-	// isExpanded reports whether text is a rewrite waiting to be sent.
-	isExpanded := func(text string) bool {
-		expansion.Lock()
-		defer expansion.Unlock()
-		return expansion.expanded != "" && text == expansion.expanded
-	}
+	// Prompt expansion: leader, then keys.expand, rewrites the prompt in
+	// place for the user to review; keys.undo puts the original back.
+	expansion := &expansions{ctrl: ctrl, tracker: tracker, sess: sess, live: &live, logf: logf,
+		context: sessionContext, rules: rulesFor, hint: hint}
+	go expansion.watchTyping()
 	preview := &previews{ctrl: ctrl, tracker: tracker, sess: sess, live: &live, logf: logf,
-		style: styleFor, chosen: chosen, context: sessionContext, rules: rulesFor, expanded: isExpanded}
+		style: expansion.styleFor, chosen: expansion.chosen, context: sessionContext, rules: rulesFor,
+		expanded: expansion.isExpanded}
+	expansion.preview = preview
 	if cfg.Expand.OnEnter != "off" {
 		go warmExpander(ctx, cfg, logf) // so the first rewrite isn't slowed by loading it
 	}
-	// rewrite rewrites src (its text and pastes) in the style for this
-	// prompt and puts the result in place of s, the prompt as it stands:
-	// src itself, or an earlier rewrite of it. The caller has checked the
-	// plan and set expansion.running. If the style was changed meanwhile,
-	// it rewrites src again in that style, so only the last one chosen
-	// stays.
-	var rewrite func(s, src input.State, plan expand.Plan)
-	rewrite = func(s, src input.State, plan expand.Plan) {
-		var after string // a notice to show briefly once done
-		var used string  // the style the rewrite in place has, if it's done
-		defer func() {
-			expansion.Lock()
-			now := tracker.Snapshot()
-			again := used != "" && slices.Contains(expand.Styles, used) && used != styleFor(*live.Load()) &&
-				now.Synced && now.Text == expansion.expanded
-			if !again {
-				expansion.running = false
-			}
-			expansion.Unlock()
-			ctrl.SetNotice("")
-			if after != "" {
-				flashNotice(ctrl, after)
-			}
-			if again {
-				logf("expand: the style changed to %s while rewriting; rewriting again", styleFor(*live.Load()))
-				go rewrite(now, src, plan)
-			}
-		}()
-		cfg := withStyle(*live.Load())
-		if c := chosen(""); c != "" {
-			ctrl.SetNotice("⟳ expanding… (" + c + ")")
-		} else {
-			ctrl.SetNotice("⟳ expanding…")
-		}
-		ectx, cancel := context.WithTimeout(ctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
-		defer cancel()
-		start := time.Now()
-		release := sess.hold()
-		rules := rulesFor(cfg) // the same for the model and the check
-		masked, style, err := expandPrompt(ectx, cfg, rules, plan, sessionContext())
-		release()
-		if err != nil {
-			logf("expand: failed: %v", err)
-			return
-		}
-		if stop := rules.CheckShortcut(plan.Masked, masked); stop != nil {
-			logf("expand: not applied: the rewrite %q was stopped by guard %s (%s)", masked, stop.Guard, stop.Reason)
-			after = "kept your text: " + stop.Reason
-			return
-		}
-		restore := plan.Restore
-		if rules.Off["pastes"] {
-			restore = plan.RestoreMoved
-		}
-		out, err := restore(masked)
-		if err != nil {
-			logf("expand: not applied: %v: %q", err, masked)
-			after = "kept your text: " + err.Error()
-			return
-		}
-		if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
-			logf("expand: not applied: %v", err)
-			return
-		}
-		expansion.Lock()
-		expansion.original, expansion.pastes, expansion.expanded, expansion.style = src.Text, src.Pastes, out, style
-		expansion.Unlock()
-		used = style
-		if s.Text != src.Text {
-			logf("expand: rewrote %q again: replaced %q with %q (%s, style %s)", src.Text, s.Text, out, time.Since(start).Round(time.Millisecond), style)
-			return
-		}
-		logf("expand: replaced %q with %q (%s, style %s)", s.Text, out, time.Since(start).Round(time.Millisecond), style)
-	}
-	ctrl.OnExpand = func(s input.State) {
-		if !s.Synced || strings.TrimSpace(s.Text) == "" {
-			logf("expand: nothing to expand (empty prompt, or its text is unknown)")
-			return
-		}
-		expansion.Lock()
-		if expansion.running {
-			expansion.Unlock()
-			logf("expand: already expanding")
-			return
-		}
-		if out, style := preview.ready(s); out != "" {
-			expansion.Unlock()
-			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
-				logf("expand: preview not applied: %v", err)
-				return
-			}
-			expansion.Lock()
-			expansion.original, expansion.pastes, expansion.expanded, expansion.style = s.Text, s.Pastes, out, style
-			expansion.Unlock()
-			logf("expand: used the preview: replaced %q with %q", s.Text, out)
-			return
-		}
-		plan := expand.PlanRewrite(s.Text, s.Pastes)
-		if plan.Skip != "" {
-			expansion.Unlock()
-			logf("expand: nothing to rewrite: %s", plan.Skip)
-			flashNotice(ctrl, "nothing to rewrite: "+plan.Skip)
-			return
-		}
-		expansion.running = true
-		expansion.Unlock()
-		go rewrite(s, s, plan)
-	}
-	// keys.style: the next style for this prompt. On a rewrite, it
-	// rewrites the original text again in that style.
-	ctrl.OnStyle = func(s input.State) {
-		if !s.Synced || strings.TrimSpace(s.Text) == "" {
-			logf("style: nothing to choose a style for (empty prompt, or its text is unknown)")
-			return
-		}
-		cfg := *live.Load()
-		was := styleFor(cfg)
-		next := expand.NextStyle(was)
-		promptStyle.Lock()
-		promptStyle.style = next
-		if next == cfg.Expand.Style {
-			promptStyle.style = ""
-		}
-		promptStyle.Unlock()
-		logf("style: %s for this prompt (was %s)", next, was)
-
-		expansion.Lock()
-		held := expansion.expanded != "" && s.Text == expansion.expanded
-		src := input.State{Text: s.Text, Pastes: s.Pastes}
-		if held {
-			src.Text, src.Pastes = expansion.original, expansion.pastes
-		}
-		plan := expand.PlanRewrite(src.Text, src.Pastes)
-		note := "style: " + next
-		used := styleName(withStyle(cfg), plan.TypoOnly)
-		switch used {
-		case "typos":
-			note += " (not used: typos only)"
-		case "custom":
-			note += " (not used: templates/system.txt)"
-		}
-		start := held && !expansion.running && plan.Skip == "" && used == next
-		if start {
-			expansion.running = true
-		}
-		expansion.Unlock()
-		if !ctrl.PanelOpen() {
-			briefNotice(ctrl, note)
-		}
-		switch {
-		case start:
-			go rewrite(s, src, plan)
-		case cfg.Expand.OnEnter == "preview" && !held:
-			go preview.prepare(ctx) // the ready suggestion has the old style
-		}
-		ctrl.Redraw()
-	}
-	ctrl.OnUndo = func(s input.State) {
-		expansion.Lock()
-		original, expanded := expansion.original, expansion.expanded
-		expansion.Unlock()
-		if expanded == "" || s.Text != expanded {
-			logf("expand: nothing to undo (the prompt isn't the last expansion)")
-			return
-		}
-		if err := ctrl.Replace(s.Rev, expanded, original); err != nil {
-			logf("expand: undo not applied: %v", err)
-			return
-		}
-		expansion.Lock()
-		handoff := expansion.style == "handoff"
-		expansion.Unlock()
-		if handoff {
-			hint.follow(false)
-		}
-		logf("expand: undone, back to %q", original)
-	}
-	// keys.handoff: the handoff prompt in place of the typed one, which
-	// keys.undo brings back, like a rewrite's.
-	ctrl.OnHandoff = func(s input.State) {
-		if !s.Synced {
-			logf("handoff: the prompt's text is unknown")
-			flashNotice(ctrl, "handoff: the prompt isn't readable here")
-			return
-		}
-		expansion.Lock()
-		running := expansion.running
-		expansion.Unlock()
-		if running {
-			logf("handoff: a rewrite is running")
-			return
-		}
-		dir, _ := live.Load().TemplatesDir()
-		transcript, _ := sess.transcriptPath()
-		text := handoffPrompt(dir, transcript)
-		if err := ctrl.Replace(s.Rev, s.Text, text); err != nil {
-			logf("handoff: not applied: %v", err)
-			flashNotice(ctrl, "handoff: "+err.Error())
-			return
-		}
-		expansion.Lock()
-		expansion.original, expansion.pastes, expansion.expanded, expansion.style = s.Text, s.Pastes, text, "handoff"
-		expansion.Unlock()
-		hint.follow(true)
-		logf("handoff: replaced %q with the handoff prompt", s.Text)
-	}
+	ctrl.OnExpand = func(s input.State) { expansion.expand(ctx, s) }
+	ctrl.OnStyle = func(s input.State) { expansion.nextStyle(ctx, s) }
+	ctrl.OnUndo = expansion.undo
+	ctrl.OnHandoff = expansion.handoff
 	// keys.clear: /clear, then the typed prompt back, unsent, for a new
 	// task in a fresh context (FR-11.4).
 	ctrl.OnClear = hint.clear
@@ -785,26 +531,15 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	// Automatic expansion on Enter (expand.on_enter: auto, PRD Appendix 1,
 	// FR-7).
 	auto := &autos{ctrl: ctrl, tracker: tracker, sess: sess, live: &live, logf: logf,
-		style: styleFor, context: sessionContext, rules: rulesFor, expanded: isExpanded,
-		setExpanded: func(s input.State, out, style string) {
-			expansion.Lock()
-			expansion.original, expansion.pastes, expansion.expanded, expansion.style = s.Text, s.Pastes, out, style
-			expansion.Unlock()
-		}}
+		style: expansion.styleFor, context: sessionContext, rules: rulesFor, expanded: expansion.isExpanded,
+		setExpanded: expansion.set}
 	ctrl.KeyHook = func(k input.Key, s input.State) bool { return auto.key(ctx, k, s) }
 
 	// On each prompt sent: append the rules, and record what was typed
 	// against what was sent, for the panel and the history (FR-5).
 	var record func(s input.State, appended string, sections []string)
 	if injector != nil {
-		injector.Typed = func(s input.State) (string, []string) {
-			expansion.Lock()
-			defer expansion.Unlock()
-			if expansion.expanded != "" && s.Text == expansion.expanded && expansion.style != "handoff" {
-				return expansion.original, expansion.pastes
-			}
-			return s.Text, s.Pastes
-		}
+		injector.Typed = expansion.typed
 	}
 	// queueRules tells the hook what to add when the prompt reaches claude.
 	queueRules := func(s input.State, text string) {
@@ -840,14 +575,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			return // not a message to the model
 		}
 		sub := history.Submission{Time: time.Now(), Session: sessionID, Raw: s.Text, Sent: s.Text, Rules: appended != "", Sections: sections}
-		expansion.Lock()
-		if expansion.expanded != "" && s.Text == expansion.expanded && expansion.style != "handoff" {
-			sub.Raw, sub.Expanded, sub.Style = expansion.original, true, expansion.style
-		}
-		handoff := expansion.expanded != "" && s.Text == expansion.expanded && expansion.style == "handoff"
-		typed := strings.TrimSpace(expansion.original)
-		expansion.original, expansion.pastes, expansion.expanded, expansion.style = "", nil, "", ""
-		expansion.Unlock()
+		handoff, typed := expansion.sent(&sub, s)
 		hint.sent(&sub, handoff, typed)
 		auto.sent(&sub)
 		if appended != "" {
@@ -875,9 +603,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	}
 	panelDiff := func() *tui.Diff {
 		// An expansion waiting to be sent: preview it, with the rules.
-		expansion.Lock()
-		original, expanded := expansion.original, expansion.expanded
-		expansion.Unlock()
+		original, expanded := expansion.waiting()
 		if s := tracker.Snapshot(); expanded != "" && s.Synced && s.Text == expanded {
 			text := expanded
 			if injector != nil {
@@ -886,7 +612,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 				}
 			}
 			return &tui.Diff{
-				Title: "Ready to send (" + chosen("not sent yet") + ")",
+				Title: "Ready to send (" + expansion.chosen("not sent yet") + ")",
 				Ops:   diff.Prompt(original, text),
 				Notes: []string{"Enter sends it; the undo key puts your text back."},
 			}
@@ -914,7 +640,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			}
 		}
 		notes := []string{note}
-		if c := chosen(""); c != "" {
+		if c := expansion.chosen(""); c != "" {
 			notes = append(notes, "Next rewrite: style "+c+".")
 		}
 		switch {
