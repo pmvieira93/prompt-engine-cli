@@ -546,18 +546,24 @@ func (a *app) promptBox() (top, bottom int, ok bool) {
 	return top, bottom, a.isRule(top)
 }
 
-// drawOnRule writes s at the right end of the rule on row y of the child's
-// screen, which starts at column ox: "──── s ──". A long s is cut short
-// with "…", keeping the rule's first cells.
+// drawOnRule writes s at the right end of the longest unbroken stretch of
+// the rule on row y of the child's screen, which starts at column ox:
+// "──── s ──". Claude Code writes its own label on the rule, such as the
+// session's name at its right end, and that stays readable. A long s is
+// cut short with "…", keeping the stretch's first cells.
 func (a *app) drawOnRule(scr uv.Screen, ox, y int, s string, style uv.Style) {
 	first, last := -1, -1
-	for x := range a.emu.Width() {
-		if c := a.emu.CellAt(x, y); c != nil && c.Content == "─" {
-			if first < 0 {
-				first = x
+	for x, start := 0, -1; x <= a.emu.Width(); x++ {
+		if c := a.emu.CellAt(x, y); x < a.emu.Width() && c != nil && c.Content == "─" {
+			if start < 0 {
+				start = x
 			}
-			last = x
+			continue
 		}
+		if start >= 0 && x-start > last-first+1 {
+			first, last = start, x-1
+		}
+		start = -1
 	}
 	const margin = 2                        // rule cells kept at each end
 	room := last - first + 1 - 2*margin - 2 // and a space each side of s
