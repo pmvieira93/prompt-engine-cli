@@ -554,8 +554,13 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		}
 	}()
 	var autoExpand func(context.Context, context.CancelFunc, config.Config, input.State, expand.Plan)
-	var readyPreview func(input.State) (string, string) // a prepared rewrite for the prompt and its style, or
-	var preparePreview func()
+	preview := &previews{ctrl: ctrl, tracker: tracker, sess: sess, live: &live, logf: logf,
+		style: styleFor, chosen: chosen, context: sessionContext, rules: rulesFor,
+		expanded: func(text string) bool {
+			expansion.Lock()
+			defer expansion.Unlock()
+			return expansion.expanded != "" && text == expansion.expanded
+		}}
 	if cfg.Expand.OnEnter != "off" {
 		go warmExpander(ctx, cfg, logf) // so the first rewrite isn't slowed by loading it
 	}
@@ -644,7 +649,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			logf("expand: already expanding")
 			return
 		}
-		if out, style := readyPreview(s); out != "" {
+		if out, style := preview.ready(s); out != "" {
 			expansion.Unlock()
 			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
 				logf("expand: preview not applied: %v", err)
@@ -712,7 +717,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		case start:
 			go rewrite(s, src, plan)
 		case cfg.Expand.OnEnter == "preview" && !held:
-			go preparePreview() // the ready suggestion has the old style
+			go preview.prepare(ctx) // the ready suggestion has the old style
 		}
 		ctrl.Redraw()
 	}
@@ -769,153 +774,8 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	// task in a fresh context (FR-11.4).
 	ctrl.OnClear = hint.clear
 
-	// Preview mode (expand.on_enter: preview, PRD Appendix 1, FR-7.6):
-	// when typing pauses, a rewrite is prepared in the background and the
-	// panel shows it; the expand shortcut then applies it at once, and
-	// Enter sends the prompt as typed. It passes the same guard rails as
-	// auto mode, so what's offered is what auto mode would send.
-	var preview struct {
-		sync.Mutex
-		text     string // the prompt the preview is for
-		out      string // its rewrite, or "" if there is none
-		reason   string // why there is none
-		style    string // out's style (expand.Expander.StyleName)
-		asked    string // expand.style when it was prepared
-		guard    string // the guard rail that stopped the rewrite, if one did
-		detail   string // what tripped it (expand.Stop.Detail)
-		rejected string // the rewrite it stopped
-		pending  bool   // being prepared
-		cancel   context.CancelFunc
-	}
-	readyPreview = func(s input.State) (string, string) {
-		preview.Lock()
-		defer preview.Unlock()
-		// A style changed since, by a reload or keys.style, makes it stale.
-		if !s.Synced || preview.pending || preview.text != s.Text || preview.asked != styleFor(*live.Load()) {
-			return "", ""
-		}
-		return preview.out, preview.style
-	}
-	preparePreview = func() {
-		c := withStyle(*live.Load())
-		cfg := &c
-		s := tracker.Snapshot()
-		expansion.Lock()
-		expanded := expansion.expanded != "" && s.Text == expansion.expanded
-		expansion.Unlock()
-		preview.Lock()
-		// Ready, or being prepared; not one cancelled before it was ready,
-		// or the same text typed again would never get one.
-		prepared := preview.pending || preview.out != "" || preview.reason != ""
-		if cfg.Expand.OnEnter != "preview" || preview.text == s.Text && preview.asked == cfg.Expand.Style && prepared {
-			preview.Unlock()
-			return
-		}
-		show := s.Synced && !expanded && rules.SkipReason(s) == "" && len(strings.Fields(s.Text)) >= cfg.Expand.MinWords
-		plan := expand.PlanRewrite(s.Text, s.Pastes)
-		if preview.cancel != nil {
-			preview.cancel() // a rewrite in another style
-			preview.cancel = nil
-		}
-		preview.text, preview.out, preview.reason, preview.pending = s.Text, "", "", false
-		preview.style, preview.asked = "", cfg.Expand.Style
-		preview.guard, preview.detail, preview.rejected = "", "", ""
-		switch {
-		case !show:
-			preview.text = "" // nothing to offer: the panel shows the last prompt sent
-			preview.Unlock()
-			ctrl.Redraw()
-			return
-		case plan.Skip != "":
-			preview.reason = plan.Skip
-			preview.Unlock()
-			logf("expand: no preview: %s", plan.Skip)
-			ctrl.Redraw()
-			return
-		}
-		pctx, cancel := context.WithCancel(ctx)
-		preview.pending, preview.cancel = true, cancel
-		preview.Unlock()
-		ctrl.Redraw()
-
-		// The model gives a different rewrite on another try: in testing,
-		// one try in three turned "it still fails, same …" into a task,
-		// and the next was fine. So a stopped rewrite gets a second try.
-		start := time.Now()
-		sc := sessionContext()
-		var out, reason, style, guard, detail, rejected string
-		for try := 1; try <= 2; try++ {
-			tctx, tcancel := context.WithTimeout(pctx, cfg.LLM.ExpandTimeout+wordsTime(plan.Words))
-			release := sess.hold()
-			rules := rulesFor(*cfg) // the same for the model and the check
-			masked, st, err := expandPrompt(tctx, *cfg, rules, plan, sc)
-			release()
-			tcancel()
-			if pctx.Err() != nil {
-				cancel()
-				return // typing resumed: a newer preview is on its way
-			}
-			style = st
-			if err != nil {
-				reason, guard, detail, rejected = "the rewrite failed: "+err.Error(), "", "", ""
-				break
-			}
-			var stop *expand.Stop
-			if out, stop = review(rules, plan, masked, sc); stop == nil {
-				reason, guard, detail, rejected = "", "", "", ""
-				break
-			}
-			reason, guard, detail, rejected = stop.Reason, stop.Guard, stop.Detail, expand.StripContext(masked)
-			if try == 1 {
-				logf("expand: preview rewrite %q stopped by guard %s (%s); asking again", rejected, guard, reason)
-			}
-		}
-		cancel()
-		preview.Lock()
-		if preview.text != s.Text || !preview.pending || preview.asked != cfg.Expand.Style {
-			preview.Unlock()
-			return
-		}
-		preview.out, preview.reason, preview.pending, preview.cancel = out, reason, false, nil
-		preview.style, preview.guard, preview.detail, preview.rejected = style, guard, detail, rejected
-		preview.Unlock()
-		took := time.Since(start).Round(time.Millisecond)
-		if out == "" {
-			rejectedBy := ""
-			if guard != "" {
-				rejectedBy = fmt.Sprintf("; guard %s rejected %q", guard, rejected)
-			}
-			logf("expand: no preview for %q: %s (%s)%s", plan.Masked, reason, took, rejectedBy)
-		} else {
-			logf("expand: preview ready for %q: %q (%s, style %s)", s.Text, out, took, style)
-			// Not over a notice already shown, e.g. a hint: seen hiding the
-			// new-task hint 0.3s after it showed.
-			if !ctrl.PanelOpen() && ctrl.Notice() == "" {
-				k := ctrl.CurrentKeys()
-				flashNotice(ctrl, fmt.Sprintf("✎ rewrite ready · %s then %s uses it, %s then %s shows it", k.Leader, k.Expand, k.Leader, k.Panel))
-			}
-		}
-		ctrl.Redraw()
-	}
-	go func() {
-		var timer *time.Timer
-		for range tracker.Subscribe() {
-			preview.Lock()
-			if preview.cancel != nil && tracker.Snapshot().Text != preview.text {
-				preview.cancel() // the prompt changed: that rewrite is stale
-				preview.cancel, preview.pending = nil, false
-				logf("expand: preview for %q cancelled: the prompt changed", preview.text)
-			}
-			preview.Unlock()
-			if live.Load().Expand.OnEnter != "preview" {
-				continue
-			}
-			if timer != nil {
-				timer.Stop()
-			}
-			timer = time.AfterFunc(live.Load().Expand.PreviewPause, preparePreview)
-		}
-	}()
+	// Preview mode (expand.on_enter: preview, PRD Appendix 1, FR-7.6).
+	go preview.watchTyping(ctx)
 
 	// The new-task hint (FR-11.4): when typing pauses on a prompt that
 	// starts a new task, once the context is large, suggest /clear or a
@@ -1113,52 +973,25 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			go recordHistory(h, sub, logf)
 		}
 	}
-	previewDiff := func() *tui.Diff {
-		s := tracker.Snapshot()
-		preview.Lock()
-		text, out, reason, pending, asked := preview.text, preview.out, preview.reason, preview.pending, preview.asked
-		guard, detail, rejected := preview.guard, preview.detail, preview.rejected
-		preview.Unlock()
-		if ec := live.Load().Expand; ec.OnEnter != "preview" || styleFor(*live.Load()) != asked || !s.Synced || text == "" || text != s.Text {
-			return nil
-		}
-		k := ctrl.CurrentKeys()
-		switch {
-		case pending:
-			return &tui.Diff{Title: "Preparing a rewrite…", Ops: diff.Prompt(text, text)}
-		case out == "":
-			notes := []string{"Not offered: " + reason + "."}
-			if guard != "" && live.Load().Panel.GuardDetails {
-				notes = guardNotes("Guard ", guard, detail, rejected)
-			}
-			return &tui.Diff{Title: "No rewrite suggested", Ops: diff.Prompt(text, text),
-				Notes: append(notes, "Enter sends what you typed.")}
-		}
-		return &tui.Diff{
-			Title: "Suggested rewrite (" + chosen("not used yet") + ")",
-			Ops:   diff.Prompt(text, out),
-			Notes: []string{fmt.Sprintf("%s then %s uses it; Enter sends what you typed.", k.Leader, k.Expand)},
-		}
-	}
 	panelDiff := func() *tui.Diff {
 		// An expansion waiting to be sent: preview it, with the rules.
 		expansion.Lock()
 		original, expanded := expansion.original, expansion.expanded
 		expansion.Unlock()
 		if s := tracker.Snapshot(); expanded != "" && s.Synced && s.Text == expanded {
-			preview := expanded
+			text := expanded
 			if injector != nil {
 				if r := injector.Text(expanded); r != "" {
-					preview += rules.Separator + r
+					text += rules.Separator + r
 				}
 			}
 			return &tui.Diff{
 				Title: "Ready to send (" + chosen("not sent yet") + ")",
-				Ops:   diff.Prompt(original, preview),
+				Ops:   diff.Prompt(original, text),
 				Notes: []string{"Enter sends it; the undo key puts your text back."},
 			}
 		}
-		if d := previewDiff(); d != nil {
+		if d := preview.diff(); d != nil {
 			return d
 		}
 		sub := lastSent.Load()
