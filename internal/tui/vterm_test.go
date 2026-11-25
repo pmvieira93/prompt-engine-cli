@@ -90,6 +90,41 @@ func TestViewGhostAtCursor(t *testing.T) {
 	}
 }
 
+func TestViewNoticeOnBorders(t *testing.T) {
+	m := newTestModel(40, 5)
+	rule := strings.Repeat("─", 40)
+	m.app.emu.Write([]byte(rule + "\r\n❯ impl\r\n" + rule + "\x1b[2;7H")) // border, prompt, border
+	m.app.opt.Tracker.Filter([]byte("impl"))
+	m.app.opt.Ctrl.Show("ement", m.app.opt.Tracker.Snapshot().Rev)
+	m.app.opt.Ctrl.SetPromptNotice("✎ rewrite ready", "ctrl+q e: use it")
+	lines := screenLines(m)
+	for i, l := range lines {
+		t.Logf("%d|%s|", i, l)
+	}
+	if want := "───────────────────── ✎ rewrite ready ──"; lines[0] != want {
+		t.Errorf("top border = %q, want %q", lines[0], want)
+	}
+	if !strings.HasPrefix(lines[1], "❯ implement") {
+		t.Errorf("prompt line = %q, want only the ghost text after it", lines[1])
+	}
+	if want := "──────────────────── ctrl+q e: use it ──"; lines[2] != want {
+		t.Errorf("bottom border = %q, want %q", lines[2], want)
+	}
+
+	m.app.opt.Ctrl.SetNotice("kept your text: the rewrite dropped a name you typed")
+	if got := screenLines(m)[0]; !strings.HasPrefix(got, "── kept your text") || !strings.HasSuffix(got, "… ──") {
+		t.Errorf("long notice = %q, want it cut short inside the rule", got)
+	}
+	if got := screenLines(m)[2]; got != strings.Repeat("─", 40) {
+		t.Errorf("bottom border = %q, want no shortcuts with this notice", got)
+	}
+
+	m.app.emu.Write([]byte("\x1b[?25l")) // a dialog: no prompt to draw it by
+	if got := screenLines(m)[0]; got != strings.Repeat("─", 40) {
+		t.Errorf("notice drawn with no prompt: %q", got)
+	}
+}
+
 // TestDrawEmulatorMatchesDraw checks drawEmulator against vt's own Draw,
 // including styles, wide characters, and emoji.
 func TestDrawEmulatorMatchesDraw(t *testing.T) {

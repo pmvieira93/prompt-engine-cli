@@ -543,7 +543,7 @@ The model's wording varies, so judge whether it kept your meaning rather than ma
 
 | # | Do this | Expected |
 |---|---|---|
-| I1 | Type `fix teh failing tst in config`, then **Ctrl+Q**, **e** | `⟳ expanding…` appears after the text (no ghost text). Within about a second (several seconds the very first time, while the model loads), the input box shows a corrected prompt, e.g. `Fix the failing test in the config.`, then a blank line, `Context:` and `- Branch: …`. Log: `expand: replaced … (…ms)` |
+| I1 | Type `fix teh failing tst in config`, then **Ctrl+Q**, **e** | `⟳ expanding…` appears on the input box's top border. Within about a second (several seconds the very first time, while the model loads), the input box shows a corrected prompt, e.g. `Fix the failing test in the config.`, then a blank line, `Context:` and `- Branch: …`. Log: `expand: replaced … (…ms)` |
 | I2 | **Ctrl+Q**, **u** | The original `fix teh failing tst in config` is back. Log: `expand: undone` |
 | I3 | **Ctrl+Q**, **u** again | Nothing changes. Log: `expand: nothing to undo` |
 | I4 | Ctrl+C to clear, then **Ctrl+Q**, **e** on the empty prompt | Nothing happens. Log: `expand: nothing to expand` |
@@ -764,7 +764,7 @@ Open the panel (Ctrl+Q, then p). Its Session section should say `expansion:   pr
 | M4 | Paste **C** from Part L (Cmd+V) | `No rewrite suggested`, with `Not offered: the paste looks like a log, trace, JSON or diff.` Log: `expand: no preview: …` |
 | M5 | Type `ok thanks` | Nothing is suggested (shorter than `min_words`); the panel shows the last prompt sent |
 | M6 | Type `say helo in thre words`, wait for the suggestion, then **Enter** (sends a harmless prompt) | Sent **as typed** (`helo`, `thre`): Enter never uses the suggestion. The panel: **Last prompt sent** with nothing changed |
-| M7 | Close the panel (**Ctrl+Q**, **p**). Type `tell me a joke abuot cats` and stop | A notice at the cursor for a few seconds: `✎ rewrite ready · ctrl+q then e uses it, ctrl+q then p shows it`. Then **Ctrl+Q**, **e**, **Enter** (sends a harmless prompt): sent corrected, and the panel's **Last prompt sent** says `· expanded` |
+| M7 | Close the panel (**Ctrl+Q**, **p**). Type `tell me a joke abuot cats` and stop | On the input box's top border: `✎ rewrite ready`, and on its bottom border: `ctrl+q e: use it · ctrl+q p: panel`. Both stay until the prompt changes; your prompt line shows only your text. Then **Ctrl+Q**, **e**, **Enter** (sends a harmless prompt): sent corrected, and the panel's **Last prompt sent** says `· expanded` |
 
 **Cleanup:** `rm -f /tmp/pe-auto.yaml`.
 
@@ -803,7 +803,7 @@ A `templates/system.txt` replaces every style; the history then says `"style":"c
 
 | # | Do this | Expected |
 |---|---|---|
-| N12 | Type `explain waht the main.go file dose and dont change it`, then **Ctrl+Q**, **s** | A faint `style: llm` after your text, gone after about 1.5 s or at the next key. Log: `style: llm for this prompt (was default)` |
+| N12 | Type `explain waht the main.go file dose and dont change it`, then **Ctrl+Q**, **s** | A faint `style: llm` on the input box's top border, gone after about 1.5 s or at the next key. Log: `style: llm for this prompt (was default)` |
 | N13 | **Ctrl+Q**, **e** | Rewritten in `llm`. Log: `expand: replaced … (…, style llm)` |
 | N14 | **Ctrl+Q**, **s** | `⟳ expanding… (human, for this prompt)`, then **your original text** rewritten in `human`, not N13's rewrite rewritten again. Log: `expand: rewrote "explain waht …" again: replaced … (…, style human)` (recorded: 2.3 s) |
 | N15 | **Ctrl+Q**, **u** | Your original text, with the typos |
@@ -895,7 +895,7 @@ export PROMPT_ENGINE_CONFIG="$T/config.yaml"
 | Q5 | While it runs, in another terminal: `printf 'turn off: destructive\n' >"$T/templates/guards.txt"` | Within a second, the Session section shows `…/guards.txt: off: destructive` and `⚠ destructive is off: in auto mode, a rewrite it would stop is sent unchecked` |
 | Q6 | Type `say hello`, **Enter** | Claude receives the rewrite, starting `Please say hello.` (the fake rewriter adds the earlier prompt after it) |
 | Q7 | `printf 'turn of: question\n' >"$T/templates/guards.txt"` | The Session section shows `last guards.txt edit rejected: …/guards.txt line 1: "turn of: question" isn't a rule: start it with never add:, always keep: or turn off:`, and still `off: destructive` |
-| Q8 | `printf 'never add: please\n' >"$T/templates/guards.txt"`, type `say hello`, then **Ctrl+Q**, **e** | At the cursor: `kept your text: the rewrite added "please" (guards.txt line 1: never add)`, and the prompt stays `say hello`. Clear it with **Ctrl+U** |
+| Q8 | `printf 'never add: please\n' >"$T/templates/guards.txt"`, type `say hello`, then **Ctrl+Q**, **e** | On the input box's top border: `kept your text: the rewrite added "please" (guards.txt line 1: never add)`, and the prompt stays `say hello`. Clear it with **Ctrl+U** |
 | Q9 | Add `  guards: off` under `expand:` in `$T/config.yaml`, then type `say hello` and press **Ctrl+Q**, **e** | The Session section shows `guards.txt ignored (expand.guards: off); built-in guards only`, and the prompt becomes `Please say hello.` Clear it with **Ctrl+U** and quit with `/exit` |
 
 **Cleanup:** `unset PROMPT_ENGINE_CONFIG; rm -rf "$T"`.

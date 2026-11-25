@@ -523,6 +523,68 @@ func (a *app) isRule(y int) bool {
 	return false
 }
 
+// promptBox returns the rows of the input box's top and bottom rules, or
+// ok == false if the cursor isn't in the box.
+func (a *app) promptBox() (top, bottom int, ok bool) {
+	if !a.cursorInPrompt() {
+		return 0, 0, false
+	}
+	pos := a.emu.CursorPosition()
+	top = pos.Y // the marker's row, then the rule above it
+	for a.firstContent(top, a.emu.Width()) != promptMarker {
+		if top--; top < 0 {
+			return 0, 0, false
+		}
+	}
+	top--
+	bottom = pos.Y + 1
+	for !a.isRule(bottom) {
+		if bottom++; bottom >= a.emu.Height() {
+			return 0, 0, false
+		}
+	}
+	return top, bottom, a.isRule(top)
+}
+
+// drawOnRule writes s at the right end of the rule on row y of the child's
+// screen, which starts at column ox: "──── s ──". A long s is cut short
+// with "…", keeping the rule's first cells.
+func (a *app) drawOnRule(scr uv.Screen, ox, y int, s string, style uv.Style) {
+	first, last := -1, -1
+	for x := range a.emu.Width() {
+		if c := a.emu.CellAt(x, y); c != nil && c.Content == "─" {
+			if first < 0 {
+				first = x
+			}
+			last = x
+		}
+	}
+	const margin = 2                        // rule cells kept at each end
+	room := last - first + 1 - 2*margin - 2 // and a space each side of s
+	if first < 0 || room < 2 {
+		return
+	}
+	if uniseg.StringWidth(s) > room {
+		s = cut(s, room-1) + "…"
+	}
+	text := " " + s + " "
+	x := last + 1 - margin - uniseg.StringWidth(text)
+	drawGhost(scr, ox+x, y, ox+last+1-margin, text, style)
+}
+
+// cut returns the start of s that fits in n cells.
+func cut(s string, n int) string {
+	var b strings.Builder
+	g := uniseg.NewGraphemes(s)
+	for g.Next() {
+		if n -= uniseg.StringWidth(g.Str()); n < 0 {
+			break
+		}
+		b.WriteString(g.Str())
+	}
+	return b.String()
+}
+
 func isBlank(s string) bool { return s == "" || s == " " || s == "\u00a0" }
 
 // Wake schedules a redraw. It never blocks.
@@ -804,8 +866,16 @@ func (m *model) view() tea.View {
 			panic("PanicOnGhost: simulated renderer failure")
 		}
 		drawGhost(m.canvas, ox+pos.X, pos.Y, ox+ew, sug, style)
-	} else if note := m.app.opt.Ctrl.Notice(); note != "" {
-		drawGhost(m.canvas, ox+pos.X, pos.Y, ox+ew, "  "+note, style)
+	}
+	// Notices go on the input box's borders, leaving the prompt line to
+	// ghost text: hidden while there's no box, as under a dialog.
+	if note := m.app.opt.Ctrl.Notice(); note != "" {
+		if top, bottom, ok := m.app.promptBox(); ok {
+			m.app.drawOnRule(m.canvas, ox, top, note, style)
+			if keys := m.app.opt.Ctrl.NoticeKeys(); keys != "" {
+				m.app.drawOnRule(m.canvas, ox, bottom, keys, style)
+			}
+		}
 	}
 	if m.app.panel.Load() && ew < m.w {
 		// lipgloss Layer.Draw ignores X/Y and repaints its whole area, so

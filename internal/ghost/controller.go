@@ -96,8 +96,11 @@ type Controller struct {
 
 	mu        sync.Mutex
 	output    io.Writer // to the child, for Replace
-	notice    string    // shown at the cursor, e.g. "expanding…"
+	notice    string    // shown on the input box's top border, e.g. "expanding…"
+	keys      string    // the notice's shortcuts, shown on the box's bottom border
 	brief     bool      // the notice goes at the next key
+	forPrompt bool      // the notice goes once the prompt isn't forText
+	forText   string
 	screen    func() (text string, cursor, slack int, ok bool)
 	panelOpen func() bool
 	dec       input.Decoder
@@ -188,32 +191,52 @@ func (c *Controller) SetOutput(w io.Writer) {
 	c.mu.Unlock()
 }
 
-// SetNotice sets a short message shown at the cursor, like ghost text but
-// not acceptable with Tab; "" clears it.
-func (c *Controller) SetNotice(msg string) { c.setNotice(msg, false) }
+// SetNotice sets a short message shown on the input box's top border, so
+// the prompt line is left to ghost text; "" clears it.
+func (c *Controller) SetNotice(msg string) { c.setNotice(msg, "", false, false) }
 
 // SetBriefNotice is SetNotice for a notice that the next key clears, e.g.
 // what a shortcut just did.
-func (c *Controller) SetBriefNotice(msg string) { c.setNotice(msg, true) }
+func (c *Controller) SetBriefNotice(msg string) { c.setNotice(msg, "", true, false) }
 
-func (c *Controller) setNotice(msg string, brief bool) {
+// SetPromptNotice is SetNotice for a notice about the prompt as it stands,
+// such as a hint: it goes once the prompt changes. keys are its shortcuts,
+// shown on the box's bottom border with it.
+func (c *Controller) SetPromptNotice(msg, keys string) { c.setNotice(msg, keys, false, true) }
+
+func (c *Controller) setNotice(msg, keys string, brief, forPrompt bool) {
 	c.mu.Lock()
-	changed := c.notice != msg || (msg != "" && c.sug != "")
-	c.notice, c.brief = msg, brief && msg != ""
-	if msg != "" {
-		c.sug = "" // the notice replaces any suggestion, so Tab can't take it
-	}
+	changed := c.notice != msg || c.keys != keys
+	c.notice, c.keys, c.brief = msg, keys, brief && msg != ""
+	c.forPrompt, c.forText = forPrompt && msg != "", c.Tracker.Snapshot().Text
 	c.mu.Unlock()
 	if changed && c.OnChange != nil {
 		c.OnChange()
 	}
 }
 
-// Notice returns the message set with SetNotice.
+// Notice returns the message set with SetNotice, or "" once it has gone.
 func (c *Controller) Notice() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.expireNotice()
 	return c.notice
+}
+
+// NoticeKeys returns the shortcuts of the notice on screen, or "".
+func (c *Controller) NoticeKeys() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.expireNotice()
+	return c.keys
+}
+
+// expireNotice clears a notice set with SetPromptNotice once the prompt
+// has changed. c.mu is held.
+func (c *Controller) expireNotice() {
+	if c.forPrompt && c.Tracker.Snapshot().Text != c.forText {
+		c.notice, c.keys, c.forPrompt = "", "", false
+	}
 }
 
 // Submit sends Enter for the prompt, as if the user had pressed it, if the
@@ -391,7 +414,7 @@ func (c *Controller) Filter(p []byte) []byte {
 		}
 		keys = keys || k.Type != input.KeyReport
 		if c.brief && k.Type != input.KeyReport {
-			c.notice, c.brief, cleared = "", false, true
+			c.notice, c.keys, c.brief, cleared = "", "", false, true
 		}
 		if c.KeyHook != nil && !c.armed && k.Type != input.KeyReport && !c.Keys.Leader.Matches(k) {
 			// Bring the tracker up to this key, so the hook sees text typed
@@ -576,7 +599,7 @@ func (c *Controller) resyncForEnter(res []byte, keys bool) []byte {
 // rev. It reports whether the suggestion was shown.
 func (c *Controller) Show(s string, rev uint64) bool {
 	c.mu.Lock()
-	ok := s != "" && !c.disabled && c.notice == "" && c.Tracker.Snapshot().Rev == rev && (c.Gate == nil || c.Gate())
+	ok := s != "" && !c.disabled && c.Tracker.Snapshot().Rev == rev && (c.Gate == nil || c.Gate())
 	if ok {
 		c.sug = s
 	}
