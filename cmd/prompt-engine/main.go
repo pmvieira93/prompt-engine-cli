@@ -553,14 +553,14 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 			}
 		}
 	}()
-	var autoExpand func(context.Context, context.CancelFunc, config.Config, input.State, expand.Plan)
+	// isExpanded reports whether text is a rewrite waiting to be sent.
+	isExpanded := func(text string) bool {
+		expansion.Lock()
+		defer expansion.Unlock()
+		return expansion.expanded != "" && text == expansion.expanded
+	}
 	preview := &previews{ctrl: ctrl, tracker: tracker, sess: sess, live: &live, logf: logf,
-		style: styleFor, chosen: chosen, context: sessionContext, rules: rulesFor,
-		expanded: func(text string) bool {
-			expansion.Lock()
-			defer expansion.Unlock()
-			return expansion.expanded != "" && text == expansion.expanded
-		}}
+		style: styleFor, chosen: chosen, context: sessionContext, rules: rulesFor, expanded: isExpanded}
 	if cfg.Expand.OnEnter != "off" {
 		go warmExpander(ctx, cfg, logf) // so the first rewrite isn't slowed by loading it
 	}
@@ -783,112 +783,15 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 	go hint.watchTyping(ctx)
 
 	// Automatic expansion on Enter (expand.on_enter: auto, PRD Appendix 1,
-	// FR-7): the hook holds back Enter on a real prompt, a goroutine
-	// expands it, and the rewrite is sent if the guard rails pass, or the
-	// prompt as typed if not. Esc meanwhile sends it as typed; typing
-	// cancels the send. The hook runs with the controller locked, so only
-	// the goroutine calls the controller.
-	var auto struct {
-		sync.Mutex
-		pending, escaped bool
-		cancel           context.CancelFunc
-		// For the record of the next prompt sent.
-		ran      bool
-		stopped  string
-		guard    string // the guard rail that stopped the rewrite, if one did
-		detail   string // what tripped it (expand.Stop.Detail)
-		rejected string // the rewrite it stopped
-	}
-	ctrl.KeyHook = func(k input.Key, s input.State) bool {
-		auto.Lock()
-		defer auto.Unlock()
-		if auto.pending {
-			if k.Type == input.KeyEscape {
-				auto.escaped = true
-				auto.cancel()
-				return true
-			}
-			auto.pending = false
-			auto.cancel()
-			logf("expand: auto expansion cancelled (you kept typing)")
-			return false
-		}
-		cfg := live.Load()
-		if k.Type != input.KeyEnter || cfg.Expand.OnEnter != "auto" {
-			return false
-		}
-		plan := expand.PlanRewrite(s.Text, s.Pastes)
-		if reason := autoSkip(*cfg, s, plan); reason != "" {
-			if reason == plan.Skip {
-				logf("expand: not auto-expanded (%s)", plan.Skip)
-			}
-			return false
-		}
-		expansion.Lock()
-		already := expansion.expanded != "" && s.Text == expansion.expanded
-		expansion.Unlock()
-		if already {
-			return false // expanded with the shortcut and reviewed: send it
-		}
-		actx, cancel := context.WithTimeout(ctx, cfg.Expand.AutoTimeout+wordsTime(plan.Words))
-		auto.pending, auto.escaped, auto.cancel = true, false, cancel
-		logf("expand: Enter held while expanding %q (Esc sends it as typed)", plan.Masked)
-		go autoExpand(actx, cancel, withStyle(*cfg), s, plan)
-		return true
-	}
-	autoExpand = func(actx context.Context, cancel context.CancelFunc, cfg config.Config, s input.State, plan expand.Plan) {
-		defer cancel()
-		ctrl.SetNotice("⟳ expanding…")
-		start := time.Now()
-		sc := sessionContext()
-		release := sess.hold()
-		r := autoRewrite(actx, cfg, rulesFor(cfg), plan, sc)
-		release()
-		ctrl.SetNotice("")
-
-		auto.Lock()
-		if !auto.pending {
-			auto.Unlock()
-			return // cancelled by typing: nothing to send
-		}
-		escaped := auto.escaped
-		auto.pending, auto.escaped = false, false
-		auto.Unlock()
-
-		out, style := r.out, r.style
-		reason, guard, detail, rejected := r.reason, r.guard, r.detail, r.rejected
-		if escaped {
-			reason, guard, detail, rejected = "you pressed Esc", "", "", ""
-		}
-		if reason == "" {
-			if err := ctrl.Replace(s.Rev, s.Text, out); err != nil {
-				reason = "couldn't replace the prompt: " + err.Error()
-			} else {
-				expansion.Lock()
-				expansion.original, expansion.pastes, expansion.expanded, expansion.style = s.Text, s.Pastes, out, style
-				expansion.Unlock()
-				auto.Lock()
-				auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected = true, "", "", "", ""
-				auto.Unlock()
-				if err := ctrl.Submit(tracker.Snapshot().Rev, out); err != nil {
-					logf("expand: auto expansion not sent: %v", err)
-					return
-				}
-				logf("expand: auto expanded and sent %q (%s, style %s)", out, time.Since(start).Round(time.Millisecond), style)
-				return
-			}
-		}
-		if guard != "" {
-			reason = "guard " + guard + ": " + reason
-		}
-		logf("expand: auto rewrite %q not used (%s); sending as typed", r.masked, reason)
-		auto.Lock()
-		auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected = true, reason, guard, detail, rejected
-		auto.Unlock()
-		if err := ctrl.Submit(s.Rev, s.Text); err != nil {
-			logf("expand: not sent: %v", err)
-		}
-	}
+	// FR-7).
+	auto := &autos{ctrl: ctrl, tracker: tracker, sess: sess, live: &live, logf: logf,
+		style: styleFor, context: sessionContext, rules: rulesFor, expanded: isExpanded,
+		setExpanded: func(s input.State, out, style string) {
+			expansion.Lock()
+			expansion.original, expansion.pastes, expansion.expanded, expansion.style = s.Text, s.Pastes, out, style
+			expansion.Unlock()
+		}}
+	ctrl.KeyHook = func(k input.Key, s input.State) bool { return auto.key(ctx, k, s) }
 
 	// On each prompt sent: append the rules, and record what was typed
 	// against what was sent, for the panel and the history (FR-5).
@@ -946,10 +849,7 @@ func runGhost(cmd *exec.Cmd, cfg config.Config, cfgErr error, sessionID string, 
 		expansion.original, expansion.pastes, expansion.expanded, expansion.style = "", nil, "", ""
 		expansion.Unlock()
 		hint.sent(&sub, handoff, typed)
-		auto.Lock()
-		sub.Auto, sub.Stopped, sub.Guard, sub.GuardDetail, sub.Rejected = auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected
-		auto.ran, auto.stopped, auto.guard, auto.detail, auto.rejected = false, "", "", "", ""
-		auto.Unlock()
+		auto.sent(&sub)
 		if appended != "" {
 			sub.Sent += rules.Separator + appended
 		}
