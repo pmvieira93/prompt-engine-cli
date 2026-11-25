@@ -1,8 +1,8 @@
 # PRD Appendix 1: Session Context and Automatic Enhancement
 
 **Extends:** [PRD.md](../PRD.md) version 1.1.0 (sections 4.2, 4.3, 4.5 and the Phase 4 roadmap)  
-**Appendix Version:** 1.13.0  
-**Date:** 2026-11-02  
+**Appendix Version:** 1.13.1  
+**Date:** 2026-11-25  
 **Status:** Built: FR-6.1 and FR-7.1 to FR-7.6 (with FR-7.4f) in Phase 4.5; FR-6.2 and FR-6.3 after it (2.5)
 
 ---
@@ -216,7 +216,7 @@ A setting for when expansion runs:
 * **FR-7.5:** The history log (FR-5.4) records whether a prompt was auto-expanded, whether a guard rail stopped it, and which (`guard`); with `history.include_text`, also the rewrite it stopped (`rejected`).
 * **FR-7.6:** `preview` mode, for when `auto` is too blunt. As built:
   * After a pause in typing (`expand.preview_pause`, default 1 s), the rewrite is prepared in the background; typing again cancels it.
-  * The panel shows it as "Suggested rewrite (not used yet)", or "No rewrite suggested" with the reason. With the panel closed, a notice at the cursor says a rewrite is ready.
+  * The panel shows it as "Suggested rewrite (not used yet)", or "No rewrite suggested" with the reason. With the panel closed, a notice says a rewrite is ready: on the input box's top border, with its shortcuts on the bottom border, until the prompt changes (2026-11-25; it was at the cursor before).
   * The expand shortcut (Ctrl+Q, then e) applies a ready suggestion at once, so no new key is needed; without one it expands as before. Enter always sends what was typed.
   * Suggestions pass the same guard rails as `auto` (FR-7.4 to FR-7.4e), so what is offered is what `auto` would send.
   * A rewrite a guard rail stops gets one more try: the model gives a different rewrite each time, and in testing one try in three turned a report into a task where the next didn't. `auto` doesn't retry, since Enter is held while it runs.

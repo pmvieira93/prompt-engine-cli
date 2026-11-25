@@ -248,6 +248,9 @@ exit' 'expand:
 	check "Ctrl+C cancels the first, before it's ready" logged 'expand: preview for "fix the parser now" cancelled: the prompt changed'
 	check "the same text typed again gets one" logged 'expand: preview ready for "fix the parser now"'
 	check "only that one" test "$(grep -c 'expand: preview ready' "$dir/pe.log")" -eq 1
+	check "the notice is on the box's top border" shown '─ ✎ rewrite ready ──'
+	check "its shortcuts on the bottom border" shown '─ ctrl+q e: use it · ctrl+q p: panel ──'
+	check "and not on the prompt line" fails_shown 'now  ✎'
 }
 
 case_auto() {
@@ -451,7 +454,8 @@ exit' 'hints:
   handoff_at: 40000
   new_task_at: 0'
 	local h="$work/history/handoff.jsonl"
-	check "the hint shows once the context reaches hints.handoff_at" shown 'context 41k: write a handoff and start fresh? ctrl+q then h'
+	check "the hint shows on the box's top border once the context reaches hints.handoff_at" shown '─ context 41k: write a handoff and start fresh? ──'
+	check "its shortcuts on the bottom border" shown '─ ctrl+q h: handoff · ctrl+q p: panel ──'
 	check "the log has it" logged 'hint: handoff, context 41k'
 	check "undo brings the typed prompt back" logged 'expand: undone, back to "next task"'
 	check "the handoff prompt is sent, with its sections, line by line" last_sent_has 'with this structure:\n\n# Handoff: [short and descriptive title]' '\n## 8. Instructions for the Next Session\n'
@@ -574,7 +578,8 @@ exit' 'hints:
   handoff_at: 0
 expand:
   on_enter: preview'
-	check "the hint shows for an unrelated prompt" shown 'context 41k, a new task? ctrl+q then c: /clear first'
+	check "the hint shows on the box's top border for an unrelated prompt" shown '─ context 41k, a new task? /clear first, or a handoff ──'
+	check "its shortcuts on the bottom border" shown '─ ctrl+q c: /clear · ctrl+q h: handoff · ctrl+q p: panel ──'
 	check "the log has it" logged 'hint: new task, context 41k: "add a csv export to the ledger report with a header row"'
 	check "an emptied prompt (Ctrl+C) gets it again" test "$(grep -c 'hint: new task, context' "$dir/pe.log")" -eq 2
 	check "the history records it as followed" grep -q '"hint":"new_task","hint_followed":true' "$work/history/new_task.jsonl"

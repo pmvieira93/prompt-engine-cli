@@ -484,23 +484,36 @@ func TestBriefNoticeGoesAtNextKey(t *testing.T) {
 	}
 }
 
-func TestNoticeBlocksSuggestions(t *testing.T) {
+func TestNoticeLeavesSuggestions(t *testing.T) {
 	c := &Controller{Tracker: input.NewTracker()}
 	c.Filter([]byte("refa"))
 	rev := c.Tracker.Snapshot().Rev
 	if !c.Show("ctor", rev) {
 		t.Fatal("Show failed")
 	}
+	// Notices are drawn on the box's border, not at the cursor.
 	c.SetNotice("⟳ expanding…")
-	if c.Visible() != "" {
-		t.Fatal("the notice didn't replace the suggestion")
+	if c.Visible() != "ctor" {
+		t.Fatal("the notice hid the suggestion")
 	}
-	if c.Show("ctor", rev) {
-		t.Fatal("a suggestion was shown over the notice")
+}
+
+func TestPromptNoticeGoesWhenThePromptChanges(t *testing.T) {
+	c := &Controller{Tracker: input.NewTracker()}
+	c.Filter([]byte("new task"))
+	c.SetPromptNotice("a new task?", "ctrl+q c: /clear")
+	c.Filter([]byte("\x1b[A")) // a key that leaves the prompt as it is
+	if c.Notice() != "a new task?" || c.NoticeKeys() != "ctrl+q c: /clear" {
+		t.Fatalf("gone with the prompt unchanged: %q, %q", c.Notice(), c.NoticeKeys())
 	}
-	c.SetNotice("")
-	if !c.Show("ctor", rev) {
-		t.Fatal("suggestions didn't resume after the notice")
+	c.Filter([]byte("s"))
+	if c.Notice() != "" || c.NoticeKeys() != "" {
+		t.Fatalf("still there after the prompt changed: %q, %q", c.Notice(), c.NoticeKeys())
+	}
+	c.SetPromptNotice("a new task?", "ctrl+q c: /clear")
+	c.SetNotice("⟳ expanding…")
+	if c.NoticeKeys() != "" {
+		t.Fatalf("another notice kept the shortcuts: %q", c.NoticeKeys())
 	}
 }
 

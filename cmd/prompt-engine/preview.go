@@ -159,7 +159,7 @@ func (p *previews) prepare(ctx context.Context) {
 		// new-task hint 0.3s after it showed.
 		if !p.ctrl.PanelOpen() && p.ctrl.Notice() == "" {
 			k := p.ctrl.CurrentKeys()
-			flashNotice(p.ctrl, fmt.Sprintf("✎ rewrite ready · %s then %s uses it, %s then %s shows it", k.Leader, k.Expand, k.Leader, k.Panel))
+			p.ctrl.SetPromptNotice("✎ rewrite ready", fmt.Sprintf("%s %s: use it · %s %s: panel", k.Leader, k.Expand, k.Leader, k.Panel))
 		}
 	}
 	p.ctrl.Redraw()

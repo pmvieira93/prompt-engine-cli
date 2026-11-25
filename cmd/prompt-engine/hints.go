@@ -259,7 +259,8 @@ func (h *hints) usage(context int64) {
 		return
 	}
 	keys := h.ctrl.CurrentKeys()
-	msg := fmt.Sprintf("context %s: write a handoff and start fresh? %s then %s", tokens(context), keys.Leader, keys.Handoff)
+	msg := fmt.Sprintf("context %s: write a handoff and start fresh?", tokens(context))
+	shortcuts := fmt.Sprintf("%s %s: handoff · %s %s: panel", keys.Leader, keys.Handoff, keys.Leader, keys.Panel)
 	h.logf("hint: handoff, context %s", tokens(context))
 	// The notice is drawn at the cursor, so only once it's in the
 	// prompt: the context grows during a reply, maybe under a dialog.
@@ -273,7 +274,7 @@ func (h *hints) usage(context int64) {
 				return
 			}
 			if h.ctrl.Gate == nil || h.ctrl.Gate() {
-				h.ctrl.SetBriefNotice(msg)
+				h.ctrl.SetPromptNotice(msg, shortcuts)
 				return
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -477,8 +478,8 @@ func (h *hints) checkNewTask(ctx context.Context) {
 		return
 	}
 	k := h.ctrl.CurrentKeys()
-	msg := fmt.Sprintf("context %s, a new task? %s then %s: /clear first · %s then %s: a handoff first",
-		tokens(size), k.Leader, k.Clear, k.Leader, k.Handoff)
+	msg := fmt.Sprintf("context %s, a new task? /clear first, or a handoff", tokens(size))
+	shortcuts := fmt.Sprintf("%s %s: /clear · %s %s: handoff · %s %s: panel", k.Leader, k.Clear, k.Leader, k.Handoff, k.Leader, k.Panel)
 	// Shown, and so recorded, only once the notice can be drawn: the
 	// history's labels mustn't count a hint nobody saw.
 	retry(40, func() bool {
@@ -492,7 +493,7 @@ func (h *hints) checkNewTask(ctx context.Context) {
 		h.mu.Unlock()
 		if show {
 			h.logf("hint: new task, context %s: %q", tokens(size), s.Text)
-			h.ctrl.SetBriefNotice(msg)
+			h.ctrl.SetPromptNotice(msg, shortcuts)
 		}
 		return stale || show
 	})

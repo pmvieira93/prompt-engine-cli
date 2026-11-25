@@ -1,8 +1,8 @@
 # PRD Appendix 2: Rewrite Styles
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.0 (section 4.3, prompt enhancement) and [PRD Appendix 1](PRD-APPENDIX-1.md) (FR-7)  
-**Appendix Version:** 1.4.0  
-**Date:** 2026-11-02  
+**Appendix Version:** 1.4.1  
+**Date:** 2026-11-25  
 **Status:** Built (FR-8.1 to FR-8.6). FR-8.6, a style for one prompt, was built on 2026-11-02 (section 4.7)
 
 ---
@@ -236,7 +236,7 @@ The order of styles is always the same, starting after the one in use. For examp
 
 As proposed in 4.2 and decided in 4.6, with these details:
 
-* **The faint note** is a new kind of notice: it's drawn at the cursor like the existing "⟳ expanding…" notice, never typed into the prompt, and the next key clears it (a terminal report doesn't).
+* **The faint note** is a new kind of notice: it's drawn like the existing "⟳ expanding…" notice (at the cursor until 2026-11-25, on the input box's top border since), never typed into the prompt, and the next key clears it (a terminal report doesn't).
   * Recorded with Claude Code 2.1.309: the note sits after the text in the box, and it's gone 1.5 s later.
   * The note shows only while the side panel is closed.
 * **While rewriting again,** the expanding notice names the style: `⟳ expanding… (human, for this prompt)`. Otherwise it would hide the note at once.

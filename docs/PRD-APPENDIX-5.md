@@ -1,8 +1,8 @@
 # PRD Appendix 5: Cost-Aware Local Assistance
 
 **Extends:** [PRD.md](../PRD.md) version 1.2.5 (section 2, core value proposition; section 4.2, the local AI engine; the Phase 5 roadmap)  
-**Appendix Version:** 1.4.2  
-**Date:** 2026-11-23  
+**Appendix Version:** 1.4.3  
+**Date:** 2026-11-25  
 **Status:** Spike step 1 done, decided on 2026-11-09 (section 7): FR-11.1 built on 2026-11-09 (section 9), FR-11.2 dropped, FR-11.3 and FR-11.4 still proposed. A cost benchmark (section 8) proposed on 2026-11-09, after FR-11.1. On 2026-11-10, FR-11.3 and FR-11.4 proposed with a small non-generative decision model, to be compared with keyword rules in spike steps 3 and 4; FR-11.6 (local pre-investigation) proposed. The cost benchmark run on 2026-11-10 (section 8.5): no measurable difference from the rewrite; it is the baseline FR-11.3, FR-11.4 and FR-11.6 must beat. Spike step 3 (routing) run on 2026-11-19 (section 10): a new task can be told from the prompt, the kind of work partly, light or heavy with a decision model of 4B or more (`pplx-decider-flash`, 4.6 GB). Decided on 2026-11-22 (section 11): FR-11.4 to build, the context hints first (`/clear` for a new task, a handoff file for a large session that goes on), then the model hint; FR-11.6 started only by the developer; FR-11.3 waits for labels, gathered as the developer works. The handoff hint built on 2026-11-22, the new-task hint on 2026-11-23 (section 11). Raised on 2026-10-30.
 
 ---
@@ -302,15 +302,16 @@ On section 10's suggestions, the developer decided:
   * **A large or costly session, with no new task: suggest a handoff.** Claude writes the handoff file, then `/clear`, and the next session starts from the file, so nothing needed is lost. Raised by the developer while deciding: `/clear` alone drops what the next task still needs. The trigger is the session's size and cost (FR-11.1), so it needs no model; the thresholds are set when it is built, and the hint shows once per threshold, not on every prompt.
   * Both only suggest; the developer runs the command or sends the handoff prompt, which can be edited first.
   * *The handoff hint was built on 2026-11-22:*
-    * from `hints.handoff_at` (default 120k tokens of context, then every 40k more, 0 for off), a notice at the cursor and a line in the panel;
+    * from `hints.handoff_at` (default 120k tokens of context, then every 40k more, 0 for off), a notice and a line in the panel;
     * **Ctrl+Q, then h** puts the prompt from `templates/handoff.txt` (or a built-in one asking for `HANDOFF.md` in the developer's eight sections, ending with the session's transcript path; `{transcript}` fills it in either) in place of the typed one, which **Ctrl+Q, then u** brings back;
     * after `/clear` that follows a handoff, the empty prompt offers "Read HANDOFF.md and continue from it." as ghost text;
     * the history records each hint, and whether it was followed (`hint`, `hint_followed`), the labels FR-11.3 waits for.
   * *The new-task hint was built on 2026-11-23:*
     * from `hints.new_task_at` (default 30k tokens of context, 0 for off), when typing pauses for a second, the prompt and the one before go to `nomic-embed-text` through Ollama; the spike's logistic regression (cosine with the previous prompt, refers back, length) decides "new task", with weights trained on the developer's 60 hand labels: five numbers, no prompt text. A score above −0.5 counts as new: cross-validated, 10 of 14 new tasks and none of 46 follow-ups (at 0, 9 of 14; at −0.75, 11 but 2 follow-ups). Raised from 0 after a hand test, where a short new task scored −0.49; each check is logged with its score;
-    * then a notice at the cursor and a line in the panel, at most once per prompt, and none when the handoff hint was shown for it;
+    * then a notice and a line in the panel, at most once per prompt, and none when the handoff hint was shown for it;
     * **Ctrl+Q, then c** sends `/clear` and puts the typed prompt back, unsent; only once Claude's last reply has ended in the transcript, and not for a prompt with a paste, which can't be typed back. **Ctrl+Q, then h** sends the handoff as before; after `/clear`, the typed new task comes back instead of "Read HANDOFF.md…";
     * the history records it as `"hint":"new_task"`.
+  * *Notices moved on 2026-11-25, at the developer's request:* every notice, the hints included, is drawn on the input box's top border, and its shortcuts on the bottom border, so the prompt line holds only ghost text: before, a notice at the cursor took the ghost text's place, and one notice could hide another (the "✎ rewrite ready" notice once hid the new-task hint). A hint's notice, and "✎ rewrite ready", now stay until the prompt changes, rather than going at the next key.
   * The model hint is next.
 * **FR-11.4, the model hint: build after the context hints,** with `pplx-decider-flash`, shown only when it's confident. Switching models mid-session rewrites Claude's prompt cache (section 8.4), so the hint matters most at the start of a task: right after `/clear` or a handoff. Where the model doesn't fit or doesn't run (the 4-bit tag measured runs only on Macs; other tags weren't tried), there is no model hint.
 * **FR-11.6: started only by the developer,** with a shortcut or a word the developer lists, never by a classifier: none of the models found the investigation prompts reliably. Retrieval first, measured in a cost benchmark on a larger project.
