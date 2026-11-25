@@ -119,8 +119,16 @@ func TestViewNoticeOnBorders(t *testing.T) {
 		t.Errorf("bottom border = %q, want no shortcuts with this notice", got)
 	}
 
+	// Claude Code's own label on the border, such as the session's name,
+	// stays readable: the notice goes on the longest stretch of rule.
+	m.app.emu.Write([]byte("\x1b[1;1H" + strings.Repeat("─", 25) + " my-session ──\x1b[2;7H"))
+	m.app.opt.Ctrl.SetNotice("⟳ expanding…")
+	if want := "───────── ⟳ expanding… ── my-session ───"; screenLines(m)[0] != want {
+		t.Errorf("top border with a label = %q, want %q", screenLines(m)[0], want)
+	}
+
 	m.app.emu.Write([]byte("\x1b[?25l")) // a dialog: no prompt to draw it by
-	if got := screenLines(m)[0]; got != strings.Repeat("─", 40) {
+	if got := screenLines(m)[0]; got != strings.Repeat("─", 25)+" my-session ───" {
 		t.Errorf("notice drawn with no prompt: %q", got)
 	}
 }
