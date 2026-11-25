@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/pmvieira93/prompt-engine-cli/internal/config"
+	"github.com/pmvieira93/prompt-engine-cli/internal/history"
+	"github.com/pmvieira93/prompt-engine-cli/internal/input"
 	"github.com/pmvieira93/prompt-engine-cli/internal/rules"
 )
 
@@ -117,5 +120,37 @@ func TestRewrite(t *testing.T) {
 	var out, errs strings.Builder
 	if code := rewrite(context.Background(), &out, &errs, cfg, "fix the parser tests"); code != 2 || out.Len() > 0 || !strings.Contains(errs.String(), "prompt-engine:") {
 		t.Errorf("invalid guards: %d %q %q", code, out.String(), errs.String())
+	}
+}
+
+func TestAutosKeyWhileHeld(t *testing.T) {
+	var live atomic.Pointer[config.Config]
+	cfg := config.Default()
+	cfg.Expand.OnEnter = "auto"
+	live.Store(&cfg)
+	cancelled := 0
+	a := &autos{live: &live, logf: func(string, ...any) {}, pending: true, cancel: func() { cancelled++ }}
+	ctx := context.Background()
+
+	// Esc while Enter is held: the prompt goes as typed once the rewrite stops.
+	if !a.key(ctx, input.Key{Type: input.KeyEscape}, input.State{}) || !a.escaped || !a.pending || cancelled != 1 {
+		t.Fatalf("Esc: escaped %v, pending %v, cancelled %d", a.escaped, a.pending, cancelled)
+	}
+	// Typing while Enter is held: nothing is sent, and the key goes on.
+	a.escaped = false
+	if a.key(ctx, input.Key{Type: input.KeyRunes, Runes: []rune("x")}, input.State{}) || a.pending || cancelled != 2 {
+		t.Fatalf("typing: pending %v, cancelled %d", a.pending, cancelled)
+	}
+
+	// A slash command isn't rewritten: Enter goes through.
+	if a.key(ctx, input.Key{Type: input.KeyEnter}, input.State{Text: "/clear", Synced: true}) || a.pending {
+		t.Fatal("held Enter on a slash command")
+	}
+
+	a.ran, a.stopped = true, "you pressed Esc"
+	var sub history.Submission
+	a.sent(&sub)
+	if !sub.Auto || sub.Stopped != "you pressed Esc" || a.ran || a.stopped != "" {
+		t.Fatalf("record: sub %+v, then ran %v, stopped %q", sub, a.ran, a.stopped)
 	}
 }
