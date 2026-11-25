@@ -1,6 +1,6 @@
 # Manual Test Guide
 
-Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O), and **installing from a release** (PRD Appendix 3, Part P), and **your own guard rails** (PRD Appendix 4, Part Q), and **token usage in the panel** (PRD Appendix 5, FR-11.1, Part R). Extend this guide as later phases land.
+Covers **Phase 1** (the PTY wrapper and input buffer, Parts A–D) and **Phase 2** (ghost text and the side panel, Part E; real suggestions from a local model, Part F), and **Phase 3** (rules added to submitted prompts, Part G; config reloaded while running, Part H), and **Phase 4** (prompt expansion, Part I; the prompt diff panel, Part J), and **Phase 4.5** (session context and automatic expansion, Part K; rewriting around pastes, Part L; preview mode, Part M), and **rewrite styles** (PRD Appendix 2, Part N), and **recalled and wrapped prompts** (Part O), and **installing from a release** (PRD Appendix 3, Part P), and **your own guard rails** (PRD Appendix 4, Part Q), and **token usage in the panel** (PRD Appendix 5, FR-11.1, Part R), and the **context hints** (PRD Appendix 5, FR-11.4, Part S), and **notices on the input box's borders** (Part T). Extend this guide as later phases land.
 
 **What's being tested:** `prompt-engine` runs `claude` inside its own pseudo-terminal, draws `claude`'s screen through a built-in terminal emulator, and records what you type. Apart from ghost-text suggestions and the side panel, nothing should look or feel different from running `claude` directly.
 
@@ -931,7 +931,95 @@ Open the panel with **Ctrl+Q**, **p**.
 
 ---
 
-## 20. Known limitations (expected, not bugs)
+## 20. Part S: Context hints
+
+[PRD Appendix 5](PRD-APPENDIX-5.md), FR-11.4: once Claude Code's context is large, a **new-task hint** suggests `/clear` or a handoff before a prompt that starts an unrelated task (`hints.new_task_at`), and a **handoff hint** suggests writing `HANDOFF.md` and starting fresh (`hints.handoff_at`). Each hint shows on the input box's top border, with its shortcuts on the bottom border, and as a line in the panel. The history records each hint, and whether it was taken.
+
+> ⚠️ **Most steps send real prompts** (short, harmless ones); S17 and S22 ask Claude to write `HANDOFF.md` in a throwaway folder.
+
+**Setup:** check `ollama list` shows `nomic-embed-text` (if not: `ollama pull nomic-embed-text`), then work in a throwaway folder, with thresholds low enough to see the hints at once:
+
+```sh
+T=$(mktemp -d); mkdir -p "$T/templates" "$T/proj"; cd "$T/proj" && git init -q
+printf 'hints:\n  handoff_at: 0\n  new_task_at: 1\n' > "$T/config.yaml"
+export PROMPT_ENGINE_HISTORY="$T/history.jsonl"
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log ~/Workspace/GitHub/prompt-engine-cli/bin/prompt-engine --pe-config "$T/config.yaml"
+```
+
+Accept the folder-trust question, and open the panel (**Ctrl+Q**, **p**): its Session section shows `config: …/config.yaml`. `new_task_at: 1` turns the check on from the first reply; the handoff hint is off for now, because a shown handoff hint stops the new-task one. With the panel open the box's borders are shorter: if a notice ends in `…`, close the panel to read it whole.
+
+### New-task hint
+
+| # | Do this | Expected |
+|---|---|---|
+| S1 | Send `name three fruits` and wait for the reply | The panel shows `tokens: context …` |
+| S2 | Type `now sort them alphabetically` and pause 2 s | No hint: it continues the last prompt. Log: `hint: new task? no (score …)` |
+| S3 | **Ctrl+C**, type `write a bash script that counts the lines in every markdown file under docs`, and pause 2 s | On the box's top border: `context …, a new task? /clear first, or a handoff`; on its bottom border: `ctrl+q c: /clear · ctrl+q h: handoff · ctrl+q p: panel`; the prompt line holds only your text. The panel: `hint:        a new task: /clear (ctrl+q then c) or a handoff (ctrl+q then h)`. Log: `hint: new task? yes (score …)`, then `hint: new task, context …: "write a bash script…"`. If the log says `no`, note the score and try a longer unrelated prompt |
+| S4 | Type ` now` and pause | The notice and its shortcuts go at the first key (the prompt changed) and don't come back for this prompt; the panel's line stays |
+| S5 | **Ctrl+C**, then type `explain in two sentences how DNS works` and pause | The hint shows again: an emptied prompt re-arms it |
+| S6 | **Ctrl+Q**, **c** | `/clear` runs, then within a few seconds `explain in two sentences how DNS works` is back in the box, unsent. Log: `clear: sending /clear, then putting back "…"`, `context: /clear: …`, then `hint: put back "…" after /clear`. The panel's `tokens:` lines go |
+| S7 | **Enter**, wait for the reply, then `tail -n 2 "$T/history.jsonl"` | The prompt's line has `"hint":"new_task","hint_followed":true` |
+| S8 | Type `name two planets` and pause; if the hint shows, press **Enter** without taking it (if not, try another unrelated prompt) | That prompt's history line has `"hint":"new_task"` and no `hint_followed` |
+| S9 | Send `count slowly from 1 to 100, one number per line`; while it streams, type `x` and press **Ctrl+Q**, **c** | `clear: Claude is still replying` on the top border, and no `/clear`. Then **Esc** to stop Claude, and **Ctrl+C** |
+| S10 | Type `summarize: `, paste six short lines (`claude` shows `[Pasted text #1 +5 lines]`), then **Ctrl+Q**, **c** | `clear: a [Pasted text] can't be put back: type /clear yourself` on the top border, and no `/clear`. **Ctrl+C** |
+| S11 | Type `explain this: `, paste one line such as `x := 1`, then **Ctrl+Q**, **c** | After `/clear`, `explain this: x := 1` comes back whole. **Ctrl+C** |
+| S12 | In Terminal B: `printf 'hints:\n  handoff_at: 0\n  new_task_at: 0\n' > "$T/config.yaml"`. Send a prompt, then type an unrelated one and pause | Log: `config: reloaded …; applied: hints`. No hint, and no `hint: new task?` line. Then put it back: `printf 'hints:\n  handoff_at: 0\n  new_task_at: 1\n' > "$T/config.yaml"` |
+| S13 | Type a few words and pause | Ghost text still shows within about a second: loading `nomic-embed-text` didn't push the ghost-text model out of Ollama's memory. Note a slow first suggestion |
+
+### Handoff hint
+
+| # | Do this | Expected |
+|---|---|---|
+| S14 | In Terminal B: `printf 'hints:\n  handoff_at: 1\n  new_task_at: 0\n' > "$T/config.yaml"`. Send `say hi in 3 words` | After the reply, on the top border: `context …: write a handoff and start fresh?`; on the bottom border: `ctrl+q h: handoff · ctrl+q p: panel`. The panel: `hint:        a handoff (ctrl+q then h)`. Log: `hint: handoff, context …` |
+| S15 | Type `abc` (the notice goes, as the prompt changed), then **Ctrl+Q**, **h** | The box holds the handoff prompt (`Write HANDOFF.md …`, eight sections), ending with `*Original session: /…/.claude/projects/…/<id>.jsonl. …*`: a real path, not `unknown`. Log: `handoff: replaced "abc" with the handoff prompt`. The panel's hint line goes |
+| S16 | **Ctrl+Q**, **u** | `abc` is back. Log: `expand: undone, back to "abc"`. The panel's hint line returns |
+| S17 | **Ctrl+Q**, **h** again, then **Enter**; allow Claude to write the file if it asks | `$T/proj/HANDOFF.md` exists, with the eight sections |
+| S18 | `tail -n 2 "$T/history.jsonl"` | The handoff prompt's line has `"hint":"handoff","hint_followed":true` |
+| S19 | Send `/clear` | The empty box offers `Read HANDOFF.md and continue from it.` as ghost text. Log: `hint: offered "Read HANDOFF.md and continue from it." after /clear`. **Tab** takes it into the box; don't send |
+| S20 | **Ctrl+C**. In Terminal B: `printf 'Write NOTES.md with what we did. Transcript: {transcript}\n' > "$T/templates/handoff.txt"`. Send `say ok`, then type `abc` and **Ctrl+Q**, **h** | The box holds `Write NOTES.md with what we did. Transcript: /…/<id>.jsonl`. Then **Ctrl+C**, and `rm "$T/templates/handoff.txt"` |
+| S21 | In Terminal B: `printf 'hints:\n  handoff_at: 0\n  new_task_at: 1\n' > "$T/config.yaml"`. Send `name three fruits`, then type `explain in two sentences how TLS works` and pause until the new-task hint shows | The new-task hint, as in S3 |
+| S22 | **Ctrl+Q**, **h**, **Enter**, and wait for `HANDOFF.md`; then send `/clear` | `explain in two sentences how TLS works` is put back in the box (log: `hint: put back …`), **not** the `Read HANDOFF.md…` ghost text. **Ctrl+C** |
+| S23 | In Terminal B, set `handoff_at: 0`; send `say hi` | No handoff hint after the reply |
+
+### No freeze when a hint meets Enter
+
+A hint and Enter take two locks, and once took them in opposite orders, which could freeze the session (fixed in #45). The race is rare, so this only rules out an easy hang.
+
+| # | Do this | Expected |
+|---|---|---|
+| S24 | In Terminal B, set `new_task_at: 1` and `handoff_at: 0`. With the panel **open**, five times: type a short unrelated prompt (`name a colour`, `name a planet`, `name a river`, `name a tree`, `name a city`), pause about 1 s, until the hint is about to show, then **Enter** | The screen and keys never freeze; each prompt is sent and answered. If it ever freezes, note the step and kill the terminal |
+
+Quit with `/exit`. **Cleanup:** `cd ~; unset PROMPT_ENGINE_HISTORY; rm -rf "$T"`.
+
+---
+
+## 21. Part T: Notices on the input box's borders
+
+Every notice (`⟳ expanding…`, `✎ rewrite ready`, the hints, `style: llm`, `kept your text: …`) is drawn on the input box's top border, right-aligned, and its shortcuts, if it has any, on the bottom border, so the prompt line holds only your text and ghost text. If `claude` writes its own label on the border, such as the session's name, the notice sits to its left. A long notice is cut short with `…`. `✎ rewrite ready` and the hints stay until the prompt changes; the others keep their timing.
+
+> ⚠️ Nothing here sends a prompt.
+
+**Setup:** preview mode, panel **closed**, in a session where `claude` shows a label on the box's top border if you can:
+
+```sh
+printf 'expand:\n  on_enter: preview\n' > /tmp/pe-auto.yaml
+PROMPT_ENGINE_DEBUG_LOG=/tmp/pe.log bin/prompt-engine --pe-config /tmp/pe-auto.yaml
+```
+
+| # | Do this | Expected |
+|---|---|---|
+| T1 | Type `explain how the input buffr works` and pause | On the top border, right-aligned: `✎ rewrite ready`. If `claude`'s label is on the border, the notice is to its **left**, with `──` between, and the label is whole. On the bottom border: `ctrl+q e: use it · ctrl+q p: panel`. Nothing after your text on the prompt line |
+| T2 | Type ` and the trackr` | The notice and its shortcuts go at the first key, as the prompt changed; after the next pause, `✎ rewrite ready` is back |
+| T3 | While `✎ rewrite ready` shows, type ` refa` and stop | Ghost text shows on the prompt line; once the new rewrite is ready, the notice is back on the border with the ghost text still on the prompt line (a notice no longer hides ghost text) |
+| T4 | **Ctrl+C**, type `say helo in thre words`, then **Ctrl+Q**, **s** | A faint `style: llm` on the top border, gone at the next key or after about 1.5 s; no shortcut line |
+| T5 | **Ctrl+Q**, **e** | The rewrite in `llm` replaces your text: at once if the `llm` preview was ready (log: `expand: used the preview`), or after `⟳ expanding… (llm, for this prompt)` on the top border. Then **Ctrl+Q**, **u**, and **Ctrl+C** |
+| T6 | Make the window narrow (about 60 columns), type `explain how the input buffr works` again, and pause | The notice fits on the border, cut short with `…` if needed, and never covers `claude`'s label or the border's first dashes. Widen the window again |
+
+Quit with `/exit`. **Cleanup:** `rm -f /tmp/pe-auto.yaml`.
+
+---
+
+## 22. Known limitations (expected, not bugs)
 
 | What you'll see | Why |
 |---|---|
@@ -964,7 +1052,7 @@ Open the panel with **Ctrl+Q**, **p**.
 
 ---
 
-## 21. Reporting a problem
+## 23. Reporting a problem
 
 Include:
 
