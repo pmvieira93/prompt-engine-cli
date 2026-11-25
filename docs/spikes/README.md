@@ -35,3 +35,9 @@ The reports are kept as written at the time; file and switch names in them may h
 | [routing.md](routing.md) | Appendix 5, step 3: can a prompt be sorted locally (kind of work, light or heavy, new task) by keyword rules, a classifier or a small generative model? | Done 2026-11-19: a new task can be told (90%), the kind partly (70%), light or heavy with a 4B decision model (`pplx-decider-flash`, 88%, 4.6 GB); 8 decision models compared; to be decided (Appendix 5, section 10) |
 
 The first two share the program in `shared-run/`. Their prompts are real, so they stay local and the reports hold totals only.
+
+## Claude Code's daemon (2026-11-25)
+
+| Report | Question | Status |
+|---|---|---|
+| [daemon-env.md](daemon-env.md) | Why did `pe` seem to start a session over another one, needing two `/exit`s? | Done 2026-11-25: `/resume` attached to a background session hosted by Claude Code's daemon, which kept a two-day-old prompt-engine environment; no prompt-engine fix needed. Script in [`daemon-env/`](daemon-env/run.sh) |
